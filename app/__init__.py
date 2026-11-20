@@ -1,0 +1,1 @@
+"""DiffGate: static AST call-graph and MR/PR impact analysis."""

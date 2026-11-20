@@ -1,0 +1,40 @@
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    app_name: str = "DiffGate"
+    debug: bool = False
+    webhook_secret_github: str = ""
+    webhook_secret_gitlab: str = ""
+
+    redis_url: str = "redis://localhost:6379/0"
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/1"
+
+    # 本地无 Docker 可用 sqlite:///./data/diffgate.db
+    mysql_dsn: str = "mysql+pymysql://diffgate:diffgate@localhost:3306/diffgate"
+
+    use_redis: bool = True
+    local_data_dir: str = "./data"
+
+    use_neo4j: bool = True
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = "diffgate123"
+
+    repo_clone_root: str = "./data/repos"
+
+    # 精准回归调度中心（第四步联动）；为空则跳过
+    dispatch_center_url: str = ""
+
+    # 本地单进程：任务在 API 进程内同步执行，无需单独 Celery Worker
+    celery_always_eager: bool = False
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

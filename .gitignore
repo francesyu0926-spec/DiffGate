@@ -1,0 +1,11 @@
+.venv/
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+.env
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+.cursor/
+.hypothesis/

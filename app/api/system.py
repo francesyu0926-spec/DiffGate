@@ -1,0 +1,31 @@
+from fastapi import APIRouter
+
+from app.config import get_settings
+
+router = APIRouter(prefix="/system", tags=["system"])
+
+
+@router.get("/status")
+def system_status() -> dict:
+    settings = get_settings()
+    redis_online = False
+    if settings.use_redis:
+        try:
+            import redis
+
+            redis_online = bool(redis.from_url(settings.redis_url, decode_responses=True).ping())
+        except Exception:
+            redis_online = False
+
+    worker_mode = "eager" if settings.celery_always_eager else "celery"
+    worker_online = 4 if not settings.celery_always_eager and redis_online else 1
+
+    return {
+        "ast_engine": "online",
+        "redis_online": redis_online,
+        "use_redis": settings.use_redis,
+        "worker_mode": worker_mode,
+        "worker_online": worker_online,
+        "webhook_github": f"POST /api/v1/webhooks/github",
+        "webhook_gitlab": f"POST /api/v1/webhooks/gitlab",
+    }

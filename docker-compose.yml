@@ -1,0 +1,31 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: diffgate
+      MYSQL_USER: diffgate
+      MYSQL_PASSWORD: diffgate
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  neo4j:
+    image: neo4j:5.26
+    environment:
+      NEO4J_AUTH: neo4j/diffgate123
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+
+volumes:
+  mysql_data:
+  neo4j_data:
