@@ -5,8 +5,19 @@ import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
 import { md3 } from 'vuetify/blueprints'
 import { aliases, mdi } from 'vuetify/iconsets/mdi'
+import { zhHans } from 'vuetify/locale'
+
+const zhCN = {
+  ...zhHans,
+  noDataText: '暂无数据',
+}
 
 export default createVuetify({
+  locale: {
+    locale: 'zh-Hans',
+    fallback: 'zh-Hans',
+    messages: { 'zh-Hans': zhCN },
+  },
   components,
   directives,
   blueprint: md3,
@@ -36,8 +47,8 @@ export default createVuetify({
       darkMonochrome: {
         dark: true,
         colors: {
-          background: '#111315',
-          surface: '#1A1D21',
+          background: '#0B0C0E',
+          surface: '#1E2126',
           'surface-variant': '#24282E',
           primary: '#8AB4F8',
           'on-primary': '#111315',
@@ -72,6 +83,6 @@ export default createVuetify({
     VCard: { rounded: 'xl', elevation: 0, border: false },
     VTextField: { variant: 'outlined', density: 'comfortable' },
     VSelect: { variant: 'outlined', density: 'comfortable' },
-    VDataTable: { hover: true },
+    VDataTable: { hover: true, noDataText: '暂无数据' },
   },
 })

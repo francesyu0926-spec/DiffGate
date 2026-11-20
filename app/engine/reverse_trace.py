@@ -5,7 +5,7 @@ from app.graph.call_graph import CallGraph
 from app.graph.stores import Neo4jCallGraphStore, cache_adjacency, cache_job_graph
 from app.graph.viz import build_g6_payload
 from app.parsers.python_ast import SymbolDef, scan_python_repo
-from app.services.git_diff import LineRange, get_changed_line_ranges
+from app.parsers.git_diff import LineRange, get_changed_line_ranges
 
 
 @dataclass

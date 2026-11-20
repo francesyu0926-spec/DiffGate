@@ -92,6 +92,13 @@ def _bucket_trend(jobs: list[AnalysisJob], days: int, threshold: int) -> dict:
     }
 
 
+INTERCEPT_PLACEHOLDER_NAMES = (
+    "增量覆盖率不足",
+    "接口回归失败",
+    "高危模块未评审",
+)
+
+
 def _intercept_reasons(blocked_jobs: list[AnalysisJob]) -> list[dict]:
     counts: dict[str, int] = defaultdict(int)
     for job in blocked_jobs:
@@ -102,6 +109,8 @@ def _intercept_reasons(blocked_jobs: list[AnalysisJob]) -> list[dict]:
         else:
             label = REASON_LABELS.get(code, gr.get("block_reason_label") or code)
         counts[label] += 1
+    if not counts:
+        return [{"name": name, "value": 0} for name in INTERCEPT_PLACEHOLDER_NAMES]
     return [{"name": name, "value": value} for name, value in sorted(counts.items(), key=lambda x: -x[1])]
 
 
@@ -217,5 +226,4 @@ def dashboard_overview(
         "trend": trend,
         "intercept_reasons": reasons,
         "recent_flows": flows,
-        "demo_mode": False,
     }

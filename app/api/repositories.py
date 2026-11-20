@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,7 +10,7 @@ from app.api.schemas import RepositoryCreate, RepositoryOut, RepositoryUpdate
 from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
 from app.services.repo_index import reindex_repository, resolve_head_shas
-from app.tasks.analysis import analyze_merge_task
+from app.services.analysis_runner import schedule_analyze_merge
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 
@@ -38,8 +38,8 @@ def repository_overview(db: Session = Depends(get_db)) -> dict:
         if job.created_at and job.updated_at:
             durations.append((job.updated_at - job.created_at).total_seconds())
 
-    avg_sec = round(sum(durations) / len(durations), 1) if durations else 1.8
-    regression_saved = min(95, 72 + min(job_total, 30)) if job_total else 82
+    avg_sec = round(sum(durations) / len(durations), 1) if durations else 0.0
+    regression_saved = round(min(95, 72 + min(job_total, 30)), 1) if job_total else 0.0
 
     return {
         "repo_count": repo_total,
@@ -48,7 +48,7 @@ def repository_overview(db: Session = Depends(get_db)) -> dict:
         "high_risk_blocked": high_risk,
         "avg_analysis_seconds": avg_sec,
         "regression_time_saved_pct": regression_saved,
-        "regression_hint": "全量 4h → 精准 25min",
+        "regression_hint": "基于已完成分析任务的精准回归压缩估算" if job_total else "暂无分析任务",
     }
 
 
@@ -191,7 +191,11 @@ def rebuild_ast_index(repo_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/{repo_id}/analyze", status_code=status.HTTP_202_ACCEPTED)
-def trigger_diff_analysis(repo_id: str, db: Session = Depends(get_db)) -> dict:
+def trigger_diff_analysis(
+    repo_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> dict:
     repo = db.get(Repository, repo_id)
     if not repo:
         raise HTTPException(status_code=404, detail="仓库不存在")
@@ -214,16 +218,20 @@ def trigger_diff_analysis(repo_id: str, db: Session = Depends(get_db)) -> dict:
     )
     db.add(job)
     db.commit()
-    task = analyze_merge_task.delay(
-        job_id,
-        repo.provider,
-        repo.full_name,
-        repo.clone_url,
-        base_sha,
-        head_sha,
-        repo.default_branch,
+    meta = schedule_analyze_merge(
+        background_tasks=background_tasks,
+        job_id=job_id,
+        provider=repo.provider,
+        repo_full_name=repo.full_name,
+        clone_url=repo.clone_url,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        ref=repo.default_branch,
     )
-    return {"ok": True, "job_id": job_id, "celery_task_id": task.id}
+    out = {"ok": True, "job_id": job_id, "runner": meta["runner"]}
+    if meta.get("task_id"):
+        out["celery_task_id"] = meta["task_id"]
+    return out
 
 
 @router.post("/{repo_id}/touch-index")

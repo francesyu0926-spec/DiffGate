@@ -132,7 +132,7 @@ const kpiCards = computed(() => {
     {
       title: '累计精准分析次数',
       value: o?.analysis_total ?? 0,
-      sub: `平均分析耗时 ${o?.avg_analysis_seconds ?? 1.8}s`,
+      sub: `平均分析耗时 ${o?.avg_analysis_seconds ?? 0}s`,
     },
     {
       title: '累计拦截高危变更',
@@ -141,8 +141,8 @@ const kpiCards = computed(() => {
     },
     {
       title: '回归测试耗时节省',
-      value: `${o?.regression_time_saved_pct ?? 82}%`,
-      sub: o?.regression_hint ?? '全量 4h → 精准 25min',
+      value: `${o?.regression_time_saved_pct ?? 0}%`,
+      sub: o?.regression_hint ?? '暂无分析任务',
     },
   ]
 })
@@ -318,6 +318,15 @@ async function onAnalyze(row: RepositoryItem) {
   }
 }
 
+let searchDebounce: number | undefined
+
+watch(keyword, () => {
+  if (searchDebounce) window.clearTimeout(searchDebounce)
+  searchDebounce = window.setTimeout(() => {
+    void load()
+  }, 320)
+})
+
 onMounted(async () => {
   testSuiteOptions.value = await fetchTestSuitePresets()
   await load()
@@ -331,22 +340,32 @@ onMounted(async () => {
       <div class="d-flex flex-wrap align-center gap-2">
         <v-text-field
           v-model="keyword"
+          class="repo-search-field"
           density="compact"
+          variant="solo"
+          flat
           hide-details
+          rounded="pill"
           placeholder="搜索 group/project"
           prepend-inner-icon="mdi-magnify"
           clearable
-          max-width="240"
           @keyup.enter="load"
         />
-        <v-btn variant="outlined" @click="load">搜索</v-btn>
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">添加仓库</v-btn>
+        <v-btn
+          class="cta-repo-action text-none"
+          variant="flat"
+          rounded="pill"
+          prepend-icon="mdi-plus"
+          @click="openCreate"
+        >
+          添加仓库
+        </v-btn>
       </div>
     </div>
 
     <v-row class="mb-2 kpi-row" :class="{ 'kpi-row--pulse': kpiTick > 0 }">
       <v-col v-for="card in kpiCards" :key="card.title" cols="12" sm="6" md="3">
-        <v-card class="h-100 kpi-card">
+        <v-card class="h-100 kpi-card repo-kpi-card" rounded="xl" :border="false">
           <v-card-text>
             <div class="text-body-2 text-medium-emphasis">{{ card.title }}</div>
             <div class="kpi-value text-h4 mt-2">{{ card.value }}</div>
@@ -356,7 +375,7 @@ onMounted(async () => {
       </v-col>
     </v-row>
 
-    <v-card>
+    <v-card class="repo-table-card" rounded="xl" :border="false">
       <v-progress-linear v-if="loading && rows.length === 0" indeterminate color="primary" />
       <template v-if="!loading && rows.length === 0">
         <v-card-text class="text-center py-12">
@@ -365,7 +384,13 @@ onMounted(async () => {
           <p class="text-body-2 text-medium-emphasis mt-2 mx-auto empty-tip">
             点击右上角「添加仓库」配置 Git 地址，自动构建 AST 静态调用链图谱。
           </p>
-          <v-btn color="primary" class="mt-4" prepend-icon="mdi-plus" @click="openCreate">
+          <v-btn
+            class="cta-repo-action text-none mt-4"
+            variant="flat"
+            rounded="pill"
+            prepend-icon="mdi-plus"
+            @click="openCreate"
+          >
             立即接入首个仓库
           </v-btn>
         </v-card-text>
@@ -590,11 +615,47 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.repo-search-field {
+  flex: 0 1 280px;
+  width: 280px;
+  min-width: 240px;
+  max-width: 280px;
+}
+.repo-search-field :deep(.v-field) {
+  border: 1px solid rgb(var(--v-theme-outline));
+  box-shadow: none;
+  font-size: 13px;
+}
+.repo-search-field :deep(.v-field__outline) {
+  opacity: 0 !important;
+}
+.cta-repo-action {
+  background-color: #f1f3f5 !important;
+  color: #111315 !important;
+  font-weight: 600;
+}
+.cta-repo-action :deep(.v-icon) {
+  color: #111315 !important;
+}
+.repo-kpi-card {
+  background-color: rgb(var(--v-theme-surface)) !important;
+  border: 1px solid #2a2e35 !important;
+  box-shadow: none !important;
+}
+.repo-table-card {
+  background-color: rgb(var(--v-theme-surface)) !important;
+  border: 1px solid #2a2e35 !important;
+  box-shadow: none !important;
+}
 .empty-tip {
   max-width: 400px;
 }
 .repo-table :deep(.v-table) {
   background: transparent;
+}
+.kpi-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 .kpi-row--pulse .kpi-card {

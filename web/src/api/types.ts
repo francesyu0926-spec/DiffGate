@@ -52,15 +52,28 @@ export interface RepositoryPayload {
   test_suite_id?: string | null
 }
 
+export interface JobAnalysisStats {
+  total: number
+  avg_seconds: number
+  avg_baseline_apis: number
+  avg_impacted_apis: number
+  api_convergence_pct: number
+  regression_trigger_pct: number
+}
+
 export interface JobListItem {
   id: string
   provider: string
   repo: string
   ref: string
+  ref_branch: string
   status: JobStatus
   base_sha: string
   head_sha: string
   api_count: number
+  changed_files: number
+  method_count: number
+  trigger_label: string
   created_at: string | null
 }
 

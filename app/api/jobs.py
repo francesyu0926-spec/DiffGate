@@ -11,29 +11,108 @@ from app.services.quality_gate import apply_gate_result
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
+def _ref_branch(ref: str) -> str:
+    return ref.replace("refs/heads/", "") if ref.startswith("refs/heads/") else ref
+
+
+def _trigger_label(provider: str) -> str:
+    if provider == "local":
+        return "手动触发"
+    if provider == "github":
+        return "GitHub Webhook"
+    if provider == "gitlab":
+        return "GitLab Webhook"
+    return provider
+
+
+def _job_list_item(job: AnalysisJob) -> dict:
+    gr = job.gate_result or {}
+    suspects = job.changed_symbols or {}
+    symbols = suspects.get("symbols") or []
+    line_ranges = suspects.get("line_ranges") or []
+    changed_files = int(
+        gr.get("changed_files")
+        or len({lr["path"] for lr in line_ranges if isinstance(lr, dict) and lr.get("path")})
+    )
+    method_count = int(gr.get("symbol_count") or len(symbols))
+    api_count = int((job.affected_apis or {}).get("count", 0) or gr.get("api_impact") or 0)
+    return {
+        "id": job.id,
+        "provider": job.provider,
+        "repo": job.repo_full_name,
+        "ref": job.ref,
+        "ref_branch": _ref_branch(job.ref),
+        "status": job.status,
+        "base_sha": job.base_sha[:8],
+        "head_sha": job.head_sha[:8],
+        "api_count": api_count,
+        "changed_files": changed_files,
+        "method_count": method_count,
+        "trigger_label": _trigger_label(job.provider),
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+    }
+
+
+@router.get("/stats/overview")
+def jobs_stats_overview(db: Session = Depends(get_db)) -> dict:
+    jobs = list(db.scalars(select(AnalysisJob)).all())
+    repos = list(db.scalars(select(Repository)).all())
+    total = len(jobs)
+    durations: list[float] = []
+    api_counts: list[int] = []
+    dispatched = 0
+    completed = 0
+    for job in jobs:
+        if job.status != "completed":
+            continue
+        completed += 1
+        apis = (job.affected_apis or {}).get("count", 0) or 0
+        api_counts.append(int(apis))
+        if apis > 0:
+            dispatched += 1
+        if job.created_at and job.updated_at:
+            durations.append((job.updated_at - job.created_at).total_seconds())
+
+    avg_seconds = round(sum(durations) / len(durations), 1) if durations else 0.0
+    avg_impacted = round(sum(api_counts) / len(api_counts), 1) if api_counts else 0.0
+    baseline_apis = (
+        round(sum(r.ast_api_count for r in repos) / len(repos)) if repos else 0
+    )
+    if baseline_apis <= 0 and repos:
+        baseline_apis = max((r.ast_api_count for r in repos), default=0)
+    convergence = 0.0
+    if api_counts and baseline_apis > 0:
+        convergence = round((1 - avg_impacted / baseline_apis) * 100, 1)
+        convergence = min(99.9, max(0.0, convergence))
+    trigger_pct = round(dispatched / completed * 100, 1) if completed else 0.0
+
+    return {
+        "total": total,
+        "avg_seconds": avg_seconds,
+        "avg_baseline_apis": int(baseline_apis),
+        "avg_impacted_apis": avg_impacted,
+        "api_convergence_pct": convergence,
+        "regression_trigger_pct": trigger_pct,
+    }
+
+
 @router.get("")
 def list_jobs(
     db: Session = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    repo: str | None = Query(None, description="仓库 full_name"),
+    status: str | None = Query(None, description="pending|running|completed|failed"),
 ) -> dict:
-    stmt = select(AnalysisJob).order_by(AnalysisJob.created_at.desc()).offset(offset).limit(limit)
+    stmt = select(AnalysisJob).order_by(AnalysisJob.created_at.desc())
+    if repo:
+        stmt = stmt.where(AnalysisJob.repo_full_name == repo)
+    if status:
+        stmt = stmt.where(AnalysisJob.status == status)
+    stmt = stmt.offset(offset).limit(limit)
     rows = db.scalars(stmt).all()
     return {
-        "items": [
-            {
-                "id": j.id,
-                "provider": j.provider,
-                "repo": j.repo_full_name,
-                "ref": j.ref,
-                "status": j.status,
-                "base_sha": j.base_sha[:8],
-                "head_sha": j.head_sha[:8],
-                "api_count": (j.affected_apis or {}).get("count", 0) if j.affected_apis else 0,
-                "created_at": j.created_at.isoformat() if j.created_at else None,
-            }
-            for j in rows
-        ],
+        "items": [_job_list_item(j) for j in rows],
         "limit": limit,
         "offset": offset,
     }

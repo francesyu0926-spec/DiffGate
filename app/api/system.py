@@ -17,8 +17,15 @@ def system_status() -> dict:
         except Exception:
             redis_online = False
 
-    worker_mode = "eager" if settings.celery_always_eager else "celery"
-    worker_online = 4 if not settings.celery_always_eager and redis_online else 1
+    if settings.use_background_tasks:
+        worker_mode = "background"
+    elif settings.celery_always_eager:
+        worker_mode = "eager"
+    else:
+        worker_mode = "celery"
+    worker_online = (
+        4 if worker_mode == "celery" and redis_online else 1
+    )
 
     return {
         "ast_engine": "online",

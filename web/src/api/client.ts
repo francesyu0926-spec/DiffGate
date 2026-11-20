@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type {
+  JobAnalysisStats,
   JobDetail,
   JobGraph,
   JobListItem,
@@ -13,9 +14,20 @@ const http = axios.create({
   timeout: 15000,
 })
 
-export async function fetchJobs(limit = 50, offset = 0) {
-  const { data } = await http.get<{ items: JobListItem[] }>('/jobs', { params: { limit, offset } })
+export async function fetchJobs(
+  limit = 50,
+  offset = 0,
+  filters?: { repo?: string; status?: string },
+) {
+  const { data } = await http.get<{ items: JobListItem[] }>('/jobs', {
+    params: { limit, offset, repo: filters?.repo, status: filters?.status },
+  })
   return data.items
+}
+
+export async function fetchJobAnalysisStats() {
+  const { data } = await http.get<JobAnalysisStats>('/jobs/stats/overview')
+  return data
 }
 
 export async function fetchJob(jobId: string) {
@@ -120,5 +132,74 @@ export async function fetchDashboardOverview(days = 7, repo?: string) {
 
 export async function fetchSystemStatus() {
   const { data } = await http.get<SystemStatus>('/system/status')
+  return data
+}
+
+export interface RegressionOverview {
+  kpi: {
+    executed_cases: number
+    baseline_cases: number
+    case_reduction_pct: number
+    latest_pass_rate: number
+    latest_passed: number
+    latest_total: number
+    avg_response_ms: number
+    incremental_coverage_pct: number | null
+    changed_lines: number
+    covered_lines: number
+    current_gate: string | null
+  }
+}
+
+export interface RegressionBatchItem {
+  job_id: string
+  repo: string
+  commit: string
+  ref: string
+  gate: string
+  created_at: string | null
+  api_impact: number
+  coverage: number | null
+}
+
+export interface RegressionBatchDetail {
+  job_id: string
+  repo: string
+  commit: string
+  gate: string
+  gate_result: Record<string, unknown>
+  cases: {
+    method: string
+    path: string
+    yaml_file: string
+    status: string
+    duration_ms: number
+  }[]
+  coverage_lines: {
+    file: string
+    line: number
+    covered: boolean | null
+    prefix: string
+  }[]
+  incremental_coverage_pct: number | null
+  changed_lines: number
+}
+
+export async function fetchRegressionOverview(repo?: string, gate?: string) {
+  const { data } = await http.get<RegressionOverview>('/regression/overview', {
+    params: { repo: repo || undefined, gate: gate || undefined },
+  })
+  return data
+}
+
+export async function fetchRegressionBatches(repo?: string, gate?: string, limit = 30) {
+  const { data } = await http.get<{ items: RegressionBatchItem[] }>('/regression/batches', {
+    params: { repo: repo || undefined, gate: gate || undefined, limit },
+  })
+  return data.items
+}
+
+export async function fetchRegressionBatchDetail(jobId: string) {
+  const { data } = await http.get<RegressionBatchDetail>(`/regression/batches/${jobId}`)
   return data
 }

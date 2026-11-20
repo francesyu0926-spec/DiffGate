@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import dashboard, jobs, repositories, system, webhooks
+from app.api import dashboard, jobs, regression, repositories, system, webhooks
 from app.config import get_settings
 from app.db.session import init_db
 
@@ -34,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(repositories.router, prefix="/api/v1")
     app.include_router(system.router, prefix="/api/v1")
     app.include_router(dashboard.router, prefix="/api/v1")
+    app.include_router(regression.router, prefix="/api/v1")
 
     @app.get("/health")
     def health():

@@ -35,12 +35,17 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-3. 初始化后启动 API、Worker、前端（三个终端）：
+3. 初始化后启动 API、前端；**默认 `USE_BACKGROUND_TASKS=true`**，分析任务在 API 进程后台线程执行，**无需 Redis / Celery Worker**：
 
 ```powershell
 .\scripts\run_api.ps1
-.\scripts\run_worker.ps1
 .\scripts\run_web.ps1
+```
+
+多实例或生产队列：在 `.env` 设置 `USE_BACKGROUND_TASKS=false`，并另开 Worker：
+
+```powershell
+.\scripts\run_worker.ps1
 ```
 
 前端：**Vue 3 + Vite + TypeScript**，调用链可视化使用 **AntV G6**（与 React 方案共用同一图数据 API）。详见 [web/README.md](web/README.md)。

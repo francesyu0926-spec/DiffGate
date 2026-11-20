@@ -7,7 +7,7 @@ import { fetchDashboardOverview, fetchRepositories } from '@/api/client'
 const router = useRouter()
 const openWebhookHelp = inject<() => void>('openWebhookHelp', () => {})
 
-const days = ref<1 | 7 | 30 | 90>(7)
+const days = ref<7 | 30 | 90>(7)
 const refreshSpin = ref(false)
 const repoFilter = ref<string | null>(null)
 const repoOptions = ref<{ title: string; value: string | null }[]>([])
@@ -52,6 +52,19 @@ const kpiCards = computed(() => {
   const delta = k.coverage_delta
   const trendPill =
     delta !== 0 ? `${delta > 0 ? '+' : ''}${delta}%` : undefined
+  const coverageValueColor =
+    k.avg_coverage > 0 && k.avg_coverage < k.gate_baseline
+      ? '#F28B82'
+      : k.avg_coverage >= k.gate_baseline && k.avg_coverage > 0
+        ? '#81C995'
+        : undefined
+  const passValueColor =
+    k.first_pass_rate >= 100 && k.pass_count > 0
+      ? '#81C995'
+      : k.first_pass_rate > 0 && k.first_pass_rate < 60
+        ? '#FDD663'
+        : undefined
+
   return [
     {
       title: '平均增量代码覆盖率',
@@ -60,7 +73,9 @@ const kpiCards = computed(() => {
       sub: `门禁基线 ${k.gate_baseline}%`,
       icon: 'mdi-shield-check',
       iconColor: '#81C995',
-      iconBg: 'rgba(52, 168, 83, 0.16)',
+      iconBg: 'rgba(52, 168, 83, 0.15)',
+      accent: '#81C995',
+      valueColor: coverageValueColor,
     },
     {
       title: '质量门禁一次通过率',
@@ -68,7 +83,9 @@ const kpiCards = computed(() => {
       sub: `通过 ${k.pass_count} 次 / 拦截 ${k.block_count} 次${pending ? ` / 待测 ${pending}` : ''}`,
       icon: 'mdi-check-decagram',
       iconColor: '#8AB4F8',
-      iconBg: 'rgba(138, 180, 248, 0.14)',
+      iconBg: 'rgba(138, 180, 248, 0.15)',
+      accent: '#8AB4F8',
+      valueColor: passValueColor,
     },
     {
       title: '累计高危变更拦截',
@@ -76,7 +93,9 @@ const kpiCards = computed(() => {
       sub: '避免不达标代码合入主干',
       icon: 'mdi-shield-alert',
       iconColor: '#F28B82',
-      iconBg: 'rgba(234, 67, 53, 0.14)',
+      iconBg: 'rgba(234, 67, 53, 0.15)',
+      accent: '#F28B82',
+      valueColor: undefined,
     },
     {
       title: '精准测试累计节省工时',
@@ -84,7 +103,9 @@ const kpiCards = computed(() => {
       sub: `用例压缩率均值 ${k.case_compress_pct}%`,
       icon: 'mdi-lightning-bolt-outline',
       iconColor: '#FDD663',
-      iconBg: 'rgba(253, 214, 99, 0.14)',
+      iconBg: 'rgba(253, 214, 99, 0.15)',
+      accent: '#FDD663',
+      valueColor: undefined,
     },
   ]
 })
@@ -92,7 +113,6 @@ const kpiCards = computed(() => {
 type FlowRow = Awaited<ReturnType<typeof fetchDashboardOverview>>['recent_flows'][number]
 
 const coverageDialog = ref(false)
-const callChainDialog = ref(false)
 const activeFlow = ref<FlowRow | null>(null)
 
 function formatTriggerTime(iso: string | null | undefined) {
@@ -126,33 +146,49 @@ const interceptTotal = computed(() => {
   return reasons.reduce((sum, r) => sum + r.value, 0)
 })
 
+const donutIsEmpty = computed(() => {
+  if (!dashboard.value) return true
+  const blocked = dashboard.value.kpi.block_count ?? 0
+  return blocked === 0 && interceptTotal.value === 0
+})
+
 const DONUT_COLORS = ['#8AB4F8', '#FDD663', '#F28B82'] as const
 
 const CHART = {
   axis: '#8E9299',
-  grid: '#26292E',
+  grid: 'rgba(255, 255, 255, 0.1)',
   line: '#8AB4F8',
-  bar: 'rgba(142, 146, 153, 0.32)',
-  areaTop: 'rgba(138, 180, 248, 0.18)',
+  lineNode: '#1A1D21',
+  lineNodeBorder: '#8AB4F8',
+  bar: '#252930',
+  areaTop: 'rgba(138, 180, 248, 0.12)',
   baseline: '#F28B82',
   centerValue: '#F1F3F5',
   centerLabel: '#8E9299',
   ringGap: '#1A1D21',
   tooltipBg: '#24282E',
   tooltipText: '#F1F3F5',
+  donutPlaceholder: '#2C3036',
 } as const
+
+const DONUT_LEGEND_FALLBACK = [
+  '增量覆盖率不足',
+  '接口回归失败',
+  '高危模块未评审',
+] as const
 
 const donutLegendItems = computed(() => {
   const reasons = dashboard.value?.intercept_reasons ?? []
-  const items = reasons.map((r) => ({
-    ...r,
-    name: shortenReasonLabel(r.name),
-  }))
-  const total = items.reduce((s, r) => s + r.value, 0) || 1
+  const items =
+    reasons.length > 0
+      ? reasons.map((r) => ({ ...r, name: shortenReasonLabel(r.name) }))
+      : DONUT_LEGEND_FALLBACK.map((name) => ({ name, value: 0 }))
+  const total = items.reduce((s, r) => s + r.value, 0)
+  const denom = total || 1
   return items.map((r, i) => ({
     name: r.name,
     value: r.value,
-    pct: Math.round((r.value / total) * 100),
+    pct: total ? Math.round((r.value / denom) * 100) : 0,
     color: DONUT_COLORS[i % DONUT_COLORS.length],
   }))
 })
@@ -188,14 +224,27 @@ function shortenReasonLabel(name: string) {
   return reasonShortLabels[name] ?? name
 }
 
+function trendHasActivity(trend: { changed_lines: number[]; coverage: number[] }) {
+  return trend.changed_lines.some((n) => n > 0) || trend.coverage.some((n) => n > 0)
+}
+
 function renderCharts() {
   if (!dashboard.value) return
-  const { trend, intercept_reasons, kpi } = dashboard.value
+  const { intercept_reasons, kpi } = dashboard.value
+  const trend = dashboard.value.trend
   const threshold = trend.threshold
+
   const donutData = intercept_reasons.map((r) => ({
     ...r,
     name: shortenReasonLabel(r.name),
   }))
+  const donutSum = donutData.reduce((s, r) => s + r.value, 0)
+  const pieData =
+    donutSum > 0
+      ? donutData.filter((d) => d.value > 0)
+      : [{ name: '', value: 1, itemStyle: { color: 'transparent' }, tooltip: { show: false } }]
+
+  const trendActive = trendHasActivity(trend)
 
   if (trendRef.value) {
     trendChart?.dispose()
@@ -208,12 +257,34 @@ function renderCharts() {
         borderColor: CHART.grid,
         textStyle: { color: CHART.tooltipText, fontSize: 12 },
       },
-      legend: {
-        data: ['变更行数', '增量覆盖率'],
-        top: 4,
-        textStyle: { color: CHART.axis, fontSize: 12 },
-      },
-      grid: { left: 48, right: 24, top: 44, bottom: 28 },
+      legend: { show: false },
+      graphic: trendActive
+        ? []
+        : [
+            {
+              type: 'text',
+              left: 'center',
+              top: '48%',
+              style: {
+                text: '暂无近期数据',
+                fill: CHART.axis,
+                font: '13px "Noto Sans SC", system-ui, sans-serif',
+                textAlign: 'center',
+              },
+            },
+            {
+              type: 'text',
+              left: 'center',
+              top: '58%',
+              style: {
+                text: '接入仓库 Webhook 或手动触发分析后展示',
+                fill: 'rgba(142, 146, 153, 0.85)',
+                font: '12px "Noto Sans SC", system-ui, sans-serif',
+                textAlign: 'center',
+              },
+            },
+          ],
+      grid: { left: 48, right: 64, top: 36, bottom: 40 },
       xAxis: {
         type: 'category',
         data: trend.labels,
@@ -225,6 +296,8 @@ function renderCharts() {
         {
           type: 'value',
           name: '行数',
+          min: 0,
+          max: 500,
           nameTextStyle: { color: CHART.axis },
           axisLabel: { color: CHART.axis },
           splitLine: { lineStyle: { type: 'dashed', color: CHART.grid } },
@@ -235,7 +308,10 @@ function renderCharts() {
           min: 50,
           max: 100,
           nameTextStyle: { color: CHART.axis },
-          axisLabel: { formatter: '{value}%', color: CHART.axis },
+          axisLabel: {
+            color: CHART.axis,
+            formatter: (v: number) => (v === threshold ? '' : `${v}%`),
+          },
           splitLine: { show: false },
           axisLine: { lineStyle: { color: CHART.grid } },
         },
@@ -245,7 +321,7 @@ function renderCharts() {
           name: '变更行数',
           type: 'bar',
           data: trend.changed_lines,
-          itemStyle: { color: CHART.bar },
+          itemStyle: { color: trendActive ? CHART.bar : 'rgba(37, 41, 48, 0.45)' },
           barMaxWidth: 28,
         },
         {
@@ -253,10 +329,22 @@ function renderCharts() {
           type: 'line',
           yAxisIndex: 1,
           smooth: true,
+          showSymbol: false,
           symbol: 'circle',
           symbolSize: 8,
-          lineStyle: { width: 3, color: CHART.line },
+          lineStyle: { width: 2, color: trendActive ? CHART.line : 'rgba(138, 180, 248, 0.35)' },
           data: trend.coverage,
+          emphasis: {
+            scale: true,
+            focus: 'series',
+            symbol: 'circle',
+            symbolSize: 8,
+            itemStyle: {
+              color: CHART.lineNode,
+              borderColor: CHART.lineNodeBorder,
+              borderWidth: 2,
+            },
+          },
           areaStyle: {
             color: {
               type: 'linear',
@@ -271,8 +359,8 @@ function renderCharts() {
             },
           },
           itemStyle: {
-            color: CHART.line,
-            borderColor: CHART.ringGap,
+            color: CHART.lineNode,
+            borderColor: CHART.lineNodeBorder,
             borderWidth: 2,
           },
           markLine: {
@@ -282,10 +370,12 @@ function renderCharts() {
             label: {
               show: true,
               formatter: `门禁基线 ${threshold}%`,
-              position: 'insideEndTop',
+              position: 'end',
               color: CHART.baseline,
               fontSize: 11,
-              distance: 6,
+              distance: 8,
+              align: 'right',
+              verticalAlign: 'bottom',
             },
             data: [{ yAxis: threshold }],
           },
@@ -295,58 +385,78 @@ function renderCharts() {
   }
 
   if (donutRef.value) {
+    if (donutSum === 0) {
+      donutChart?.dispose()
+      donutChart = null
+    } else {
+      donutChart?.dispose()
+      donutChart = echarts.init(donutRef.value)
+      const centerTotal = kpi.block_count || interceptTotal.value
+      const numSize = centerTotal >= 10 ? 26 : 28
+      const donutCenter: [string, string] = ['50%', '46%']
+      donutChart.setOption({
+        tooltip: {
+          trigger: 'item',
+          formatter: '{b}: {c} 次 ({d}%)',
+          backgroundColor: CHART.tooltipBg,
+          borderColor: CHART.grid,
+          textStyle: { color: CHART.tooltipText, fontSize: 12 },
+        },
+        legend: { show: false },
+        title: {
+          text: '累计拦截',
+          subtext: `{num|${centerTotal}}{unit|次}`,
+          left: donutCenter[0],
+          top: donutCenter[1],
+          textAlign: 'center',
+          textVerticalAlign: 'middle',
+          textStyle: {
+            fontSize: 12,
+            fontWeight: 400,
+            color: CHART.centerLabel,
+            fontFamily: '"Noto Sans SC", system-ui, sans-serif',
+          },
+          subtextStyle: {
+            color: CHART.centerValue,
+            fontFamily: 'Roboto, system-ui, sans-serif',
+            rich: {
+              num: {
+                fontSize: numSize,
+                fontWeight: 700,
+                color: CHART.centerValue,
+                padding: [0, 2, 0, 0],
+              },
+              unit: {
+                fontSize: 14,
+                fontWeight: 500,
+                color: CHART.centerLabel,
+                verticalAlign: 'bottom',
+                padding: [0, 0, 4, 0],
+              },
+            },
+          },
+          itemGap: 8,
+        },
+        series: [
+          {
+            type: 'pie',
+            radius: ['72%', '88%'],
+            center: donutCenter,
+            data: pieData,
+            label: { show: false },
+            labelLine: { show: false },
+            itemStyle: {
+              borderColor: CHART.ringGap,
+              borderWidth: 2,
+            },
+            color: [...DONUT_COLORS],
+          },
+        ],
+      })
+    }
+  } else if (donutSum === 0) {
     donutChart?.dispose()
-    donutChart = echarts.init(donutRef.value)
-    const centerTotal = kpi.block_count || interceptTotal.value
-    donutChart.setOption({
-      tooltip: {
-        trigger: 'item',
-        formatter: '{b}: {c} 次 ({d}%)',
-        backgroundColor: CHART.tooltipBg,
-        borderColor: CHART.grid,
-        textStyle: { color: CHART.tooltipText, fontSize: 12 },
-      },
-      legend: { show: false },
-      graphic: [
-        {
-          type: 'text',
-          left: '26%',
-          top: '44%',
-          style: {
-            text: `${centerTotal} 次`,
-            font: '700 22px Roboto, sans-serif',
-            fill: CHART.centerValue,
-            textAlign: 'center',
-          },
-        },
-        {
-          type: 'text',
-          left: '26%',
-          top: '54%',
-          style: {
-            text: '累计拦截',
-            font: '400 12px "Noto Sans SC", sans-serif',
-            fill: CHART.centerLabel,
-            textAlign: 'center',
-          },
-        },
-      ],
-      series: [
-        {
-          type: 'pie',
-          radius: ['40%', '70%'],
-          center: ['26%', '50%'],
-          data: donutData,
-          label: { show: false },
-          labelLine: { show: false },
-          itemStyle: {
-            borderColor: CHART.ringGap,
-            borderWidth: 2,
-          },
-          color: [...DONUT_COLORS],
-        },
-      ],
-    })
+    donutChart = null
   }
 }
 
@@ -355,12 +465,7 @@ function onResize() {
 }
 
 function openCallChain(item: FlowRow) {
-  if (item.job_id) {
-    router.push(`/jobs/${item.job_id}`)
-    return
-  }
-  activeFlow.value = item
-  callChainDialog.value = true
+  if (item.job_id) router.push(`/jobs/${item.job_id}`)
 }
 
 function openCoverage(item: FlowRow) {
@@ -370,15 +475,6 @@ function openCoverage(item: FlowRow) {
 
 function filterByRepo(fullName: string) {
   repoFilter.value = fullName
-}
-
-function demoCallPaths(item: FlowRow) {
-  const api = item.api_impact > 0 ? 'POST /api/v1/orders' : 'GET /api/v1/health'
-  return [
-    `handlers.checkout → services.order → ${api}`,
-    `middleware.auth → policies.gate → ${api}`,
-    `git diff (${item.commit}) → ast.bfs → ${item.api_impact} 个 API`,
-  ]
 }
 
 onMounted(async () => {
@@ -409,15 +505,15 @@ watch([days, repoFilter], load)
 </script>
 
 <template>
-  <div>
-    <div class="d-flex flex-wrap align-start justify-space-between gap-4 mb-4">
+  <div class="dashboard-page">
+    <div class="dashboard-hero d-flex flex-wrap align-start justify-space-between gap-4 mb-4">
       <div>
-        <h2 class="text-h5 font-weight-medium dashboard-head mb-1">质量驾驶舱</h2>
+        <h2 class="text-h5 text-md-h4 font-weight-bold dashboard-head mb-2">质量驾驶舱</h2>
         <p class="text-body-2 text-medium-emphasis mb-0">
           全链路代码变更风险监控与 CI/CD 质量门禁拦截大盘
         </p>
       </div>
-      <div class="dashboard-filters d-flex flex-wrap align-center ga-2">
+      <div class="dashboard-filters d-flex flex-wrap align-center ga-3">
         <v-select
           v-model="repoFilter"
           class="filter-select filter-select-float"
@@ -428,51 +524,55 @@ watch([days, repoFilter], load)
           flat
           density="compact"
           hide-details
-          rounded="pill"
+          rounded="lg"
           prepend-inner-icon="mdi-source-repository"
           placeholder="全部仓库"
-          min-width="220"
-          max-width="260"
         />
-        <v-btn-toggle v-model="days" class="filter-range m3-segmented" mandatory rounded="pill" density="compact">
-          <v-btn :value="1" class="filter-range-btn" variant="text">今天</v-btn>
-          <v-btn :value="7" class="filter-range-btn" variant="text">近 7 天</v-btn>
-          <v-btn :value="30" class="filter-range-btn" variant="text">近 30 天</v-btn>
-          <v-btn :value="90" class="filter-range-btn" variant="text">近 90 天</v-btn>
-        </v-btn-toggle>
-        <v-tooltip text="刷新大盘数据" location="bottom">
-          <template #activator="{ props: tipProps }">
-            <v-btn
-              v-bind="tipProps"
-              class="filter-refresh filter-refresh-float"
-              variant="flat"
-              rounded="circle"
-              :loading="loading"
-              aria-label="刷新大盘数据"
-              @click="onManualRefresh"
-            >
-              <v-icon icon="mdi-refresh" :class="{ 'spin-once': refreshSpin && !loading }" />
-            </v-btn>
-          </template>
-        </v-tooltip>
+        <div class="filter-range-group d-flex align-center flex-shrink-0">
+          <v-btn-toggle v-model="days" class="filter-range m3-segmented" mandatory rounded="pill" density="compact">
+            <v-btn :value="7" class="filter-range-btn" variant="text">近 7 天</v-btn>
+            <v-btn :value="30" class="filter-range-btn" variant="text">近 30 天</v-btn>
+            <v-btn :value="90" class="filter-range-btn" variant="text">近 90 天</v-btn>
+          </v-btn-toggle>
+          <v-btn
+            class="filter-refresh filter-refresh-md"
+            variant="text"
+            icon
+            rounded="circle"
+            size="small"
+            :loading="loading"
+            aria-label="刷新大盘数据"
+            @click="onManualRefresh"
+          >
+            <v-icon icon="mdi-refresh" :class="{ 'spin-once': refreshSpin && !loading }" />
+          </v-btn>
+        </div>
       </div>
     </div>
 
-    <v-row class="mb-3" dense>
+    <v-row class="dashboard-grid dashboard-stack-gap kpi-row">
       <v-col v-for="(card, index) in kpiCards" :key="card.title" cols="12" sm="6" lg="3">
         <v-card
-          class="h-100 kpi-card m3-surface-card"
+          class="h-100 kpi-card m3-surface-card m3-elevated"
           :class="index === 0 ? 'kpi-card--hero' : 'kpi-card--muted'"
           rounded="xl"
           :border="false"
         >
-          <v-card-text class="position-relative kpi-card-inner">
-            <v-avatar size="44" rounded="lg" :style="{ backgroundColor: card.iconBg }" class="kpi-icon">
-              <v-icon :icon="card.icon" :color="card.iconColor" size="24" />
-            </v-avatar>
-            <div class="text-body-2 text-medium-emphasis pe-2">{{ card.title }}</div>
-            <div class="kpi-metric mt-2">{{ card.value }}</div>
-            <div class="d-flex flex-wrap align-center ga-1 mt-2">
+          <span class="kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
+          <v-card-text class="kpi-card-inner">
+            <div class="d-flex align-start justify-space-between gap-2 mb-3">
+              <div class="text-body-2 text-medium-emphasis kpi-title">{{ card.title }}</div>
+              <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }" class="kpi-icon-tonal">
+                <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
+              </v-avatar>
+            </div>
+            <div
+              class="kpi-metric"
+              :style="card.valueColor ? { color: card.valueColor } : undefined"
+            >
+              {{ card.value }}
+            </div>
+            <div class="d-flex flex-wrap align-center ga-1 mt-3">
               <v-chip
                 v-if="'trendPill' in card && card.trendPill"
                 size="x-small"
@@ -489,82 +589,153 @@ watch([days, repoFilter], load)
       </v-col>
     </v-row>
 
-    <v-row class="mb-3" dense>
-      <v-col cols="12" lg="8">
-        <v-card class="m3-surface-card" rounded="xl" :border="false">
-          <v-card-title class="text-subtitle-1 font-weight-medium">增量代码覆盖率 vs 门禁通过趋势</v-card-title>
-          <v-card-text>
+    <v-row class="dashboard-grid dashboard-stack-gap chart-row">
+      <v-col cols="12" lg="8" class="chart-col-trend">
+        <v-card class="h-100 chart-card-equal m3-surface-card m3-elevated" rounded="xl" :border="false">
+          <v-card-title class="chart-card-title chart-card-title--split">
+            <span class="text-subtitle-1 font-weight-medium chart-card-heading">增量代码覆盖率 vs 门禁通过趋势</span>
+            <div class="trend-legend" aria-hidden="true">
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch--bar" />
+                变更行数
+              </span>
+              <span class="trend-legend-item">
+                <span class="trend-legend-swatch trend-legend-swatch--line" />
+                增量覆盖率
+              </span>
+            </div>
+          </v-card-title>
+          <v-card-text class="chart-card-body">
             <v-skeleton-loader v-if="loading && !dashboard" type="image" height="290" />
             <div v-show="dashboard" ref="trendRef" class="chart-box" />
           </v-card-text>
         </v-card>
       </v-col>
-      <v-col cols="12" lg="4">
-        <v-card class="h-100 m3-surface-card chart-card-donut" rounded="xl" :border="false">
-          <v-card-title class="text-subtitle-1 font-weight-medium">门禁拦截原因分布</v-card-title>
-          <v-card-text class="pt-0 pb-4">
-            <v-skeleton-loader v-if="loading && !dashboard" type="image" height="290" />
-            <div v-show="dashboard" class="donut-layout">
-              <div ref="donutRef" class="donut-chart-canvas" />
-              <div class="donut-legend-panel">
-                <div
-                  v-for="(row, idx) in donutLegendItems"
-                  :key="row.name"
-                  class="donut-legend-row"
-                  :class="{ 'donut-legend-row--divided': idx > 0 }"
-                >
-                  <div class="donut-legend-label">
-                    <span class="donut-legend-dot" :style="{ backgroundColor: row.color }" />
-                    <span class="donut-legend-name">{{ row.name }}</span>
+      <v-col cols="12" lg="4" class="chart-col-donut">
+        <v-card
+          class="h-100 chart-card-equal m3-surface-card m3-elevated chart-card-donut"
+          rounded="xl"
+          :border="false"
+        >
+          <v-card-title class="text-subtitle-1 font-weight-medium chart-card-title">门禁拦截原因分布</v-card-title>
+          <v-card-text class="chart-card-body donut-card-body pt-0">
+            <v-skeleton-loader v-if="loading && !dashboard" type="image" height="220" />
+            <div
+              v-show="dashboard"
+              class="donut-layout donut-layout--stacked"
+              :class="{ 'donut-layout--compact': donutIsEmpty }"
+            >
+              <template v-if="donutIsEmpty">
+                <div class="donut-empty-cluster">
+                  <div class="donut-empty-positive">
+                    <v-avatar size="68" rounded="circle" class="donut-empty-avatar">
+                      <v-icon icon="mdi-shield-check" size="34" color="#81C995" />
+                    </v-avatar>
+                    <div class="donut-empty-title">暂无拦截</div>
+                    <p class="text-caption text-medium-emphasis donut-empty-sub">代码质量良好</p>
                   </div>
-                  <span class="donut-legend-stat mono">{{ row.value }} 次 {{ row.pct }}%</span>
+                  <div class="donut-legend-panel donut-legend-panel--idle">
+                    <div
+                      v-for="(row, idx) in donutLegendItems"
+                      :key="row.name"
+                      class="donut-legend-row"
+                      :class="{ 'donut-legend-row--divided': idx > 0 }"
+                    >
+                      <div class="donut-legend-label">
+                        <span class="donut-legend-mark" :style="{ backgroundColor: row.color }" />
+                        <span class="donut-legend-name">{{ row.name }}</span>
+                      </div>
+                      <span class="donut-legend-stat mono">{{ row.value }} 次 {{ row.pct }}%</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </template>
+              <template v-else>
+                <div ref="donutRef" class="donut-chart-canvas donut-chart-canvas--stacked" />
+                <div class="donut-legend-panel">
+                  <div
+                    v-for="(row, idx) in donutLegendItems"
+                    :key="row.name"
+                    class="donut-legend-row"
+                    :class="{ 'donut-legend-row--divided': idx > 0 }"
+                  >
+                    <div class="donut-legend-label">
+                      <span class="donut-legend-mark" :style="{ backgroundColor: row.color }" />
+                      <span class="donut-legend-name">{{ row.name }}</span>
+                    </div>
+                    <span class="donut-legend-stat mono">{{ row.value }} 次 {{ row.pct }}%</span>
+                  </div>
+                </div>
+              </template>
             </div>
           </v-card-text>
         </v-card>
       </v-col>
     </v-row>
 
-    <section class="flow-section">
-      <div class="flow-section-head d-flex flex-wrap align-center justify-space-between gap-2 mb-3">
-        <span class="text-subtitle-1 font-weight-medium">最近质量门禁动态</span>
-        <div class="d-flex align-center ga-1 flex-wrap">
-          <v-btn
-            variant="text"
-            size="small"
-            color="primary"
-            class="text-none"
-            append-icon="mdi-chevron-right"
-            @click="router.push('/analysis')"
-          >
-            查看全部记录
-          </v-btn>
-          <v-btn
-            variant="text"
-            size="small"
-            color="primary"
-            class="text-none"
-            prepend-icon="mdi-help-circle-outline"
-            @click="openWebhookHelp()"
-          >
-            配置指引
-          </v-btn>
-        </div>
-      </div>
-
-      <v-skeleton-loader v-if="loading && !dashboard" type="list-item@4" class="flow-skeleton" />
-
-      <div v-else-if="!(dashboard?.recent_flows?.length)" class="text-center py-10 text-medium-emphasis">
-        暂无流水线记录
-      </div>
-
-      <div v-else class="flow-list">
-        <article
-          v-for="item in dashboard!.recent_flows"
-          :key="`${item.repo}-${item.commit}`"
-          class="flow-row-card"
+    <v-row class="dashboard-grid dashboard-stack-gap flow-row">
+      <v-col cols="12">
+      <v-card
+        class="flow-panel m3-surface-card m3-elevated"
+        :class="{ 'flow-panel--empty': dashboard && !dashboard.recent_flows?.length }"
+        rounded="xl"
+        :border="false"
+      >
+        <v-card-title
+          class="flow-panel-head d-flex flex-wrap align-center gap-2"
+          :class="dashboard && !dashboard.recent_flows?.length ? 'py-3' : 'py-4'"
         >
+          <span class="text-subtitle-1 font-weight-medium">最近质量门禁动态</span>
+          <v-spacer />
+          <div
+            v-if="dashboard?.recent_flows?.length"
+            class="d-flex align-center ga-1 flex-wrap flow-panel-actions"
+          >
+            <v-btn
+              variant="text"
+              size="small"
+              color="primary"
+              class="text-none"
+              append-icon="mdi-chevron-right"
+              @click="router.push('/analysis')"
+            >
+              查看全部记录
+            </v-btn>
+            <v-btn
+              variant="text"
+              size="small"
+              color="primary"
+              class="text-none"
+              prepend-icon="mdi-help-circle-outline"
+              @click="openWebhookHelp()"
+            >
+              配置指引
+            </v-btn>
+          </div>
+        </v-card-title>
+
+        <v-card-text
+          class="flow-panel-body"
+          :class="{ 'flow-panel-body--empty': dashboard && !dashboard.recent_flows?.length }"
+        >
+          <v-skeleton-loader v-if="loading && !dashboard" type="list-item@4" class="flow-skeleton" />
+
+          <div v-else-if="!(dashboard?.recent_flows?.length)" class="flow-empty-inner">
+            <v-avatar size="52" rounded="circle" class="flow-empty-icon">
+              <v-icon icon="mdi-source-branch" size="26" color="secondary" />
+            </v-avatar>
+            <div class="text-subtitle-1 font-weight-medium">暂无流水线记录</div>
+            <p class="text-body-2 text-medium-emphasis flow-empty-tip">
+              配置 Git Webhook 或在仓库页手动触发分析后，门禁动态将在此展示。
+            </p>
+          </div>
+
+          <div v-else class="flow-list">
+            <article
+              v-for="item in dashboard!.recent_flows"
+              :key="`${item.repo}-${item.commit}`"
+              class="flow-row-card"
+            >
           <div class="flow-status-avatar" :class="flowGateAvatarClass(item.gate)" aria-hidden="true">
             <v-icon :icon="flowGateIcon(item.gate)" size="18" />
           </div>
@@ -604,14 +775,20 @@ watch([days, repoFilter], load)
           </div>
 
           <div class="flow-row-actions d-flex justify-end ga-1">
-            <v-btn
-              icon="mdi-graph-outline"
-              variant="text"
-              size="small"
-              color="primary"
-              aria-label="查看拓扑"
-              @click="openCallChain(item)"
-            />
+            <v-tooltip text="需关联分析任务" location="top" :disabled="!!item.job_id">
+              <template #activator="{ props: tipProps }">
+                <v-btn
+                  v-bind="tipProps"
+                  icon="mdi-graph-outline"
+                  variant="text"
+                  size="small"
+                  color="primary"
+                  aria-label="查看拓扑"
+                  :disabled="!item.job_id"
+                  @click="openCallChain(item)"
+                />
+              </template>
+            </v-tooltip>
             <v-btn
               icon="mdi-file-code-outline"
               size="small"
@@ -621,42 +798,12 @@ watch([days, repoFilter], load)
               @click="openCoverage(item)"
             />
           </div>
-        </article>
-      </div>
-    </section>
-
-    <v-dialog v-model="callChainDialog" max-width="560">
-      <v-card title="AST 反向调用链预览">
-        <v-card-subtitle v-if="activeFlow" class="mono text-body-2">
-          {{ activeFlow.repo }} @ {{ activeFlow.commit }}
-        </v-card-subtitle>
-        <v-card-text>
-          <v-alert
-            v-if="!activeFlow?.job_id"
-            type="info"
-            variant="tonal"
-            density="compact"
-            text="演示流水线：接入 Webhook 后将跳转至 G6 拓扑页。"
-            class="mb-3"
-          />
-          <v-list v-if="activeFlow" density="compact" class="mono text-caption">
-            <v-list-item v-for="(line, i) in demoCallPaths(activeFlow)" :key="i" :title="line" />
-          </v-list>
+            </article>
+          </div>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="callChainDialog = false">关闭</v-btn>
-          <v-btn
-            v-if="activeFlow?.job_id"
-            color="primary"
-            variant="flat"
-            @click="router.push(`/jobs/${activeFlow!.job_id}`)"
-          >
-            打开 G6 拓扑
-          </v-btn>
-        </v-card-actions>
       </v-card>
-    </v-dialog>
+      </v-col>
+    </v-row>
 
     <v-dialog v-model="coverageDialog" max-width="520">
       <v-card title="增量覆盖率报告">
@@ -664,12 +811,14 @@ watch([days, repoFilter], load)
           Commit {{ activeFlow.commit }} · 门禁 {{ activeFlow.gate }}
         </v-card-subtitle>
         <v-card-text>
-          <h4 class="text-subtitle-2 mb-2">变更命中（高亮示意）</h4>
-          <pre class="coverage-snippet mono">@@ checkout_service.py @@
--    if coverage &lt; 0.8:  # legacy
-+    if coverage &lt; {{ gateBaseline / 100 }}:
-         raise QualityGateError("增量覆盖率不足")
-     affected_apis = {{ activeFlow?.api_impact ?? 0 }}</pre>
+          <v-list v-if="activeFlow" density="compact" class="text-body-2">
+            <v-list-item title="变更文件" :subtitle="`${activeFlow.changed_files} 个`" />
+            <v-list-item title="影响 API" :subtitle="`${activeFlow.api_impact} 个`" />
+            <v-list-item
+              title="门禁结果"
+              :subtitle="activeFlow.gate === 'PENDING' ? '待 CI 回传覆盖率' : activeFlow.gate"
+            />
+          </v-list>
           <div class="d-flex align-center ga-2 mt-4">
             <v-progress-linear
               :model-value="activeFlow?.coverage ?? 0"
@@ -691,9 +840,82 @@ watch([days, repoFilter], load)
 </template>
 
 <style scoped>
-.chart-box {
-  height: 300px;
+.dashboard-page {
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.dashboard-page .dashboard-stack-gap {
+  margin-bottom: 24px !important;
+}
+.dashboard-page .dashboard-stack-gap:last-child {
+  margin-bottom: 0 !important;
+}
+.dashboard-hero {
+  width: 100%;
+}
+.chart-card-title {
+  padding: 16px 24px 8px !important;
+}
+.chart-card-title--split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+.chart-card-heading {
+  line-height: 1.35;
+  min-width: 0;
+}
+.trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-inline-start: auto;
+}
+.trend-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #8e9299;
+  white-space: nowrap;
+}
+.trend-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.trend-legend-swatch--bar {
+  background: #252930;
+}
+.trend-legend-swatch--line {
+  background: #8ab4f8;
+  border-radius: 999px;
+}
+.chart-card-equal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.chart-card-equal .chart-card-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.chart-col-trend,
+.chart-col-donut {
+  display: flex;
+}
+.chart-card-body {
+  padding: 8px 20px 24px 24px !important;
+}
+.donut-card-body {
+  padding-bottom: 20px !important;
 }
 .chart-card-donut {
   overflow: hidden;
@@ -701,39 +923,82 @@ watch([days, repoFilter], load)
 .chart-card-donut :deep(.v-card-text) {
   overflow: hidden;
 }
-.donut-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 0.84fr) minmax(0, 1.16fr);
-  align-items: center;
-  column-gap: 6px;
-  min-height: 280px;
-}
-.donut-chart-canvas {
-  width: 100%;
-  max-width: 172px;
-  height: 280px;
-  min-width: 0;
-  margin-inline: auto;
-  justify-self: center;
-}
-.donut-legend-panel {
-  min-width: 0;
-  padding-right: 6px;
-  padding-left: 14px;
+.donut-layout--stacked {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.donut-layout--compact {
   justify-content: center;
+}
+.chart-box {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 300px;
+}
+.donut-empty-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+  padding: 4px 0 8px;
+}
+.donut-empty-positive {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 8px 4px;
+  text-align: center;
+}
+.donut-empty-avatar {
+  background: rgba(52, 168, 83, 0.14) !important;
+}
+.donut-empty-title {
+  margin-top: 12px;
+  font-size: 1.0625rem;
+  font-weight: 500;
+  color: rgb(var(--v-theme-on-surface));
+}
+.donut-empty-sub {
+  margin: 8px 0 0;
+}
+.donut-chart-canvas--stacked {
+  width: 100%;
+  height: 168px;
+  min-width: 0;
+  margin-inline: auto;
+}
+.donut-empty-cluster .donut-legend-panel {
+  padding-top: 0;
+}
+.donut-legend-panel {
+  width: 100%;
+  padding: 4px 4px 0;
+  display: flex;
+  flex-direction: column;
   gap: 0;
+  box-sizing: border-box;
+}
+.donut-legend-panel--idle {
+  opacity: 0.38;
 }
 .donut-legend-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 0;
+  column-gap: 12px;
+  padding: 8px 0;
 }
 .donut-legend-row--divided {
   border-top: 1px solid rgb(var(--v-theme-outline));
+}
+.donut-empty-cluster .donut-legend-row:first-child {
+  padding-top: 0;
 }
 .donut-legend-label {
   display: flex;
@@ -741,16 +1006,17 @@ watch([days, repoFilter], load)
   gap: 8px;
   min-width: 0;
 }
-.donut-legend-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.donut-legend-mark {
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
   flex-shrink: 0;
 }
 .donut-legend-name {
   font-size: 13px;
   color: rgb(var(--v-theme-on-surface));
-  line-height: 1.3;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   opacity: 0.88;
 }
@@ -766,9 +1032,36 @@ watch([days, repoFilter], load)
   border: 1px solid rgb(var(--v-theme-outline));
   box-shadow: none;
 }
+.m3-elevated {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.28);
+}
+.kpi-card {
+  position: relative;
+  overflow: hidden;
+}
+.kpi-accent {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  opacity: 0.9;
+}
 .kpi-card-inner {
-  padding-top: 20px !important;
-  padding-right: 56px !important;
+  padding: 20px 20px 22px 22px !important;
+}
+.kpi-title {
+  line-height: 1.35;
+  opacity: 0.72;
+}
+.kpi-icon-tonal {
+  flex-shrink: 0;
+}
+.flow-empty-icon {
+  background: rgba(142, 146, 153, 0.12);
 }
 .repo-link {
   display: inline-flex;
@@ -785,23 +1078,32 @@ watch([days, repoFilter], load)
   opacity: 0.88;
   text-decoration: underline;
 }
-.kpi-icon {
-  position: absolute;
-  top: 20px;
-  right: 20px;
-}
 .kpi-trend-pill {
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
+.dashboard-filters {
+  align-items: center;
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+.filter-range-group {
+  gap: 16px;
+}
+.dashboard-filters .filter-select-float {
+  flex: 0 0 auto;
+  width: 168px;
+  min-width: 160px;
+  max-width: 180px;
+}
 .dashboard-filters .filter-select-float :deep(.v-field) {
-  min-height: 36px;
-  height: 36px;
-  border-radius: 9999px;
+  min-height: 34px;
+  height: 34px;
+  border-radius: 10px;
   background-color: rgb(var(--v-theme-surface)) !important;
   font-size: 13px;
-  border: 1px solid rgb(var(--v-theme-outline));
+  border: 1px solid #2a2e35;
   box-shadow: none;
 }
 .dashboard-filters .filter-select-float :deep(.v-field__outline),
@@ -809,29 +1111,37 @@ watch([days, repoFilter], load)
   opacity: 0 !important;
 }
 .dashboard-filters .filter-select-float :deep(.v-field__input) {
-  min-height: 36px;
+  min-height: 34px;
   padding-top: 0;
   padding-bottom: 0;
+  padding-inline: 2px 8px;
   font-size: 13px;
 }
+.dashboard-filters .filter-select-float :deep(.v-field__prepend-inner) {
+  padding-inline-start: 10px;
+  padding-inline-end: 4px;
+}
+.dashboard-filters .filter-select-float :deep(.v-field__append-inner) {
+  padding-inline-end: 6px;
+}
 .dashboard-filters .m3-segmented {
-  background-color: #24282e;
-  border: 1px solid rgb(var(--v-theme-outline));
+  background-color: #1a1d21;
+  border: 1px solid #2a2e35;
   border-radius: 9999px;
   padding: 2px;
   box-shadow: none;
-  height: 36px;
+  height: 34px;
   gap: 2px;
 }
 .dashboard-filters .m3-segmented :deep(.v-btn) {
-  height: 32px !important;
-  min-height: 32px;
+  height: 30px !important;
+  min-height: 30px;
   font-size: 13px;
   letter-spacing: 0;
   text-transform: none;
   color: rgb(var(--v-theme-secondary));
-  background: transparent !important;
-  border: none !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
   box-shadow: none !important;
   border-radius: 9999px !important;
 }
@@ -839,21 +1149,29 @@ watch([days, repoFilter], load)
 .dashboard-filters .m3-segmented :deep(.v-btn__underlay) {
   opacity: 0 !important;
 }
+.dashboard-filters .m3-segmented :deep(.v-btn:hover:not(.v-btn--active)) {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
 .dashboard-filters .m3-segmented :deep(.v-btn.v-btn--active) {
-  background-color: #2c3036 !important;
-  color: rgb(var(--v-theme-on-surface)) !important;
+  background-color: #32373f !important;
+  color: #f1f3f5 !important;
   font-weight: 600;
+  border-color: transparent !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
-.dashboard-filters .filter-refresh-float {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  background-color: rgb(var(--v-theme-surface)) !important;
-  border: 1px solid rgb(var(--v-theme-outline));
+.dashboard-filters .filter-refresh-md {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  color: #8e9299;
+  background: transparent !important;
   box-shadow: none;
 }
-.dashboard-filters .filter-refresh-float :deep(.v-btn__overlay) {
+.dashboard-filters .filter-refresh-md:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #f1f3f5;
+}
+.dashboard-filters .filter-refresh-md :deep(.v-btn__overlay) {
   opacity: 0 !important;
 }
 @keyframes spin-once {
@@ -871,20 +1189,20 @@ watch([days, repoFilter], load)
   letter-spacing: -0.01em;
 }
 .kpi-card--hero {
-  background-color: #24282e !important;
-  border-color: #2c3036 !important;
+  background-color: #252a31 !important;
+  border-color: #32373f !important;
 }
 .kpi-card--muted {
   background-color: rgb(var(--v-theme-surface)) !important;
 }
 .kpi-metric {
   font-family: var(--diffgate-kpi);
-  font-size: 36px;
-  font-weight: 400;
-  line-height: 1.15;
+  font-size: 2.25rem;
+  font-weight: 500;
+  line-height: 1.12;
   color: rgb(var(--v-theme-on-surface));
   font-variant-numeric: tabular-nums;
-  letter-spacing: -1px;
+  letter-spacing: -0.02em;
 }
 .kpi-trend-pill--up {
   background: rgba(52, 168, 83, 0.16) !important;
@@ -918,11 +1236,48 @@ watch([days, repoFilter], load)
   max-width: 120px;
   min-width: 72px;
 }
-.flow-section {
-  margin-top: 4px;
+.chart-row {
+  align-items: stretch;
 }
-.flow-section-head {
-  padding: 4px 2px 0;
+.flow-panel {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.flow-panel--empty {
+  max-height: 400px;
+}
+.flow-panel-head {
+  padding-inline: 24px !important;
+  min-height: 48px;
+}
+.flow-panel-body {
+  padding: 0 24px 20px !important;
+}
+.flow-panel-body--empty {
+  padding: 0 24px 16px !important;
+}
+.flow-panel-actions {
+  flex-shrink: 0;
+}
+.flow-empty-inner {
+  width: 100%;
+  min-height: 200px;
+  max-height: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+  padding: 16px 24px;
+  box-sizing: border-box;
+}
+.flow-empty-tip {
+  max-width: 360px;
+  margin: 0;
+  text-align: center;
+  line-height: 1.5;
 }
 .flow-list {
   display: flex;
@@ -1018,16 +1373,5 @@ watch([days, repoFilter], load)
   .flow-row-actions {
     grid-area: actions;
   }
-}
-.coverage-snippet {
-  background: #24282e;
-  border: 1px solid rgb(var(--v-theme-outline));
-  border-radius: 12px;
-  padding: 12px;
-  font-size: 12px;
-  line-height: 1.5;
-  margin: 0;
-  overflow-x: auto;
-  color: rgb(var(--v-theme-on-surface));
 }
 </style>

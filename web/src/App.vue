@@ -108,6 +108,7 @@ onUnmounted(() => {
           </div>
           <v-btn
             class="text-none cta-new-analysis"
+            color="primary"
             size="small"
             variant="flat"
             rounded="pill"
@@ -245,16 +246,10 @@ onUnmounted(() => {
 }
 .v-theme--darkMonochrome .app-bar--md3-dark {
   border-color: #26292e !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 .v-theme--darkMonochrome .brand-divider {
   border-color: #2c3036;
   opacity: 1;
-}
-.v-theme--darkMonochrome .cta-new-analysis {
-  background-color: #f1f3f5 !important;
-  color: #111315 !important;
-}
-.v-theme--darkMonochrome .cta-new-analysis .v-icon {
-  color: #111315 !important;
 }
 </style>

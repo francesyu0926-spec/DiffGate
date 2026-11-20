@@ -15,7 +15,7 @@ DiffGate 将设计文档中的四步落地为 `ReverseTraceEngine`（`app/engine
 
 | 设计要点 | 实现 |
 |---------|------|
-| 精确变更行 | `app/services/git_diff.py` |
+| 精确变更行 | `app/parsers/git_diff.py` |
 | 行号匹配函数区间 | `ReverseTraceEngine.step2_locate_suspects` → **嫌疑函数** |
 
 ## 第三步：反向图 BFS 追溯

@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     # 精准回归调度中心（第四步联动）；为空则跳过
     dispatch_center_url: str = ""
 
-    # 本地单进程：任务在 API 进程内同步执行，无需单独 Celery Worker
+    # 本地单进程：FastAPI BackgroundTasks 执行分析，仅需 uvicorn（默认）
+    use_background_tasks: bool = True
+    # 为 True 时 Celery 在 API 进程内同步跑任务（仍依赖 celery 包，不需 Worker）
     celery_always_eager: bool = False
 
 

@@ -3,14 +3,14 @@ import hmac
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import AnalysisJob
 from app.db.session import get_db
 from app.services.repo_registry import ensure_registered
-from app.tasks.analysis import analyze_merge_task
+from app.services.analysis_runner import schedule_analyze_merge
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -34,13 +34,14 @@ def _verify_gitlab_token(token: str | None, secret: str) -> None:
 
 def _enqueue_job(
     db: Session,
+    background_tasks: BackgroundTasks,
     provider: str,
     repo_full_name: str,
     clone_url: str,
     base_sha: str,
     head_sha: str,
     ref: str,
-) -> str:
+) -> tuple[str, str | None]:
     job_id = str(uuid.uuid4())
     job = AnalysisJob(
         id=job_id,
@@ -53,15 +54,23 @@ def _enqueue_job(
     )
     db.add(job)
     db.commit()
-    result = analyze_merge_task.delay(
-        job_id, provider, repo_full_name, clone_url, base_sha, head_sha, ref
+    meta = schedule_analyze_merge(
+        background_tasks=background_tasks,
+        job_id=job_id,
+        provider=provider,
+        repo_full_name=repo_full_name,
+        clone_url=clone_url,
+        base_sha=base_sha,
+        head_sha=head_sha,
+        ref=ref,
     )
-    return job_id, result.id
+    return job_id, meta.get("task_id")
 
 
 @router.post("/github")
 async def github_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     x_hub_signature_256: str | None = Header(None),
     x_github_event: str | None = Header(None),
@@ -109,13 +118,19 @@ async def github_webhook(
     ref_branch = ref.replace("refs/heads/", "") if ref.startswith("refs/heads/") else ref
     if ensure_registered(db, provider="github", full_name=full_name, clone_url=clone_url, default_branch=ref_branch) is None:
         return {"ok": True, "ignored": "repository disabled or webhook off"}
-    job_id, task_id = _enqueue_job(db, "github", full_name, clone_url, base_sha, head_sha, ref)
-    return {"ok": True, "job_id": job_id, "celery_task_id": task_id}
+    job_id, task_id = _enqueue_job(
+        db, background_tasks, "github", full_name, clone_url, base_sha, head_sha, ref
+    )
+    out: dict[str, Any] = {"ok": True, "job_id": job_id}
+    if task_id:
+        out["celery_task_id"] = task_id
+    return out
 
 
 @router.post("/gitlab")
 async def gitlab_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     x_gitlab_token: str | None = Header(None),
 ) -> dict[str, Any]:
@@ -154,5 +169,10 @@ async def gitlab_webhook(
     ref_branch = ref.replace("refs/heads/", "") if ref.startswith("refs/heads/") else ref
     if ensure_registered(db, provider="gitlab", full_name=full_name, clone_url=clone_url, default_branch=ref_branch) is None:
         return {"ok": True, "ignored": "repository disabled or webhook off"}
-    job_id, task_id = _enqueue_job(db, "gitlab", full_name, clone_url, base_sha, head_sha, ref)
-    return {"ok": True, "job_id": job_id, "celery_task_id": task_id}
+    job_id, task_id = _enqueue_job(
+        db, background_tasks, "gitlab", full_name, clone_url, base_sha, head_sha, ref
+    )
+    out: dict[str, Any] = {"ok": True, "job_id": job_id}
+    if task_id:
+        out["celery_task_id"] = task_id
+    return out
