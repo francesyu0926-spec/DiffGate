@@ -36,6 +36,7 @@ def _job_list_item(job: AnalysisJob) -> dict:
     )
     method_count = int(gr.get("symbol_count") or len(symbols))
     api_count = int((job.affected_apis or {}).get("count", 0) or gr.get("api_impact") or 0)
+    commit_message = (suspects.get("head_commit_message") or "").strip()
     return {
         "id": job.id,
         "provider": job.provider,
@@ -49,6 +50,7 @@ def _job_list_item(job: AnalysisJob) -> dict:
         "changed_files": changed_files,
         "method_count": method_count,
         "trigger_label": _trigger_label(job.provider),
+        "commit_message": commit_message or None,
         "created_at": job.created_at.isoformat() if job.created_at else None,
     }
 
@@ -85,6 +87,11 @@ def jobs_stats_overview(db: Session = Depends(get_db)) -> dict:
         convergence = round((1 - avg_impacted / baseline_apis) * 100, 1)
         convergence = min(99.9, max(0.0, convergence))
     trigger_pct = round(dispatched / completed * 100, 1) if completed else 0.0
+    ever_hit_api = any(
+        int((j.affected_apis or {}).get("count") or 0) > 0
+        for j in jobs
+        if j.status == "completed"
+    )
 
     return {
         "total": total,
@@ -93,6 +100,7 @@ def jobs_stats_overview(db: Session = Depends(get_db)) -> dict:
         "avg_impacted_apis": avg_impacted,
         "api_convergence_pct": convergence,
         "regression_trigger_pct": trigger_pct,
+        "ever_hit_api": ever_hit_api,
     }
 
 

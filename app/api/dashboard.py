@@ -79,13 +79,6 @@ def _bucket_trend(jobs: list[AnalysisJob], days: int, threshold: int) -> dict:
     }
 
 
-INTERCEPT_PLACEHOLDER_NAMES = (
-    "增量覆盖率不足",
-    "接口回归失败",
-    "高危模块未评审",
-)
-
-
 def _intercept_reasons(blocked_jobs: list[AnalysisJob]) -> list[dict]:
     counts: dict[str, int] = defaultdict(int)
     for job in blocked_jobs:
@@ -97,7 +90,7 @@ def _intercept_reasons(blocked_jobs: list[AnalysisJob]) -> list[dict]:
             label = REASON_LABELS.get(code, gr.get("block_reason_label") or code)
         counts[label] += 1
     if not counts:
-        return [{"name": name, "value": 0} for name in INTERCEPT_PLACEHOLDER_NAMES]
+        return []
     return [{"name": name, "value": value} for name, value in sorted(counts.items(), key=lambda x: -x[1])]
 
 
@@ -128,6 +121,22 @@ def _saved_hours(jobs: list[AnalysisJob]) -> int:
             continue
         total += max(0.5, apis * 1.2)
     return int(round(total))
+
+
+def _repo_gate_stats(jobs: list[AnalysisJob]) -> list[dict]:
+    by_repo: dict[str, dict[str, int]] = defaultdict(lambda: {"block_count": 0, "pending_count": 0})
+    for job in jobs:
+        repo = job.repo_full_name
+        gr = job.gate_result or {}
+        gate = gr.get("gate") or "PENDING"
+        if gate == "BLOCK":
+            by_repo[repo]["block_count"] += 1
+        elif gate == "PENDING":
+            by_repo[repo]["pending_count"] += 1
+    return [
+        {"full_name": name, **counts}
+        for name, counts in sorted(by_repo.items(), key=lambda x: x[0].lower())
+    ]
 
 
 def _case_compress_pct(jobs: list[AnalysisJob]) -> int:
@@ -202,6 +211,7 @@ def dashboard_overview(
 
     trend = _bucket_trend(jobs, days, default_threshold)
     reasons = _intercept_reasons(blocked_jobs)
+    repo_gate_stats = _repo_gate_stats(jobs)
 
     repo_total = db.scalar(select(func.count()).select_from(Repository)) or 0
     indexed_repo_count = (
@@ -238,5 +248,6 @@ def dashboard_overview(
         "kpi": kpi,
         "trend": trend,
         "intercept_reasons": reasons,
+        "repo_gate_stats": repo_gate_stats,
         "recent_flows": flows,
     }

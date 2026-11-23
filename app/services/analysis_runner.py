@@ -61,6 +61,12 @@ def run_analyze_merge(
         test_suite = repo_rec.test_suite_id if repo_rec else None
         notify_dispatch_center(job_id, repo_full_name, ref, report, test_suite_id=test_suite)
 
+        head_commit_message = ""
+        try:
+            head_commit_message = (repo.commit(head_sha).message or "").strip().split("\n")[0][:160]
+        except Exception:
+            pass
+
         payload = report.to_dict()
         if job:
             job.status = "completed"
@@ -74,6 +80,7 @@ def run_analyze_merge(
                 "suspects": payload["suspect_functions"],
                 "line_ranges": payload["line_ranges"],
                 "diff_summary": payload.get("diff_summary"),
+                "head_commit_message": head_commit_message,
             }
             apply_gate_result(job, repo_rec)
             db.commit()

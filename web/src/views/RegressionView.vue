@@ -2,13 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  fetchDashboardOverview,
   fetchRegressionBatchDetail,
   fetchRegressionBatches,
   fetchRegressionOverview,
-  fetchRepositories,
   type RegressionBatchDetail,
   type RegressionBatchItem,
 } from '@/api/client'
+import RepoAutocompleteFilter, { type RepoGateStat } from '@/components/RepoAutocompleteFilter.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -18,8 +19,7 @@ const repoFilter = ref<string | null>(null)
 const gateFilter = ref<string | null>(null)
 type FilterOption = { title: string; value: string | null; branch?: string | null }
 
-const repoOptions = ref<FilterOption[]>([])
-const repoMenuOpen = ref(false)
+const repoGateStats = ref<RepoGateStat[]>([])
 const filterMenuProps = {
   rounded: 'lg',
   elevation: 8,
@@ -49,11 +49,6 @@ const gateOptions: FilterOption[] = [
   { title: '拦截', value: 'BLOCK' },
   { title: '待测', value: 'PENDING' },
 ]
-
-const selectedRepoTitle = computed(() => {
-  const opt = repoOptions.value.find((o) => o.value === repoFilter.value)
-  return opt?.title ?? '全部仓库'
-})
 
 const kpiCards = computed(() => {
   const k = overview.value?.kpi
@@ -143,21 +138,14 @@ const detailIsSparse = computed(() => {
 async function loadList() {
   loading.value = true
   try {
-    const [ov, list, repos] = await Promise.all([
+    const [ov, list, dash] = await Promise.all([
       fetchRegressionOverview(repoFilter.value || undefined, gateFilter.value || undefined),
       fetchRegressionBatches(repoFilter.value || undefined, gateFilter.value || undefined),
-      fetchRepositories(),
+      fetchDashboardOverview(7),
     ])
     overview.value = ov
     batches.value = list
-    repoOptions.value = [
-      { title: '全部仓库', value: null, branch: null },
-      ...repos.map((r) => ({
-        title: r.full_name,
-        value: r.full_name,
-        branch: r.default_branch || 'main',
-      })),
-    ]
+    repoGateStats.value = dash.repo_gate_stats ?? []
     if (list.length && (!selectedId.value || !list.some((b) => b.job_id === selectedId.value))) {
       selectedId.value = list[0].job_id
       await loadDetail(list[0].job_id)
@@ -223,53 +211,11 @@ watch(
         </p>
       </div>
       <div class="regression-filters d-flex flex-wrap align-center ga-3">
-        <v-tooltip
-          :text="selectedRepoTitle"
-          location="bottom start"
-          :disabled="!repoFilter || repoMenuOpen"
-        >
-          <template #activator="{ props: tipProps }">
-            <v-select
-              v-bind="tipProps"
-              v-model="repoFilter"
-              v-model:menu="repoMenuOpen"
-              class="filter-select-repo"
-              :items="repoOptions"
-              item-title="title"
-              item-value="value"
-              :menu-props="filterMenuProps"
-              variant="solo"
-              flat
-              density="compact"
-              hide-details
-              rounded="lg"
-              prepend-inner-icon="mdi-source-repository"
-              placeholder="全部仓库"
-            >
-              <template #item="{ props: itemProps, item }">
-                <v-list-item
-                  v-bind="filterSelectItemProps(itemProps)"
-                  :title="item.raw.title"
-                  :subtitle="item.raw.branch ? `默认分支 · ${item.raw.branch}` : undefined"
-                  class="filter-menu-item"
-                  :class="{ 'filter-menu-item--selected': repoFilter === item.raw.value }"
-                  rounded="lg"
-                  density="comfortable"
-                >
-                  <template #append>
-                    <v-icon
-                      v-if="repoFilter === item.raw.value"
-                      icon="mdi-check"
-                      size="18"
-                      color="#e8eaed"
-                      class="filter-menu-item__check"
-                    />
-                  </template>
-                </v-list-item>
-              </template>
-            </v-select>
-          </template>
-        </v-tooltip>
+        <RepoAutocompleteFilter
+          v-model="repoFilter"
+          field-class="filter-select-repo"
+          :gate-stats="repoGateStats"
+        />
         <v-select
           v-model="gateFilter"
           class="filter-gate"
@@ -532,11 +478,11 @@ watch(
   margin-inline-start: auto;
   align-items: center;
 }
-.filter-select-repo {
-  width: 240px;
-  min-width: 220px;
-  max-width: 240px;
-  flex: 0 1 240px;
+.regression-filters :deep(.repo-autocomplete.filter-select-repo) {
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
+  flex: 0 0 280px;
 }
 .filter-gate {
   width: 120px;
@@ -544,7 +490,7 @@ watch(
   max-width: 120px;
   flex: 0 0 120px;
 }
-.filter-select-repo :deep(.v-field__input),
+.regression-filters :deep(.repo-autocomplete.filter-select-repo .v-field__input),
 .filter-gate :deep(.v-field__input) {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -554,12 +500,14 @@ watch(
   background: #f1f3f5 !important;
   color: #111315 !important;
 }
-.regression-filters :deep(.filter-select-repo .v-field),
+.regression-filters :deep(.repo-autocomplete.filter-select-repo .v-field),
 .regression-filters :deep(.filter-gate .v-field) {
-  min-height: 34px;
+  min-height: 40px;
+  height: 40px;
   border: 1px solid #2a2e35;
   background: rgb(var(--v-theme-surface)) !important;
   font-size: 13px;
+  border-radius: 10px;
 }
 .regression-filters :deep(.v-field__outline) {
   opacity: 0 !important;

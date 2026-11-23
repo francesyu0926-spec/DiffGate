@@ -2,7 +2,8 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
-import { fetchDashboardOverview, fetchRepositories } from '@/api/client'
+import { fetchDashboardOverview } from '@/api/client'
+import RepoAutocompleteFilter from '@/components/RepoAutocompleteFilter.vue'
 
 const router = useRouter()
 const openWebhookHelp = inject<() => void>('openWebhookHelp', () => {})
@@ -11,7 +12,6 @@ const openNewAnalysis = inject<() => void>('openNewAnalysis', () => {})
 const days = ref<7 | 30 | 90>(7)
 const refreshSpin = ref(false)
 const repoFilter = ref<string | null>(null)
-const repoOptions = ref<{ title: string; value: string | null }[]>([])
 
 const loading = ref(false)
 const loadError = ref(false)
@@ -174,18 +174,10 @@ const CHART = {
   donutPlaceholder: '#2C3036',
 } as const
 
-const DONUT_LEGEND_FALLBACK = [
-  '增量覆盖率不足',
-  '接口回归失败',
-  '高危模块未评审',
-] as const
-
 const donutLegendItems = computed(() => {
   const reasons = dashboard.value?.intercept_reasons ?? []
-  const items =
-    reasons.length > 0
-      ? reasons.map((r) => ({ ...r, name: shortenReasonLabel(r.name) }))
-      : DONUT_LEGEND_FALLBACK.map((name) => ({ name, value: 0 }))
+  if (!reasons.length) return []
+  const items = reasons.map((r) => ({ ...r, name: shortenReasonLabel(r.name) }))
   const total = items.reduce((s, r) => s + r.value, 0)
   const denom = total || 1
   return items.map((r, i) => ({
@@ -503,11 +495,6 @@ function filterByRepo(fullName: string) {
 }
 
 onMounted(async () => {
-  const repos = await fetchRepositories()
-  repoOptions.value = [
-    { title: '全部仓库', value: null },
-    ...repos.map((r) => ({ title: r.full_name, value: r.full_name })),
-  ]
   await load()
   window.addEventListener('resize', onResize)
 })
@@ -539,20 +526,10 @@ watch([days, repoFilter], load)
         </p>
       </div>
       <div class="dashboard-filters dashboard-toolbar d-flex flex-wrap align-center">
-        <v-select
+        <RepoAutocompleteFilter
           v-model="repoFilter"
-          class="filter-select filter-select-float"
-          :items="repoOptions"
-          item-title="title"
-          item-value="value"
-          variant="solo"
-          flat
-          density="comfortable"
-          hide-details
-          rounded="lg"
-          menu-icon="mdi-menu-down"
-          prepend-inner-icon="mdi-source-repository"
-          placeholder="全部仓库"
+          field-class="filter-select-float"
+          :gate-stats="dashboard?.repo_gate_stats ?? []"
         />
         <div class="filter-range-group d-flex align-center flex-shrink-0">
           <v-btn-toggle v-model="days" class="filter-range m3-segmented" mandatory rounded="pill" density="compact">
@@ -709,21 +686,9 @@ watch([days, repoFilter], load)
                       <v-icon icon="mdi-shield-check" size="34" color="#81C995" />
                     </v-avatar>
                     <div class="donut-empty-title">暂无拦截</div>
-                    <p class="text-caption text-medium-emphasis donut-empty-sub">代码质量良好</p>
-                  </div>
-                  <div class="donut-legend-panel donut-legend-panel--idle">
-                    <div
-                      v-for="(row, idx) in donutLegendItems"
-                      :key="row.name"
-                      class="donut-legend-row"
-                      :class="{ 'donut-legend-row--divided': idx > 0 }"
-                    >
-                      <div class="donut-legend-label">
-                        <span class="donut-legend-mark" :style="{ backgroundColor: row.color }" />
-                        <span class="donut-legend-name">{{ row.name }}</span>
-                      </div>
-                      <span class="donut-legend-stat mono">{{ row.value }} 次 {{ row.pct }}%</span>
-                    </div>
+                    <p class="text-caption text-medium-emphasis donut-empty-sub">
+                      当前时间范围内无 BLOCK 门禁记录；待决任务不计入拦截分布。
+                    </p>
                   </div>
                 </div>
               </template>
@@ -1335,11 +1300,11 @@ watch([days, repoFilter], load)
   margin-inline-start: 4px;
   padding-inline-start: 12px;
 }
-.dashboard-filters .filter-select-float {
-  flex: 0 0 auto;
-  width: 168px;
-  min-width: 160px;
-  max-width: 180px;
+.dashboard-filters :deep(.repo-autocomplete.filter-select-float) {
+  flex: 0 0 280px;
+  width: 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
 }
 .dashboard-filters .filter-select-float :deep(.v-field) {
   min-height: 40px;

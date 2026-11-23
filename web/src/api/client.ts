@@ -135,6 +135,7 @@ export interface DashboardOverview {
     threshold: number
   }
   intercept_reasons: { name: string; value: number }[]
+  repo_gate_stats: { full_name: string; block_count: number; pending_count: number }[]
   recent_flows: {
     commit: string
     repo: string

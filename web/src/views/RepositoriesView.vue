@@ -52,6 +52,14 @@ function notify(text: string, variant: SnackbarVariant = 'success') {
   snackbar.value = { show: true, text, variant }
 }
 
+const repoRowMenuProps = {
+  contentClass: 'repo-row-action-menu',
+  elevation: 0,
+  rounded: 'lg',
+  minWidth: 216,
+  maxWidth: 240,
+} as const
+
 function formatIndexedAt(iso: string | null | undefined) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -131,7 +139,10 @@ const astTotals = computed(() =>
   ),
 )
 
-const showRepoSearch = computed(() => rows.value.length > 0)
+/** 无匹配结果时仍需保留搜索框，便于改关键词或清空 */
+const showRepoSearch = computed(
+  () => rows.value.length > 0 || keyword.value.trim().length > 0 || (overview.value?.repo_count ?? 0) > 0,
+)
 
 const kpiCards = computed(() => {
   const o = overview.value
@@ -434,9 +445,15 @@ onMounted(async () => {
                 <v-icon icon="mdi-source-repository" size="28" />
               </div>
               <div class="repo-empty-module__text">
-                <p class="repo-empty-module__title">暂无接入的代码仓库</p>
+                <p class="repo-empty-module__title">
+                  {{ keyword.trim() ? '未找到匹配的仓库' : '暂无接入的代码仓库' }}
+                </p>
                 <p class="repo-empty-module__desc">
-                  配置 Git 地址，自动构建 AST 静态调用链图谱。
+                  {{
+                    keyword.trim()
+                      ? `没有与「${keyword.trim()}」相符的 group/project，请修改关键词或清空搜索。`
+                      : '配置 Git 地址，自动构建 AST 静态调用链图谱。'
+                  }}
                 </p>
               </div>
             </div>
@@ -522,7 +539,14 @@ onMounted(async () => {
         </template>
         <template #item.actions="{ item }">
           <div class="repo-table-cell repo-table-cell--actions">
-            <v-menu location="bottom end">
+            <v-menu
+              location="bottom end"
+              origin="overlap"
+              scroll-strategy="reposition"
+              :close-on-content-click="true"
+              :z-index="2500"
+              :menu-props="repoRowMenuProps"
+            >
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
@@ -533,28 +557,51 @@ onMounted(async () => {
                   aria-label="仓库操作"
                 />
               </template>
-            <v-list density="compact" min-width="200">
-              <v-list-item
-                prepend-icon="mdi-database-refresh"
-                title="重建 AST 索引"
-                :disabled="actionLoading === item.id + ':reindex'"
-                @click="onReindex(item)"
-              />
-              <v-list-item
-                prepend-icon="mdi-source-branch"
-                title="手动 Diff 分析"
-                :disabled="actionLoading === item.id + ':analyze'"
-                @click="onAnalyze(item)"
-              />
-              <v-list-item prepend-icon="mdi-pencil-outline" title="编辑" @click="openEdit(item)" />
-              <v-divider />
-              <v-list-item
-                prepend-icon="mdi-delete-outline"
-                title="删除"
-                base-color="error"
-                @click="askDelete(item)"
-              />
-            </v-list>
+              <v-list class="repo-action-menu" density="default" nav>
+                <v-list-item
+                  class="repo-action-menu__item"
+                  rounded="lg"
+                  title="重建 AST 索引"
+                  :disabled="actionLoading === item.id + ':reindex'"
+                  @click="onReindex(item)"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-database-refresh" size="18" class="repo-action-menu__icon" />
+                  </template>
+                </v-list-item>
+                <v-list-item
+                  class="repo-action-menu__item"
+                  rounded="lg"
+                  title="手动 Diff 分析"
+                  :disabled="actionLoading === item.id + ':analyze'"
+                  @click="onAnalyze(item)"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-source-branch" size="18" class="repo-action-menu__icon" />
+                  </template>
+                </v-list-item>
+                <v-list-item
+                  class="repo-action-menu__item"
+                  rounded="lg"
+                  title="编辑"
+                  @click="openEdit(item)"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-pencil-outline" size="18" class="repo-action-menu__icon" />
+                  </template>
+                </v-list-item>
+                <v-divider class="repo-action-menu__divider" />
+                <v-list-item
+                  class="repo-action-menu__item repo-action-menu__item--danger"
+                  rounded="lg"
+                  title="删除"
+                  @click="askDelete(item)"
+                >
+                  <template #prepend>
+                    <v-icon icon="mdi-delete-outline" size="18" class="repo-action-menu__icon" />
+                  </template>
+                </v-list-item>
+              </v-list>
             </v-menu>
           </div>
         </template>
@@ -1157,5 +1204,57 @@ onMounted(async () => {
 .repo-dialog-form :deep(.v-field--active .v-label),
 .repo-dialog-form :deep(.v-field--focused .v-label) {
   color: rgba(255, 255, 255, 0.88);
+}
+.repo-action-menu {
+  padding: 4px 0 !important;
+  background: transparent !important;
+}
+.repo-action-menu__item {
+  min-height: 40px !important;
+  padding: 10px 16px !important;
+  margin: 0 4px;
+  font-size: 14px;
+}
+.repo-action-menu__item :deep(.v-list-item__prepend) {
+  width: auto;
+  min-width: 0;
+  margin-inline-end: 12px;
+}
+.repo-action-menu__item :deep(.v-list-item-title) {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.repo-action-menu__item :deep(.v-list-item__overlay) {
+  opacity: 0 !important;
+}
+.repo-action-menu__item:not(.v-list-item--disabled):hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.repo-action-menu__item--danger :deep(.v-list-item-title),
+.repo-action-menu__item--danger :deep(.v-icon) {
+  color: #f28b82 !important;
+}
+.repo-action-menu__item--danger:hover {
+  background: rgba(244, 67, 54, 0.1) !important;
+}
+.repo-action-menu__divider {
+  margin: 4px 12px;
+  border-color: rgba(255, 255, 255, 0.05);
+  opacity: 1;
+}
+</style>
+
+<style>
+.repo-row-action-menu {
+  z-index: 2500 !important;
+  background: #2c2c2c !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  overflow: hidden;
+}
+.repo-row-action-menu .v-list {
+  background: transparent !important;
 }
 </style>

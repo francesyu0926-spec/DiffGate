@@ -59,6 +59,7 @@ export interface JobAnalysisStats {
   avg_impacted_apis: number
   api_convergence_pct: number
   regression_trigger_pct: number
+  ever_hit_api?: boolean
 }
 
 export interface JobListItem {
@@ -74,6 +75,7 @@ export interface JobListItem {
   changed_files: number
   method_count: number
   trigger_label: string
+  commit_message?: string | null
   created_at: string | null
 }
 
