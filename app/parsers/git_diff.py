@@ -11,6 +11,30 @@ class LineRange:
     end: int
 
 
+def summarize_diff(repo_path: str | Path, base_sha: str, head_sha: str) -> dict:
+    """Counts Python vs non-Python paths in base..head (for empty-impact UX)."""
+    repo = Repo(str(repo_path))
+    diff_index = repo.commit(base_sha).diff(repo.commit(head_sha))
+    python_files = 0
+    other_files = 0
+    other_paths: list[str] = []
+    for diff_item in diff_index:
+        path = diff_item.b_path or diff_item.a_path or ""
+        if not path:
+            continue
+        if path.endswith(".py"):
+            python_files += 1
+        else:
+            other_files += 1
+            if len(other_paths) < 12:
+                other_paths.append(path)
+    return {
+        "python_files": python_files,
+        "other_files": other_files,
+        "other_paths": other_paths,
+    }
+
+
 def get_changed_line_ranges(repo_path: str | Path, base_sha: str, head_sha: str) -> list[LineRange]:
     """Extract changed file paths and line ranges from git diff base..head."""
     repo = Repo(str(repo_path))

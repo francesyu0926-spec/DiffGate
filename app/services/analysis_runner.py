@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from fastapi import BackgroundTasks
@@ -13,7 +12,7 @@ from app.config import get_settings
 from app.db.models import AnalysisJob, Repository
 from app.db.session import SessionLocal
 from app.services.dispatch import notify_dispatch_center
-from app.services.git_clone import clone_or_fallback
+from app.services.git_clone import clear_clone_dest, clone_or_fallback
 from app.services.impact import analyze_impact
 from app.services.quality_gate import apply_gate_result
 
@@ -37,11 +36,8 @@ def run_analyze_merge(
             db.commit()
 
         safe_name = repo_full_name.replace("/", "_")
-        repo_dir = Path(settings.repo_clone_root) / safe_name
-        repo_dir.parent.mkdir(parents=True, exist_ok=True)
-
-        if repo_dir.exists():
-            shutil.rmtree(repo_dir, ignore_errors=True)
+        repo_dir = (Path(settings.repo_clone_root) / safe_name).resolve()
+        clear_clone_dest(repo_dir)
 
         repo_rec = db.scalar(select(Repository).where(Repository.full_name == repo_full_name))
         clone_or_fallback(repo_rec, clone_url, repo_dir, provider, no_checkout=True)
@@ -77,6 +73,7 @@ def run_analyze_merge(
                 "symbols": [s.qualified_name for s in report.suspect_functions],
                 "suspects": payload["suspect_functions"],
                 "line_ranges": payload["line_ranges"],
+                "diff_summary": payload.get("diff_summary"),
             }
             apply_gate_result(job, repo_rec)
             db.commit()

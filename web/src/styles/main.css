@@ -42,6 +42,11 @@ body,
   padding-inline: clamp(24px, 4vw, 32px);
 }
 
+/* 顶栏与 shell-main 共用 .shell，避免 v-toolbar 默认内边距导致贴边 */
+.app-bar--md3-dark.v-toolbar .v-toolbar__content {
+  padding-inline: 0;
+}
+
 body,
 .v-application {
   font-family: 'Noto Sans SC', Roboto, 'Segoe UI', system-ui, sans-serif;

@@ -5,7 +5,7 @@ from app.graph.call_graph import CallGraph
 from app.graph.stores import Neo4jCallGraphStore, cache_adjacency, cache_job_graph
 from app.graph.viz import build_g6_payload
 from app.parsers.python_ast import SymbolDef, scan_python_repo
-from app.parsers.git_diff import LineRange, get_changed_line_ranges
+from app.parsers.git_diff import LineRange, get_changed_line_ranges, summarize_diff
 
 
 @dataclass
@@ -27,6 +27,7 @@ class ImpactReport:
     line_ranges: list[LineRange]
     symbol_count: int
     reverse_edge_count: int
+    diff_summary: dict
 
     def to_dict(self) -> dict:
         return {
@@ -50,6 +51,7 @@ class ImpactReport:
                 "reverse_edge_count": self.reverse_edge_count,
                 "api_count": len(self.affected_apis),
             },
+            "diff_summary": self.diff_summary,
         }
 
 
@@ -121,6 +123,7 @@ class ReverseTraceEngine:
         traces: list[dict],
         line_ranges: list[LineRange],
         graph: CallGraph,
+        diff_summary: dict,
     ) -> ImpactReport:
         apis = [
             {
@@ -149,6 +152,7 @@ class ReverseTraceEngine:
             line_ranges=line_ranges,
             symbol_count=len(graph.symbols),
             reverse_edge_count=sum(len(v) for v in graph.reverse.values()),
+            diff_summary=diff_summary,
         )
 
     def run(
@@ -162,6 +166,7 @@ class ReverseTraceEngine:
         job_id: str | None = None,
         scan_root: str = ".",
     ) -> ImpactReport:
+        diff_summary = summarize_diff(repo_path, base_sha, head_sha)
         line_ranges = get_changed_line_ranges(repo_path, base_sha, head_sha)
 
         symbols, graph = self.step1_index(repo_path, scan_root=scan_root)
@@ -169,7 +174,7 @@ class ReverseTraceEngine:
 
         suspects = self.step2_locate_suspects(symbols, line_ranges)
         traces = self.step3_reverse_bfs(graph, suspects)
-        report = self.step4_report(suspects, traces, line_ranges, graph)
+        report = self.step4_report(suspects, traces, line_ranges, graph, diff_summary)
 
         if job_id:
             suspect_names = [s.qualified_name for s in suspects]

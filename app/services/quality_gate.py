@@ -47,6 +47,23 @@ def _symbol_count(job: AnalysisJob) -> int:
     return len(symbols)
 
 
+def is_zero_impact_job(job: AnalysisJob) -> bool:
+    """与前端 JobDetail「零影响 / 自动放行」判定一致。"""
+    suspects = job.changed_symbols or {}
+    apis = job.affected_apis or {}
+    if _api_count(job) > 0:
+        return False
+    if len(apis.get("apis") or []) > 0:
+        return False
+    if len(apis.get("call_paths") or []) > 0:
+        return False
+    if _symbol_count(job) > 0:
+        return False
+    if len(suspects.get("suspects") or []) > 0:
+        return False
+    return True
+
+
 def build_gate_result(
     job: AnalysisJob,
     *,
@@ -94,6 +111,16 @@ def build_gate_result(
             "gate": "BLOCK",
             "block_reason": override_reason,
             "block_reason_label": REASON_LABELS.get(override_reason, override_reason),
+        }
+
+    if is_zero_impact_job(job):
+        return {
+            **base,
+            "gate": "PASS",
+            "block_reason": None,
+            "block_reason_label": None,
+            "coverage_source": "auto_zero_impact",
+            "incremental_coverage_pct": incremental_coverage_pct,
         }
 
     if incremental_coverage_pct is None:
@@ -149,6 +176,32 @@ def threshold_for_repo(job: AnalysisJob, repo: Repository | None, default: int =
     if repo and repo.full_name == job.repo_full_name:
         return repo.coverage_threshold
     return default
+
+
+def job_needs_gate_refresh(job: AnalysisJob) -> bool:
+    if job.gate_result is None:
+        return True
+    if job.status != "completed":
+        return False
+    gr = job.gate_result or {}
+    return gr.get("gate") == "PENDING" and is_zero_impact_job(job)
+
+
+def reconcile_gates_for_jobs(jobs: list[AnalysisJob], db) -> None:
+    """回填缺失门禁，或将「零影响却仍 PENDING」的作业改为 PASS。"""
+    from sqlalchemy import select
+
+    from app.db.models import Repository
+
+    dirty = False
+    for job in jobs:
+        if not job_needs_gate_refresh(job):
+            continue
+        repo = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
+        apply_gate_result(job, repo)
+        dirty = True
+    if dirty:
+        db.commit()
 
 
 def apply_gate_result(

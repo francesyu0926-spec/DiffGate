@@ -1,4 +1,3 @@
-import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -9,7 +8,7 @@ from app.config import get_settings
 from app.db.models import Repository
 from app.engine.reverse_trace import ReverseTraceEngine
 from app.graph.stores import Neo4jCallGraphStore, cache_adjacency
-from app.services.git_clone import clone_repository
+from app.services.git_clone import clear_clone_dest, clone_repository
 
 
 def _repo_dir(full_name: str) -> Path:
@@ -20,9 +19,8 @@ def _repo_dir(full_name: str) -> Path:
 
 def reindex_repository(db: Session, repo: Repository) -> dict:
     settings = get_settings()
-    repo_dir = _repo_dir(repo.full_name)
-    if repo_dir.exists():
-        shutil.rmtree(repo_dir, ignore_errors=True)
+    repo_dir = _repo_dir(repo.full_name).resolve()
+    clear_clone_dest(repo_dir)
     clone_repository(repo, repo_dir, branch=repo.default_branch, depth=1)
 
     engine = ReverseTraceEngine()
@@ -53,8 +51,9 @@ def reindex_repository(db: Session, repo: Repository) -> dict:
 
 
 def resolve_head_shas(repo: Repository) -> tuple[str, str]:
-    repo_dir = _repo_dir(repo.full_name)
-    if not repo_dir.is_dir():
+    repo_dir = _repo_dir(repo.full_name).resolve()
+    if not (repo_dir / ".git").is_dir():
+        clear_clone_dest(repo_dir)
         clone_repository(repo, repo_dir, branch=repo.default_branch, depth=50)
     git = Repo(str(repo_dir))
     head = git.head.commit

@@ -142,13 +142,14 @@ def parse_python_file(repo_root: Path, rel_path: str) -> list[SymbolDef]:
 
 def scan_python_repo(repo_root: Path, scan_root: str = ".") -> list[SymbolDef]:
     symbols: list[SymbolDef] = []
+    repo_root = repo_root.resolve()
     scan_root = (scan_root or ".").strip().lstrip("/")
-    base = (repo_root / scan_root).resolve() if scan_root not in (".", "") else repo_root.resolve()
-    if not base.is_dir() or not str(base).startswith(str(repo_root.resolve())):
-        base = repo_root.resolve()
+    base = (repo_root / scan_root).resolve() if scan_root not in (".", "") else repo_root
+    if not base.is_dir() or not str(base).startswith(str(repo_root)):
+        base = repo_root
     for path in base.rglob("*.py"):
         try:
-            rel_parts = path.relative_to(repo_root).parts
+            rel_parts = path.resolve().relative_to(repo_root).parts
         except ValueError:
             continue
         if any(
@@ -156,6 +157,6 @@ def scan_python_repo(repo_root: Path, scan_root: str = ".") -> list[SymbolDef]:
             for part in (".git", "venv", ".venv", "node_modules", "tests", "test", "__pycache__")
         ):
             continue
-        rel = str(path.relative_to(repo_root)).replace("\\", "/")
+        rel = str(path.resolve().relative_to(repo_root)).replace("\\", "/")
         symbols.extend(parse_python_file(repo_root, rel))
     return symbols

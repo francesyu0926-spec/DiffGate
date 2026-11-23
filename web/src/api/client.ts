@@ -14,6 +14,17 @@ const http = axios.create({
   timeout: 15000,
 })
 
+/** FastAPI `detail` string or validation error message for snackbars. */
+export function readApiError(err: unknown, fallback: string): string {
+  if (!axios.isAxiosError(err)) return fallback
+  const data = err.response?.data as { detail?: string | Array<{ msg?: string }> } | undefined
+  const detail = data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg
+  if (err.code === 'ECONNABORTED') return '请求超时，索引可能仍在进行，请稍后刷新列表'
+  return fallback
+}
+
 export async function fetchJobs(
   limit = 50,
   offset = 0,
@@ -74,6 +85,8 @@ export async function fetchRepoOverview() {
 export async function reindexRepository(id: string) {
   const { data } = await http.post<{ ok: boolean; repository: RepositoryItem }>(
     `/repositories/${id}/reindex`,
+    null,
+    { timeout: 120000 },
   )
   return data
 }
@@ -84,6 +97,8 @@ export async function triggerRepoAnalysis(id: string) {
 }
 
 export interface SystemStatus {
+  api_online?: boolean
+  db_online?: boolean
   ast_engine: string
   redis_online: boolean
   use_redis: boolean
@@ -91,7 +106,16 @@ export interface SystemStatus {
   worker_online: number
 }
 
+export type HomeSuggestedAction = 'add_repo' | 'index_repo' | 'run_analysis' | 'ok'
+
 export interface DashboardOverview {
+  home?: {
+    repo_count: number
+    indexed_repo_count: number
+    jobs_in_range: number
+    analysis_total: number
+    suggested_action: HomeSuggestedAction
+  }
   kpi: {
     avg_coverage: number
     coverage_delta: number
@@ -107,7 +131,7 @@ export interface DashboardOverview {
   trend: {
     labels: string[]
     changed_lines: number[]
-    coverage: number[]
+    coverage: (number | null)[]
     threshold: number
   }
   intercept_reasons: { name: string; value: number }[]

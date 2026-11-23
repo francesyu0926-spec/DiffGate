@@ -34,3 +34,13 @@ def test_pending_without_coverage():
     job = _job()
     gr = build_gate_result(job, threshold=80)
     assert gr["gate"] == "PENDING"
+
+
+def test_auto_pass_zero_impact_without_coverage():
+    job = _job(
+        affected_apis={"count": 0, "apis": [], "call_paths": []},
+        changed_symbols={"symbols": [], "suspects": [], "line_ranges": []},
+    )
+    gr = build_gate_result(job, threshold=80)
+    assert gr["gate"] == "PASS"
+    assert gr["coverage_source"] == "auto_zero_impact"

@@ -114,6 +114,17 @@ export interface JobDetail {
     symbols: string[]
     suspects?: SuspectFunction[]
     line_ranges: { path: string; start: number; end: number }[]
+    diff_summary?: {
+      python_files: number
+      other_files: number
+      other_paths?: string[]
+    }
+  } | null
+  gate_result?: {
+    changed_files?: number
+    changed_lines?: number
+    gate?: string
+    block_reason_label?: string | null
   } | null
   error_message: string | null
   created_at: string | null

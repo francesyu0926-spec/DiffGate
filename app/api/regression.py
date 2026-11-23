@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
+from app.services.quality_gate import reconcile_gates_for_jobs
+
 router = APIRouter(prefix="/regression", tags=["regression"])
 
 
@@ -32,6 +34,7 @@ def _filter_jobs(
     if repo:
         stmt = stmt.where(AnalysisJob.repo_full_name == repo)
     rows = list(db.scalars(stmt))
+    reconcile_gates_for_jobs(rows, db)
     if gate and gate.upper() in ("PASS", "BLOCK", "PENDING"):
         rows = [j for j in rows if _job_gate(j) == gate.upper()]
     return rows

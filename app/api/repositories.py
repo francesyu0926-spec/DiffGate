@@ -181,8 +181,6 @@ def rebuild_ast_index(repo_id: str, db: Session = Depends(get_db)) -> dict:
     repo = db.get(Repository, repo_id)
     if not repo:
         raise HTTPException(status_code=404, detail="仓库不存在")
-    if not repo.enabled:
-        raise HTTPException(status_code=400, detail="仓库已停用")
     try:
         stats = reindex_repository(db, repo)
     except Exception as exc:

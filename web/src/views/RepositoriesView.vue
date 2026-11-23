@@ -8,6 +8,7 @@ import {
   fetchRepoOverview,
   fetchRepositories,
   fetchTestSuitePresets,
+  readApiError,
   reindexRepository,
   triggerRepoAnalysis,
   updateRepository,
@@ -49,6 +50,17 @@ const snackbar = ref<{ show: boolean; text: string; variant: SnackbarVariant }>(
 
 function notify(text: string, variant: SnackbarVariant = 'success') {
   snackbar.value = { show: true, text, variant }
+}
+
+function formatIndexedAt(iso: string | null | undefined) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) {
+    const m = iso.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/)
+    return m ? `${m[1]} ${m[2]}` : iso.slice(0, 16).replace('T', ' ')
+  }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 const repoForm = ref<RepositoryPayload>({
@@ -98,13 +110,13 @@ const headers = [
   { title: '仓库', key: 'full_name', minWidth: 140 },
   { title: '来源', key: 'provider', width: 88 },
   { title: '默认分支', key: 'default_branch', width: 110 },
-  { title: 'AST 节点规模', key: 'ast_scale', minWidth: 150, sortable: false },
+  { title: 'AST 节点规模', key: 'ast_scale', minWidth: 172, sortable: false },
   { title: '关联用例集', key: 'test_suite_id', minWidth: 120 },
   { title: '质量门禁', key: 'coverage_threshold', width: 130, sortable: false },
   { title: '分析次数', key: 'job_count', width: 96, align: 'end' as const },
   { title: '启用', key: 'enabled', width: 88, sortable: false },
   { title: 'Webhook', key: 'webhook_enabled', width: 96, sortable: false },
-  { title: '最近索引', key: 'last_indexed_at', minWidth: 140 },
+  { title: '最近索引', key: 'last_indexed_at', minWidth: 156, width: 156 },
   { title: '操作', key: 'actions', sortable: false, width: 120, align: 'end' as const },
 ]
 
@@ -119,6 +131,8 @@ const astTotals = computed(() =>
   ),
 )
 
+const showRepoSearch = computed(() => rows.value.length > 0)
+
 const kpiCards = computed(() => {
   const o = overview.value
   void kpiTick.value
@@ -127,22 +141,38 @@ const kpiCards = computed(() => {
     {
       title: '已接入代码仓库数',
       value: o?.repo_count ?? 0,
-      sub: `全量 AST 索引已构建 ${o?.indexed_repo_count ?? 0} 个 · ${methods} 方法 / ${apis} 接口`,
+      sub: `已构建 ${o?.indexed_repo_count ?? 0} 个 · ${methods} 方法 / ${apis} 接口`,
+      icon: 'mdi-source-repository',
+      iconBg: 'rgba(66, 133, 244, 0.12)',
+      iconColor: '#8ab4f8',
+      accent: '#8ab4f8',
     },
     {
       title: '累计精准分析次数',
       value: o?.analysis_total ?? 0,
       sub: `平均分析耗时 ${o?.avg_analysis_seconds ?? 0}s`,
+      icon: 'mdi-filter-variant',
+      iconBg: 'rgba(52, 168, 83, 0.12)',
+      iconColor: '#81c995',
+      accent: '#81c995',
     },
     {
       title: '累计拦截高危变更',
       value: o?.high_risk_blocked ?? 0,
       sub: '增量覆盖率不达标阻断',
+      icon: 'mdi-shield-alert-outline',
+      iconBg: 'rgba(234, 67, 53, 0.12)',
+      iconColor: '#f28b82',
+      accent: '#f28b82',
     },
     {
       title: '回归测试耗时节省',
       value: `${o?.regression_time_saved_pct ?? 0}%`,
       sub: o?.regression_hint ?? '暂无分析任务',
+      icon: 'mdi-timer-outline',
+      iconBg: 'rgba(253, 214, 99, 0.12)',
+      iconColor: '#fdd663',
+      accent: '#fdd663',
     },
   ]
 })
@@ -249,10 +279,13 @@ async function submit() {
         dialogVisible.value = false
         await refreshAfterMutation()
         notify('仓库已接入，AST 调用链图谱构建完成')
-      } catch {
+      } catch (indexErr) {
         dialogVisible.value = false
         await refreshAfterMutation()
-        notify('仓库已保存，AST 索引构建失败，请在列表中手动重建', 'error')
+        notify(
+          readApiError(indexErr, '仓库已保存，AST 索引构建失败，请在列表中手动重建'),
+          'error',
+        )
       }
     }
   } catch {
@@ -298,8 +331,11 @@ async function onReindex(row: RepositoryItem) {
     await reindexRepository(row.id)
     await refreshAfterMutation()
     notify('仓库已接入，AST 调用链图谱构建完成')
-  } catch {
-    notify('索引失败，请检查 Clone 地址与分支', 'error')
+  } catch (err) {
+    notify(
+      readApiError(err, '索引失败，请检查 Clone 地址、默认分支，或确认已开启「启用分析」'),
+      'error',
+    )
   } finally {
     actionLoading.value = null
   }
@@ -335,13 +371,14 @@ onMounted(async () => {
 
 <template>
   <div>
-    <div class="d-flex flex-wrap align-center justify-space-between gap-3 mb-4">
-      <h2 class="text-h5 font-weight-bold">仓库管理</h2>
-      <div class="d-flex flex-wrap align-center gap-2">
+    <div class="d-flex flex-wrap align-center justify-space-between gap-3 mb-4 repo-page-head">
+      <h2 class="text-h5 font-weight-bold repo-page-title">仓库管理</h2>
+      <div class="repo-toolbar">
         <v-text-field
+          v-if="showRepoSearch"
           v-model="keyword"
           class="repo-search-field"
-          density="compact"
+          density="comfortable"
           variant="solo"
           flat
           hide-details
@@ -352,9 +389,10 @@ onMounted(async () => {
           @keyup.enter="load"
         />
         <v-btn
-          class="cta-repo-action text-none"
+          class="cta-repo-action cta-repo-action--contrast text-none"
           variant="flat"
           rounded="pill"
+          height="40"
           prepend-icon="mdi-plus"
           @click="openCreate"
         >
@@ -365,11 +403,22 @@ onMounted(async () => {
 
     <v-row class="mb-2 kpi-row" :class="{ 'kpi-row--pulse': kpiTick > 0 }">
       <v-col v-for="card in kpiCards" :key="card.title" cols="12" sm="6" md="3">
-        <v-card class="h-100 kpi-card repo-kpi-card" rounded="xl" :border="false">
-          <v-card-text>
-            <div class="text-body-2 text-medium-emphasis">{{ card.title }}</div>
-            <div class="kpi-value text-h4 mt-2">{{ card.value }}</div>
-            <div class="text-caption text-medium-emphasis mt-1">{{ card.sub }}</div>
+        <v-card class="h-100 kpi-card repo-kpi-card m3-surface-card" rounded="xl" :border="false">
+          <span class="repo-kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
+          <v-card-text class="repo-kpi-inner">
+            <div class="d-flex align-start justify-space-between gap-2 mb-2">
+              <div class="text-body-2 repo-kpi-title">{{ card.title }}</div>
+              <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }">
+                <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
+              </v-avatar>
+            </div>
+            <div class="kpi-value text-h4">{{ card.value }}</div>
+            <div
+              class="text-caption repo-kpi-sub mt-2"
+              :class="{ 'repo-kpi-sub--warn': 'subWarn' in card && card.subWarn }"
+            >
+              {{ card.sub }}
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -378,21 +427,32 @@ onMounted(async () => {
     <v-card class="repo-table-card" rounded="xl" :border="false">
       <v-progress-linear v-if="loading && rows.length === 0" indeterminate color="primary" />
       <template v-if="!loading && rows.length === 0">
-        <v-card-text class="text-center py-12">
-          <v-icon icon="mdi-source-repository" size="56" color="primary" class="mb-4 opacity-80" />
-          <div class="text-h6 font-weight-medium">暂无接入的代码仓库</div>
-          <p class="text-body-2 text-medium-emphasis mt-2 mx-auto empty-tip">
-            点击右上角「添加仓库」配置 Git 地址，自动构建 AST 静态调用链图谱。
-          </p>
-          <v-btn
-            class="cta-repo-action text-none mt-4"
-            variant="flat"
-            rounded="pill"
-            prepend-icon="mdi-plus"
-            @click="openCreate"
-          >
-            立即接入首个仓库
-          </v-btn>
+        <v-card-text class="repo-empty-panel">
+          <div class="repo-empty-module">
+            <div class="repo-empty-module__block">
+              <div class="repo-empty-module__icon" aria-hidden="true">
+                <v-icon icon="mdi-source-repository" size="28" />
+              </div>
+              <div class="repo-empty-module__text">
+                <p class="repo-empty-module__title">暂无接入的代码仓库</p>
+                <p class="repo-empty-module__desc">
+                  配置 Git 地址，自动构建 AST 静态调用链图谱。
+                </p>
+              </div>
+            </div>
+            <div class="repo-empty-module__actions">
+              <v-btn
+                class="cta-repo-action cta-repo-action--contrast text-none"
+                variant="flat"
+                rounded="pill"
+                height="40"
+                prepend-icon="mdi-plus"
+                @click="openCreate"
+              >
+                添加仓库
+              </v-btn>
+            </div>
+          </div>
         </v-card-text>
       </template>
       <v-data-table
@@ -403,6 +463,9 @@ onMounted(async () => {
         item-value="id"
         hover
         class="repo-table"
+        :items-per-page="10"
+        :items-per-page-options="[10, 25, 50]"
+        items-per-page-text="每页"
       >
         <template #item.full_name="{ item }">
           <span class="font-weight-medium">{{ item.full_name }}</span>
@@ -414,8 +477,8 @@ onMounted(async () => {
           <span class="mono text-caption">{{ item.default_branch }}</span>
         </template>
         <template #item.ast_scale="{ item }">
-          <span class="mono text-caption">
-            {{ item.ast_method_count }} 方法 / {{ item.ast_api_count }} 接口
+          <span class="repo-ast-scale mono">
+            {{ item.ast_method_count }} 方法 · {{ item.ast_api_count }} 接口
           </span>
         </template>
         <template #item.test_suite_id="{ item }">
@@ -424,7 +487,7 @@ onMounted(async () => {
           </span>
         </template>
         <template #item.coverage_threshold="{ item }">
-          <v-chip size="small" variant="tonal" color="warning">
+          <v-chip size="small" variant="flat" class="repo-tone-chip repo-tone-chip--warn">
             增量覆盖率 ≥ {{ item.coverage_threshold }}%
           </v-chip>
         </template>
@@ -432,31 +495,44 @@ onMounted(async () => {
           {{ item.job_count ?? 0 }}
         </template>
         <template #item.enabled="{ item }">
-          <v-switch
-            :model-value="item.enabled"
-            color="primary"
-            density="compact"
-            hide-details
-            @update:model-value="(v) => toggleEnabled(item, v)"
-          />
+          <div class="repo-table-cell repo-table-cell--control">
+            <v-switch
+              :model-value="item.enabled"
+              color="primary"
+              density="compact"
+              hide-details
+              @update:model-value="(v) => toggleEnabled(item, v)"
+            />
+          </div>
         </template>
         <template #item.webhook_enabled="{ item }">
           <v-chip
             size="small"
-            variant="tonal"
-            :color="item.webhook_enabled ? 'success' : 'default'"
+            variant="flat"
+            class="repo-tone-chip"
+            :class="item.webhook_enabled ? 'repo-tone-chip--ok' : 'repo-tone-chip--muted'"
           >
             {{ item.webhook_enabled ? '开' : '关' }}
           </v-chip>
         </template>
         <template #item.last_indexed_at="{ item }">
-          <span class="text-caption text-medium-emphasis">{{ item.last_indexed_at || '—' }}</span>
+          <span class="repo-index-time mono" :title="item.last_indexed_at || undefined">
+            {{ formatIndexedAt(item.last_indexed_at) }}
+          </span>
         </template>
         <template #item.actions="{ item }">
-          <v-menu location="bottom end">
-            <template #activator="{ props }">
-              <v-btn v-bind="props" icon="mdi-dots-vertical" variant="text" size="small" />
-            </template>
+          <div class="repo-table-cell repo-table-cell--actions">
+            <v-menu location="bottom end">
+              <template #activator="{ props }">
+                <v-btn
+                  v-bind="props"
+                  class="repo-row-action"
+                  icon="mdi-dots-vertical"
+                  variant="text"
+                  size="small"
+                  aria-label="仓库操作"
+                />
+              </template>
             <v-list density="compact" min-width="200">
               <v-list-item
                 prepend-icon="mdi-database-refresh"
@@ -479,98 +555,198 @@ onMounted(async () => {
                 @click="askDelete(item)"
               />
             </v-list>
-          </v-menu>
+            </v-menu>
+          </div>
         </template>
       </v-data-table>
     </v-card>
 
-    <v-dialog v-model="dialogVisible" max-width="640" scrollable>
-      <v-card :title="editingId ? '编辑仓库' : '添加仓库'">
-        <v-card-text>
-          <v-form ref="formRef" @submit.prevent="submit">
-            <v-text-field
-              v-model="repoForm.clone_url"
-              label="Clone URL"
-              :rules="[required]"
-              placeholder="https://gitlab.com/my-team/order-service.git"
-              class="mb-2"
-            />
-            <v-text-field
-              v-model="repoForm.full_name"
-              label="全称"
-              :rules="[required]"
-              placeholder="group/project"
-              class="mb-2"
-              @update:model-value="fullNameManual = true"
-            />
-            <v-select
-              v-model="repoForm.provider"
-              label="来源"
-              :items="providerItems"
-              item-title="title"
-              item-value="value"
-              :rules="[required]"
-              class="mb-2"
-            />
-            <v-select
-              v-model="repoForm.auth_method"
-              label="认证方式"
-              :items="authItems"
-              item-title="title"
-              item-value="value"
-              class="mb-2"
-            />
-            <v-text-field
-              v-if="repoForm.auth_method === 'token'"
-              v-model="accessToken"
-              label="Access Token"
-              type="password"
-              :placeholder="
-                editingTokenConfigured ? '已配置，留空表示不修改' : '后端静默拉取代码执行 Git Diff / AST'
-              "
-              class="mb-2"
-            />
-            <v-textarea
-              v-else-if="repoForm.auth_method === 'ssh'"
-              v-model="sshPrivateKey"
-              label="SSH 私钥"
-              rows="4"
-              placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-              class="mb-2"
-            />
-            <v-text-field
-              v-model="repoForm.scan_root"
-              label="源码根目录"
-              placeholder="app 或 src/main/python，默认 ."
-              class="mb-2"
-            />
-            <v-combobox
-              v-model="repoForm.test_suite_id"
-              label="关联用例集"
-              :items="testSuiteOptions"
-              clearable
-              placeholder="API 测试平台项目标识"
-              class="mb-2"
-            />
-            <v-text-field v-model="repoForm.default_branch" label="默认分支" class="mb-2" />
-            <div class="mb-4">
-              <div class="text-body-2 mb-2">增量覆盖率阈值：{{ repoForm.coverage_threshold }}%</div>
-              <v-slider v-model="repoForm.coverage_threshold" :min="0" :max="100" step="1" color="primary" thumb-label />
-            </div>
-            <v-textarea v-model="repoForm.description" label="描述" rows="2" class="mb-2" />
-            <v-switch v-model="repoForm.enabled" label="启用分析" color="primary" density="comfortable" />
-            <v-switch
-              v-model="repoForm.webhook_enabled"
-              label="接收 Webhook"
-              color="primary"
-              density="comfortable"
-            />
+    <v-dialog v-model="dialogVisible" max-width="760" scrollable class="repo-dialog">
+      <v-card class="repo-dialog-card" :title="editingId ? '编辑仓库' : '添加仓库'">
+        <v-card-text class="repo-dialog-body">
+          <v-form ref="formRef" class="repo-dialog-form" @submit.prevent="submit">
+            <v-row class="repo-form-grid" dense>
+              <v-col cols="12" md="4">
+                <v-select
+                  v-model="repoForm.provider"
+                  label="来源"
+                  :items="providerItems"
+                  item-title="title"
+                  item-value="value"
+                  :rules="[required]"
+                  variant="outlined"
+                  density="compact"
+                  hide-details="auto"
+                  class="repo-form-field"
+                />
+              </v-col>
+              <v-col cols="12" md="8">
+                <v-textarea
+                  v-model="repoForm.clone_url"
+                  label="Clone URL"
+                  :rules="[required]"
+                  variant="outlined"
+                  density="compact"
+                  rows="1"
+                  auto-grow
+                  :max-rows="3"
+                  hide-details="auto"
+                  placeholder="https://gitlab.com/my-team/order-service.git"
+                  class="repo-form-field repo-form-field--url"
+                />
+              </v-col>
+
+              <v-col cols="12" md="8">
+                <v-textarea
+                  v-model="repoForm.full_name"
+                  label="全称"
+                  :rules="[required]"
+                  variant="outlined"
+                  density="compact"
+                  rows="1"
+                  auto-grow
+                  :max-rows="3"
+                  hide-details="auto"
+                  placeholder="group/project"
+                  class="repo-form-field repo-form-field--name mono"
+                  @update:model-value="fullNameManual = true"
+                />
+              </v-col>
+              <v-col cols="12" md="4">
+                <v-text-field
+                  v-model="repoForm.default_branch"
+                  label="默认分支"
+                  variant="outlined"
+                  density="compact"
+                  hide-details="auto"
+                  class="repo-form-field"
+                />
+              </v-col>
+
+              <v-col cols="12" md="6">
+                <v-select
+                  v-model="repoForm.auth_method"
+                  label="认证方式"
+                  :items="authItems"
+                  item-title="title"
+                  item-value="value"
+                  variant="outlined"
+                  density="compact"
+                  hide-details="auto"
+                  class="repo-form-field"
+                />
+              </v-col>
+              <v-col cols="12" md="6">
+                <v-text-field
+                  v-model="repoForm.scan_root"
+                  label="源码根目录"
+                  variant="outlined"
+                  density="compact"
+                  hide-details="auto"
+                  placeholder="app 或 src/main/python，默认 ."
+                  class="repo-form-field"
+                />
+              </v-col>
+
+              <v-col v-if="repoForm.auth_method === 'token'" cols="12">
+                <v-text-field
+                  v-model="accessToken"
+                  label="Access Token"
+                  type="password"
+                  variant="outlined"
+                  density="compact"
+                  hide-details="auto"
+                  :placeholder="
+                    editingTokenConfigured ? '已配置，留空表示不修改' : '后端静默拉取代码执行 Git Diff / AST'
+                  "
+                  class="repo-form-field"
+                />
+              </v-col>
+              <v-col v-else-if="repoForm.auth_method === 'ssh'" cols="12">
+                <v-textarea
+                  v-model="sshPrivateKey"
+                  label="SSH 私钥"
+                  variant="outlined"
+                  density="compact"
+                  rows="3"
+                  hide-details="auto"
+                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                  class="repo-form-field"
+                />
+              </v-col>
+
+              <v-col cols="12" md="6">
+                <v-combobox
+                  v-model="repoForm.test_suite_id"
+                  label="关联用例集"
+                  :items="testSuiteOptions"
+                  variant="outlined"
+                  density="compact"
+                  hide-details="auto"
+                  clearable
+                  placeholder="API 测试平台项目标识"
+                  class="repo-form-field"
+                />
+              </v-col>
+              <v-col cols="12" md="6" class="d-flex flex-column justify-center">
+                <div class="text-caption text-medium-emphasis mb-1">
+                  增量覆盖率阈值：{{ repoForm.coverage_threshold }}%
+                </div>
+                <v-slider
+                  v-model="repoForm.coverage_threshold"
+                  class="repo-coverage-slider"
+                  :min="0"
+                  :max="100"
+                  step="1"
+                  color="secondary"
+                  hide-details
+                  thumb-label
+                />
+              </v-col>
+
+              <v-col cols="12">
+                <v-text-field
+                  v-model="repoForm.description"
+                  label="描述"
+                  variant="outlined"
+                  density="compact"
+                  hide-details="auto"
+                  class="repo-form-field"
+                />
+              </v-col>
+
+              <v-col cols="12" sm="6">
+                <v-switch
+                  v-model="repoForm.enabled"
+                  label="启用分析"
+                  color="secondary"
+                  density="compact"
+                  hide-details
+                  class="repo-form-switch"
+                />
+              </v-col>
+              <v-col cols="12" sm="6">
+                <v-switch
+                  v-model="repoForm.webhook_enabled"
+                  label="接收 Webhook"
+                  color="secondary"
+                  density="compact"
+                  hide-details
+                  class="repo-form-switch"
+                />
+              </v-col>
+            </v-row>
           </v-form>
         </v-card-text>
-        <v-card-actions class="px-4 pb-4">
+        <v-card-actions class="px-4 pb-4 repo-dialog-actions">
           <v-spacer />
           <v-btn variant="text" @click="dialogVisible = false">取消</v-btn>
-          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submit">
+          <v-btn
+            class="repo-dialog-submit text-none"
+            variant="flat"
+            :loading="submitLoading"
+            @click="submit"
+          >
             {{ editingId ? '保存' : '保存并初始化索引' }}
           </v-btn>
         </v-card-actions>
@@ -615,6 +791,23 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.repo-page-head {
+  width: 100%;
+  box-sizing: border-box;
+}
+.repo-page-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.repo-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  flex: 0 1 auto;
+  max-width: 100%;
+}
 .repo-search-field {
   flex: 0 1 280px;
   width: 280px;
@@ -622,35 +815,249 @@ onMounted(async () => {
   max-width: 280px;
 }
 .repo-search-field :deep(.v-field) {
-  border: 1px solid rgb(var(--v-theme-outline));
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
   box-shadow: none;
   font-size: 13px;
+  min-height: 40px;
+}
+.repo-search-field :deep(.v-field__input) {
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.repo-search-field :deep(.v-field__prepend-inner .v-icon) {
+  opacity: 0.5;
 }
 .repo-search-field :deep(.v-field__outline) {
   opacity: 0 !important;
 }
 .cta-repo-action {
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.cta-repo-action--contrast {
   background-color: #f1f3f5 !important;
   color: #111315 !important;
-  font-weight: 600;
+  font-weight: 700;
+  padding-inline: 18px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
 }
-.cta-repo-action :deep(.v-icon) {
+.cta-repo-action--contrast :deep(.v-btn__overlay) {
+  opacity: 0;
+}
+.cta-repo-action--contrast:hover {
+  background-color: #e8eaed !important;
+}
+.cta-repo-action--contrast :deep(.v-icon) {
   color: #111315 !important;
-}
-.repo-kpi-card {
-  background-color: rgb(var(--v-theme-surface)) !important;
-  border: 1px solid #2a2e35 !important;
-  box-shadow: none !important;
 }
 .repo-table-card {
   background-color: rgb(var(--v-theme-surface)) !important;
   border: 1px solid #2a2e35 !important;
   box-shadow: none !important;
 }
-.empty-tip {
-  max-width: 400px;
+.m3-surface-card {
+  background-color: rgb(var(--v-theme-surface)) !important;
+  border: 1px solid rgb(var(--v-theme-outline));
 }
-.repo-table :deep(.v-table) {
+.repo-kpi-card {
+  position: relative;
+  overflow: hidden;
+}
+.repo-kpi-accent {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+}
+.repo-kpi-inner {
+  padding: 18px 20px 20px 22px !important;
+}
+.repo-kpi-title {
+  opacity: 0.72;
+}
+.repo-kpi-sub {
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+  font-size: 13px !important;
+  color: rgba(255, 255, 255, 0.58);
+}
+.repo-table :deep(thead th) {
+  color: rgba(255, 255, 255, 0.62) !important;
+  font-weight: 500 !important;
+  font-size: 13px !important;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+.repo-table :deep(tbody tr) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.repo-table :deep(tbody td),
+.repo-table :deep(.v-data-table__td) {
+  vertical-align: middle !important;
+  padding-top: 11px !important;
+  padding-bottom: 11px !important;
+}
+.repo-ast-scale {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+.repo-index-time {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.72);
+}
+.repo-table-cell--control,
+.repo-table-cell--actions {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+}
+.repo-table-cell--actions {
+  justify-content: flex-end;
+}
+.repo-tone-chip {
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.repo-tone-chip--warn {
+  background: rgba(255, 193, 7, 0.16) !important;
+  color: #fdd663 !important;
+}
+.repo-tone-chip--ok {
+  background: rgba(52, 168, 83, 0.16) !important;
+  color: #81c995 !important;
+}
+.repo-tone-chip--muted {
+  background: rgba(142, 146, 153, 0.14) !important;
+  color: #9aa0a6 !important;
+}
+.repo-row-action {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+  color: rgba(255, 255, 255, 0.78) !important;
+}
+.repo-row-action:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+.repo-table :deep(.v-data-table-footer) {
+  padding: 8px 12px 12px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.repo-table :deep(.v-data-table-footer__info) {
+  min-width: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.repo-table :deep(.v-data-table-footer__items-per-page) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-end: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.repo-table :deep(.v-data-table-footer__items-per-page .v-select) {
+  max-width: 76px;
+}
+.repo-table :deep(.v-data-table-footer__items-per-page .v-field) {
+  min-height: 32px;
+}
+.repo-table :deep(.v-pagination) {
+  gap: 2px;
+}
+.repo-table :deep(.v-pagination__first),
+.repo-table :deep(.v-pagination__last),
+.repo-table :deep(.v-pagination__prev),
+.repo-table :deep(.v-pagination__next),
+.repo-table :deep(.v-pagination__item) {
+  min-width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.repo-table :deep(.v-pagination__first:hover),
+.repo-table :deep(.v-pagination__last:hover),
+.repo-table :deep(.v-pagination__prev:hover),
+.repo-table :deep(.v-pagination__next:hover),
+.repo-table :deep(.v-pagination__item:hover) {
+  background: rgba(255, 255, 255, 0.08);
+}
+.repo-kpi-sub--warn {
+  color: #f28b82;
+  opacity: 0.92;
+}
+.repo-empty-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  max-height: 320px;
+  padding: 28px 24px !important;
+  box-sizing: border-box;
+}
+.repo-empty-module {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  width: 100%;
+  max-width: 28rem;
+  margin-inline: auto;
+  text-align: center;
+}
+.repo-empty-module__block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.repo-empty-module__text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 26rem;
+}
+.repo-empty-module__icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(66, 133, 244, 0.15);
+  color: #8ab4f8;
+}
+.repo-empty-module__title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: #e8eaed;
+  line-height: 1.35;
+}
+.repo-empty-module__desc {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.6);
+  max-width: 400px;
+  width: 100%;
+}
+.repo-empty-module__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
 }
 .kpi-value {
@@ -667,5 +1074,88 @@ onMounted(async () => {
   color: #fff;
   min-width: min(520px, 92vw);
   padding-inline: 8px;
+}
+
+.repo-dialog-card :deep(.v-card-title) {
+  padding: 20px 24px 12px;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.repo-dialog-body {
+  padding: 4px 24px 16px !important;
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.repo-form-grid {
+  margin-top: 0;
+  --v-input-control-height: 40px;
+}
+.repo-form-grid > .v-col {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.repo-coverage-slider :deep(.v-slider-track__background) {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+.repo-coverage-slider :deep(.v-slider-track__fill) {
+  background-color: #9aa0a6 !important;
+}
+.repo-coverage-slider :deep(.v-slider-thumb__surface) {
+  background-color: #e8eaed !important;
+  border-color: #c4c7cc !important;
+}
+.repo-form-switch :deep(.v-switch__track) {
+  opacity: 0.85;
+}
+.repo-dialog-submit {
+  background-color: #f1f3f5 !important;
+  color: #111315 !important;
+  font-weight: 700;
+  padding-inline: 18px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+.repo-dialog-submit:hover {
+  background-color: #e8eaed !important;
+}
+.repo-dialog-actions :deep(.v-btn--variant-text) {
+  color: rgba(255, 255, 255, 0.72);
+}
+.repo-dialog-form :deep(.v-field) {
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #e8eaed;
+}
+.repo-dialog-form :deep(.v-field--focused) {
+  border-color: rgba(138, 180, 248, 0.55);
+}
+.repo-dialog-form :deep(.v-field__input) {
+  color: #f1f3f5;
+  opacity: 1;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  min-height: 1.5em;
+}
+.repo-dialog-form :deep(.v-label) {
+  color: rgba(255, 255, 255, 0.72);
+  opacity: 1;
+}
+.repo-form-field--url :deep(textarea),
+.repo-form-field--name :deep(textarea) {
+  font-family: var(--diffgate-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  field-sizing: content;
+  min-height: 2.75rem;
+  padding-block: 10px;
+}
+.repo-dialog-form :deep(.v-field__field) {
+  align-items: flex-start;
+}
+.repo-dialog-form :deep(.v-field--active .v-label),
+.repo-dialog-form :deep(.v-field--focused .v-label) {
+  color: rgba(255, 255, 255, 0.88);
 }
 </style>

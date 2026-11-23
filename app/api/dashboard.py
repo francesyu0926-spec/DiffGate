@@ -2,15 +2,15 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
 from app.services.quality_gate import (
     REASON_LABELS,
-    apply_gate_result,
     gate_snapshot_for_dashboard,
+    reconcile_gates_for_jobs,
 )
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -27,19 +27,6 @@ def _default_threshold(repo_map: dict[str, int], repo: str | None) -> int:
     if repo_map:
         return round(sum(repo_map.values()) / len(repo_map))
     return 80
-
-
-def _ensure_gate_results(jobs: list[AnalysisJob], repo_map: dict[str, int], db: Session) -> None:
-    dirty = False
-    for job in jobs:
-        if job.gate_result is not None:
-            continue
-        repo = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
-        prev_cov = None
-        apply_gate_result(job, repo, incremental_coverage_pct=prev_cov)
-        dirty = True
-    if dirty:
-        db.commit()
 
 
 def _bucket_trend(jobs: list[AnalysisJob], days: int, threshold: int) -> dict:
@@ -169,7 +156,7 @@ def dashboard_overview(
     repo_map = _repo_threshold_map(db)
     default_threshold = _default_threshold(repo_map, repo)
 
-    _ensure_gate_results(jobs, repo_map, db)
+    reconcile_gates_for_jobs(jobs, db)
 
     passed = 0
     blocked = 0
@@ -216,11 +203,37 @@ def dashboard_overview(
     trend = _bucket_trend(jobs, days, default_threshold)
     reasons = _intercept_reasons(blocked_jobs)
 
+    repo_total = db.scalar(select(func.count()).select_from(Repository)) or 0
+    indexed_repo_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(Repository)
+            .where(Repository.last_indexed_at.isnot(None), Repository.enabled.is_(True))
+        )
+        or 0
+    )
+    analysis_total = db.scalar(select(func.count()).select_from(AnalysisJob)) or 0
+    if repo_total == 0:
+        suggested_action = "add_repo"
+    elif indexed_repo_count == 0:
+        suggested_action = "index_repo"
+    elif analysis_total == 0:
+        suggested_action = "run_analysis"
+    else:
+        suggested_action = "ok"
+
     return {
         "filters": {
             "days": days,
             "repo": repo,
             "repos": [{"full_name": r.full_name, "id": r.id} for r in repos],
+        },
+        "home": {
+            "repo_count": repo_total,
+            "indexed_repo_count": indexed_repo_count,
+            "jobs_in_range": len(jobs),
+            "analysis_total": analysis_total,
+            "suggested_action": suggested_action,
         },
         "kpi": kpi,
         "trend": trend,

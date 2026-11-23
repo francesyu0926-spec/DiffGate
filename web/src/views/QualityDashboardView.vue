@@ -6,6 +6,7 @@ import { fetchDashboardOverview, fetchRepositories } from '@/api/client'
 
 const router = useRouter()
 const openWebhookHelp = inject<() => void>('openWebhookHelp', () => {})
+const openNewAnalysis = inject<() => void>('openNewAnalysis', () => {})
 
 const days = ref<7 | 30 | 90>(7)
 const refreshSpin = ref(false)
@@ -13,6 +14,7 @@ const repoFilter = ref<string | null>(null)
 const repoOptions = ref<{ title: string; value: string | null }[]>([])
 
 const loading = ref(false)
+const loadError = ref(false)
 const dashboard = ref<Awaited<ReturnType<typeof fetchDashboardOverview>> | null>(null)
 
 const trendRef = ref<HTMLDivElement | null>(null)
@@ -155,7 +157,8 @@ const donutIsEmpty = computed(() => {
 const DONUT_COLORS = ['#8AB4F8', '#FDD663', '#F28B82'] as const
 
 const CHART = {
-  axis: '#8E9299',
+  axis: 'rgba(255, 255, 255, 0.6)',
+  axisDim: '#8E9299',
   grid: 'rgba(255, 255, 255, 0.1)',
   line: '#8AB4F8',
   lineNode: '#1A1D21',
@@ -202,11 +205,14 @@ function resizeCharts() {
 
 async function load() {
   loading.value = true
+  loadError.value = false
   try {
     dashboard.value = await fetchDashboardOverview(days.value, repoFilter.value || undefined)
     await nextTick()
     renderCharts()
     resizeCharts()
+  } catch {
+    loadError.value = true
   } finally {
     loading.value = false
     await nextTick()
@@ -224,9 +230,47 @@ function shortenReasonLabel(name: string) {
   return reasonShortLabels[name] ?? name
 }
 
-function trendHasActivity(trend: { changed_lines: number[]; coverage: number[] }) {
-  return trend.changed_lines.some((n) => n > 0) || trend.coverage.some((n) => n > 0)
+function trendHasActivity(trend: { changed_lines: number[]; coverage: (number | null)[] }) {
+  return (
+    trend.changed_lines.some((n) => n > 0) ||
+    trend.coverage.some((n) => n != null && n > 0)
+  )
 }
+
+const trendShowEmptyOverlay = computed(() => {
+  const trend = dashboard.value?.trend
+  if (!dashboard.value || !trend) return false
+  if (!trend.labels?.length) return true
+  return !trendHasActivity(trend)
+})
+
+const trendEmptyCta = computed(() => {
+  if (!trendShowEmptyOverlay.value) return null
+  const action = dashboard.value?.home?.suggested_action ?? 'add_repo'
+  const map = {
+    add_repo: {
+      label: '去接入仓库',
+      sub: '配置 Git 地址并完成 AST 索引后，趋势将自动更新',
+      handler: () => router.push('/repositories'),
+    },
+    index_repo: {
+      label: '去构建 AST 索引',
+      sub: '在仓库管理中执行「重新索引」',
+      handler: () => router.push('/repositories'),
+    },
+    run_analysis: {
+      label: '触发首次分析',
+      sub: '对比 HEAD 变更，生成门禁与趋势数据',
+      handler: () => openNewAnalysis(),
+    },
+    ok: {
+      label: '新建分析',
+      sub: '本时间范围内暂无任务，可手动触发一次分析',
+      handler: () => openNewAnalysis(),
+    },
+  } as const
+  return map[action] ?? map.add_repo
+})
 
 function renderCharts() {
   if (!dashboard.value) return
@@ -247,6 +291,10 @@ function renderCharts() {
   const trendActive = trendHasActivity(trend)
 
   if (trendRef.value) {
+    if (!trendActive) {
+      trendChart?.dispose()
+      trendChart = null
+    } else {
     trendChart?.dispose()
     trendChart = echarts.init(trendRef.value)
     trendChart.setOption({
@@ -258,33 +306,7 @@ function renderCharts() {
         textStyle: { color: CHART.tooltipText, fontSize: 12 },
       },
       legend: { show: false },
-      graphic: trendActive
-        ? []
-        : [
-            {
-              type: 'text',
-              left: 'center',
-              top: '48%',
-              style: {
-                text: '暂无近期数据',
-                fill: CHART.axis,
-                font: '13px "Noto Sans SC", system-ui, sans-serif',
-                textAlign: 'center',
-              },
-            },
-            {
-              type: 'text',
-              left: 'center',
-              top: '58%',
-              style: {
-                text: '接入仓库 Webhook 或手动触发分析后展示',
-                fill: 'rgba(142, 146, 153, 0.85)',
-                font: '12px "Noto Sans SC", system-ui, sans-serif',
-                textAlign: 'center',
-              },
-            },
-          ],
-      grid: { left: 48, right: 64, top: 36, bottom: 40 },
+      graphic: [],
       xAxis: {
         type: 'category',
         data: trend.labels,
@@ -333,7 +355,22 @@ function renderCharts() {
           symbol: 'circle',
           symbolSize: 8,
           lineStyle: { width: 2, color: trendActive ? CHART.line : 'rgba(138, 180, 248, 0.35)' },
-          data: trend.coverage,
+          data: trend.coverage.map((c) => (c == null ? '-' : c)),
+          areaStyle: trendActive
+            ? {
+                color: {
+                  type: 'linear',
+                  x: 0,
+                  y: 0,
+                  x2: 0,
+                  y2: 1,
+                  colorStops: [
+                    { offset: 0, color: CHART.areaTop },
+                    { offset: 1, color: 'rgba(138, 180, 248, 0)' },
+                  ],
+                },
+              }
+            : undefined,
           emphasis: {
             scale: true,
             focus: 'series',
@@ -343,19 +380,6 @@ function renderCharts() {
               color: CHART.lineNode,
               borderColor: CHART.lineNodeBorder,
               borderWidth: 2,
-            },
-          },
-          areaStyle: {
-            color: {
-              type: 'linear',
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-              colorStops: [
-                { offset: 0, color: CHART.areaTop },
-                { offset: 1, color: 'rgba(138, 180, 248, 0)' },
-              ],
             },
           },
           itemStyle: {
@@ -373,15 +397,16 @@ function renderCharts() {
               position: 'end',
               color: CHART.baseline,
               fontSize: 11,
-              distance: 8,
+              distance: 6,
               align: 'right',
-              verticalAlign: 'bottom',
+              verticalAlign: 'middle',
             },
             data: [{ yAxis: threshold }],
           },
         },
       ],
     })
+    }
   }
 
   if (donutRef.value) {
@@ -513,7 +538,7 @@ watch([days, repoFilter], load)
           全链路代码变更风险监控与 CI/CD 质量门禁拦截大盘
         </p>
       </div>
-      <div class="dashboard-filters d-flex flex-wrap align-center ga-3">
+      <div class="dashboard-filters dashboard-toolbar d-flex flex-wrap align-center">
         <v-select
           v-model="repoFilter"
           class="filter-select filter-select-float"
@@ -522,9 +547,10 @@ watch([days, repoFilter], load)
           item-value="value"
           variant="solo"
           flat
-          density="compact"
+          density="comfortable"
           hide-details
           rounded="lg"
+          menu-icon="mdi-menu-down"
           prepend-inner-icon="mdi-source-repository"
           placeholder="全部仓库"
         />
@@ -538,10 +564,10 @@ watch([days, repoFilter], load)
             class="filter-refresh filter-refresh-md"
             variant="text"
             icon
-            rounded="circle"
-            size="small"
+            rounded="lg"
             :loading="loading"
             aria-label="刷新大盘数据"
+            title="刷新"
             @click="onManualRefresh"
           >
             <v-icon icon="mdi-refresh" :class="{ 'spin-once': refreshSpin && !loading }" />
@@ -549,6 +575,19 @@ watch([days, repoFilter], load)
         </div>
       </div>
     </div>
+
+    <v-alert
+      v-if="loadError"
+      type="warning"
+      variant="tonal"
+      density="comfortable"
+      class="mb-4"
+      rounded="lg"
+      prominent
+    >
+      无法加载驾驶舱数据。请确认已运行 <code class="mono">run_api.ps1</code>，且前端代理能访问
+      <code class="mono">/api/v1</code>。
+    </v-alert>
 
     <v-row class="dashboard-grid dashboard-stack-gap kpi-row">
       <v-col v-for="(card, index) in kpiCards" :key="card.title" cols="12" sm="6" lg="3">
@@ -582,16 +621,20 @@ watch([days, repoFilter], load)
               >
                 {{ card.trendPill }}
               </v-chip>
-              <span class="text-caption text-medium-emphasis">{{ card.sub }}</span>
+              <span class="text-caption text-medium-emphasis kpi-sub">{{ card.sub }}</span>
             </div>
           </v-card-text>
         </v-card>
       </v-col>
     </v-row>
 
-    <v-row class="dashboard-grid dashboard-stack-gap chart-row">
+    <v-row class="dashboard-grid dashboard-stack-gap chart-row" align="stretch">
       <v-col cols="12" lg="8" class="chart-col-trend">
-        <v-card class="h-100 chart-card-equal m3-surface-card m3-elevated" rounded="xl" :border="false">
+        <v-card
+          class="h-100 chart-card-equal m3-surface-card m3-elevated"
+          rounded="xl"
+          :border="false"
+        >
           <v-card-title class="chart-card-title chart-card-title--split">
             <span class="text-subtitle-1 font-weight-medium chart-card-heading">增量代码覆盖率 vs 门禁通过趋势</span>
             <div class="trend-legend" aria-hidden="true">
@@ -607,7 +650,41 @@ watch([days, repoFilter], load)
           </v-card-title>
           <v-card-text class="chart-card-body">
             <v-skeleton-loader v-if="loading && !dashboard" type="image" height="290" />
-            <div v-show="dashboard" ref="trendRef" class="chart-box" />
+            <div
+              v-show="dashboard"
+              class="chart-box-wrap"
+              :class="{ 'chart-box-wrap--empty': trendShowEmptyOverlay }"
+            >
+              <div v-show="!trendShowEmptyOverlay" ref="trendRef" class="chart-box" />
+              <div
+                v-if="trendShowEmptyOverlay && trendEmptyCta"
+                class="empty-module chart-empty-state"
+                aria-live="polite"
+              >
+                <div class="empty-module__block">
+                  <div class="empty-module__icon" aria-hidden="true">
+                    <v-icon icon="mdi-chart-timeline-variant" size="24" />
+                  </div>
+                  <div class="empty-module__text">
+                    <p class="empty-module__title">暂无近期数据</p>
+                    <p class="empty-module__desc">{{ trendEmptyCta.sub }}</p>
+                  </div>
+                </div>
+                <div class="empty-module__actions empty-module__actions--single">
+                  <v-btn
+                    color="primary"
+                    variant="flat"
+                    rounded="pill"
+                    size="small"
+                    class="text-none empty-module__cta"
+                    prepend-icon="mdi-plus"
+                    @click="trendEmptyCta.handler()"
+                  >
+                    {{ trendEmptyCta.label }}
+                  </v-btn>
+                </div>
+              </div>
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -721,13 +798,32 @@ watch([days, repoFilter], load)
           <v-skeleton-loader v-if="loading && !dashboard" type="list-item@4" class="flow-skeleton" />
 
           <div v-else-if="!(dashboard?.recent_flows?.length)" class="flow-empty-inner">
-            <v-avatar size="52" rounded="circle" class="flow-empty-icon">
-              <v-icon icon="mdi-source-branch" size="26" color="secondary" />
-            </v-avatar>
-            <div class="text-subtitle-1 font-weight-medium">暂无流水线记录</div>
-            <p class="text-body-2 text-medium-emphasis flow-empty-tip">
-              配置 Git Webhook 或在仓库页手动触发分析后，门禁动态将在此展示。
-            </p>
+            <div class="empty-module">
+              <div class="empty-module__block">
+                <div class="empty-module__icon" aria-hidden="true">
+                  <v-icon icon="mdi-source-branch" size="24" />
+                </div>
+                <div class="empty-module__text">
+                  <p class="empty-module__title">暂无流水线记录</p>
+                  <p class="empty-module__desc">
+                    配置 Webhook 或触发分析后，动态将展示在此处。
+                  </p>
+                </div>
+              </div>
+              <div class="empty-module__actions empty-module__actions--single">
+                <v-btn
+                  color="primary"
+                  variant="flat"
+                  rounded="pill"
+                  size="small"
+                  class="text-none empty-module__cta"
+                  append-icon="mdi-chevron-right"
+                  @click="router.push('/repositories')"
+                >
+                  去配置仓库与 Webhook
+                </v-btn>
+              </div>
+            </div>
           </div>
 
           <div v-else class="flow-list">
@@ -749,7 +845,7 @@ watch([days, repoFilter], load)
             </div>
           </div>
 
-          <div class="flow-row-impact d-none d-sm-flex">
+          <div class="flow-row-impact d-none d-sm-flex align-center">
             <v-chip size="x-small" variant="flat" rounded="pill" class="impact-chip">{{ item.changed_files }} 文件</v-chip>
             <v-chip size="x-small" variant="flat" rounded="pill" class="impact-chip impact-chip--accent">{{ item.api_impact }} API</v-chip>
           </div>
@@ -774,11 +870,12 @@ watch([days, repoFilter], load)
             </v-chip>
           </div>
 
-          <div class="flow-row-actions d-flex justify-end ga-1">
-            <v-tooltip text="需关联分析任务" location="top" :disabled="!!item.job_id">
+          <div class="flow-row-actions d-flex align-center justify-end">
+            <v-tooltip text="需关联分析任务" location="top start" :disabled="!!item.job_id">
               <template #activator="{ props: tipProps }">
                 <v-btn
                   v-bind="tipProps"
+                  class="flow-action-btn"
                   icon="mdi-graph-outline"
                   variant="text"
                   size="small"
@@ -790,6 +887,7 @@ watch([days, repoFilter], load)
               </template>
             </v-tooltip>
             <v-btn
+              class="flow-action-btn"
               icon="mdi-file-code-outline"
               size="small"
               variant="text"
@@ -890,11 +988,16 @@ watch([days, repoFilter], load)
   flex-shrink: 0;
 }
 .trend-legend-swatch--bar {
-  background: #252930;
+  background: rgba(255, 255, 255, 0.38);
+  height: 8px;
+  width: 14px;
+  border-radius: 2px;
 }
 .trend-legend-swatch--line {
   background: #8ab4f8;
   border-radius: 999px;
+  width: 10px;
+  height: 10px;
 }
 .chart-card-equal {
   display: flex;
@@ -910,6 +1013,11 @@ watch([days, repoFilter], load)
 .chart-col-trend,
 .chart-col-donut {
   display: flex;
+}
+.chart-col-trend > .v-card,
+.chart-col-donut > .v-card {
+  flex: 1 1 auto;
+  width: 100%;
 }
 .chart-card-body {
   padding: 8px 20px 24px 24px !important;
@@ -933,27 +1041,37 @@ watch([days, repoFilter], load)
 }
 .donut-layout--compact {
   justify-content: center;
+  align-items: center;
+  gap: 0;
+  min-height: 260px;
+  height: 100%;
 }
 .chart-box {
   width: 100%;
   flex: 1 1 auto;
-  min-height: 300px;
+  min-height: 280px;
 }
 .donut-empty-cluster {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 16px;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
   width: 100%;
-  padding: 4px 0 8px;
+  height: 100%;
+  min-height: 240px;
+  padding: 12px 8px 8px;
+  flex: 1 1 auto;
+  box-sizing: border-box;
 }
 .donut-empty-positive {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 12px 8px 4px;
   text-align: center;
+  padding: 0 12px;
+  width: 100%;
 }
 .donut-empty-avatar {
   background: rgba(52, 168, 83, 0.14) !important;
@@ -965,7 +1083,8 @@ watch([days, repoFilter], load)
   color: rgb(var(--v-theme-on-surface));
 }
 .donut-empty-sub {
-  margin: 8px 0 0;
+  margin: 8px 0 4px;
+  max-width: 220px;
 }
 .donut-chart-canvas--stacked {
   width: 100%;
@@ -977,34 +1096,47 @@ watch([days, repoFilter], load)
   padding-top: 0;
 }
 .donut-legend-panel {
-  width: 100%;
-  padding: 4px 4px 0;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  padding: 4px 12px 0;
   gap: 0;
   box-sizing: border-box;
 }
+.donut-empty-cluster .donut-legend-panel {
+  max-width: 100%;
+}
 .donut-legend-panel--idle {
-  opacity: 0.38;
+  opacity: 0.55;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 6px 14px 8px !important;
+  gap: 0;
 }
 .donut-legend-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  column-gap: 12px;
-  padding: 8px 0;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 0;
+  box-sizing: border-box;
 }
 .donut-legend-row--divided {
-  border-top: 1px solid rgb(var(--v-theme-outline));
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 .donut-empty-cluster .donut-legend-row:first-child {
-  padding-top: 0;
+  padding-top: 10px;
+}
+.donut-empty-cluster .donut-legend-row:last-child {
+  padding-bottom: 10px;
 }
 .donut-legend-label {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 .donut-legend-mark {
   width: 4px;
@@ -1026,10 +1158,120 @@ watch([days, repoFilter], load)
   color: rgb(var(--v-theme-on-surface));
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  text-align: right;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  min-width: 5.5rem;
+}
+.chart-box-wrap {
+  position: relative;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+.chart-box-wrap--empty {
+  min-height: 280px;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 8px;
+}
+.chart-box-wrap--empty .empty-module {
+  width: 100%;
+  max-width: 28rem;
+  margin-inline: auto;
+}
+.chart-card-body:has(.chart-box-wrap--empty) {
+  padding-inline: 24px !important;
+}
+.chart-box-wrap .chart-box {
+  flex: 1 1 auto;
+  min-height: 280px;
+}
+.empty-module {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  width: 100%;
+  max-width: 28rem;
+  padding: 20px 24px;
+  margin-inline: auto;
+  text-align: center;
+  box-sizing: border-box;
+}
+.empty-module__block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 26rem;
+}
+.empty-module__text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.empty-module__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(138, 180, 248, 0.12);
+  color: #8ab4f8;
+}
+.empty-module__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #e8eaed;
+}
+.empty-module__desc {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.6);
+  max-width: 26rem;
+  width: 100%;
+}
+.empty-module__actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+.empty-module__actions--single {
+  gap: 0;
+}
+.empty-module__cta {
+  font-weight: 600;
+  padding-inline: 16px !important;
+  min-width: 0;
+  letter-spacing: 0;
+}
+.empty-module__cta :deep(.v-icon) {
+  opacity: 1;
+}
+.chart-empty-state {
+  min-height: 240px;
+  flex: 0 0 auto;
 }
 .m3-surface-card {
   background-color: rgb(var(--v-theme-surface)) !important;
-  border: 1px solid rgb(var(--v-theme-outline));
+  border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: none;
 }
 .m3-elevated {
@@ -1060,9 +1302,6 @@ watch([days, repoFilter], load)
 .kpi-icon-tonal {
   flex-shrink: 0;
 }
-.flow-empty-icon {
-  background: rgba(142, 146, 153, 0.12);
-}
 .repo-link {
   display: inline-flex;
   align-items: center;
@@ -1083,13 +1322,18 @@ watch([days, repoFilter], load)
   font-variant-numeric: tabular-nums;
 }
 
-.dashboard-filters {
+.dashboard-filters,
+.dashboard-toolbar {
   align-items: center;
   margin-inline-start: auto;
   flex-shrink: 0;
+  gap: 12px;
 }
 .filter-range-group {
-  gap: 16px;
+  gap: 8px;
+  border-inline-start: 1px solid rgba(255, 255, 255, 0.08);
+  margin-inline-start: 4px;
+  padding-inline-start: 12px;
 }
 .dashboard-filters .filter-select-float {
   flex: 0 0 auto;
@@ -1098,8 +1342,8 @@ watch([days, repoFilter], load)
   max-width: 180px;
 }
 .dashboard-filters .filter-select-float :deep(.v-field) {
-  min-height: 34px;
-  height: 34px;
+  min-height: 40px;
+  height: 40px;
   border-radius: 10px;
   background-color: rgb(var(--v-theme-surface)) !important;
   font-size: 13px;
@@ -1111,7 +1355,7 @@ watch([days, repoFilter], load)
   opacity: 0 !important;
 }
 .dashboard-filters .filter-select-float :deep(.v-field__input) {
-  min-height: 34px;
+  min-height: 40px;
   padding-top: 0;
   padding-bottom: 0;
   padding-inline: 2px 8px;
@@ -1130,12 +1374,12 @@ watch([days, repoFilter], load)
   border-radius: 9999px;
   padding: 2px;
   box-shadow: none;
-  height: 34px;
+  height: 40px;
   gap: 2px;
 }
 .dashboard-filters .m3-segmented :deep(.v-btn) {
-  height: 30px !important;
-  min-height: 30px;
+  height: 34px !important;
+  min-height: 34px;
   font-size: 13px;
   letter-spacing: 0;
   text-transform: none;
@@ -1163,13 +1407,14 @@ watch([days, repoFilter], load)
   width: 40px;
   height: 40px;
   min-width: 40px;
-  color: #8e9299;
-  background: transparent !important;
+  color: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04) !important;
   box-shadow: none;
 }
 .dashboard-filters .filter-refresh-md:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: #f1f3f5;
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #e8eaed;
 }
 .dashboard-filters .filter-refresh-md :deep(.v-btn__overlay) {
   opacity: 0 !important;
@@ -1198,11 +1443,16 @@ watch([days, repoFilter], load)
 .kpi-metric {
   font-family: var(--diffgate-kpi);
   font-size: 2.25rem;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.12;
   color: rgb(var(--v-theme-on-surface));
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+}
+.kpi-sub {
+  color: rgba(255, 255, 255, 0.62) !important;
+  opacity: 1;
+  font-size: 13px !important;
 }
 .kpi-trend-pill--up {
   background: rgba(52, 168, 83, 0.16) !important;
@@ -1224,20 +1474,44 @@ watch([days, repoFilter], load)
   color: #f28b82 !important;
 }
 .gate-status-chip--pending {
-  background: rgba(142, 146, 153, 0.16) !important;
-  color: #8e9299 !important;
+  background: rgba(253, 214, 99, 0.18) !important;
+  color: #fdd663 !important;
+}
+.gate-status-chip {
+  flex-shrink: 0;
+  padding-inline: 10px !important;
+  min-width: 4.75rem;
+  justify-content: center;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 .repo-link--title {
   font-size: 14px;
   font-weight: 500;
 }
 .gate-progress {
-  flex: 1 1 88px;
-  max-width: 120px;
-  min-width: 72px;
+  flex: 1 1 64px;
+  max-width: 88px;
+  min-width: 56px;
+}
+.flow-row-actions {
+  gap: 8px;
+  flex-shrink: 0;
+}
+.flow-action-btn {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 50% !important;
+}
+.flow-action-btn:hover:not(:disabled) {
+  background: rgba(138, 180, 248, 0.12) !important;
 }
 .chart-row {
   align-items: stretch;
+}
+.chart-row .chart-card-body {
+  flex: 1 1 auto;
+  min-height: 280px;
 }
 .flow-panel {
   width: 100%;
@@ -1268,16 +1542,8 @@ watch([days, repoFilter], load)
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  text-align: center;
   padding: 16px 24px;
   box-sizing: border-box;
-}
-.flow-empty-tip {
-  max-width: 360px;
-  margin: 0;
-  text-align: center;
-  line-height: 1.5;
 }
 .flow-list {
   display: flex;
@@ -1286,7 +1552,7 @@ watch([days, repoFilter], load)
 }
 .flow-row-card {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto auto auto;
+  grid-template-columns: 40px minmax(0, 1.15fr) auto minmax(168px, 1fr) auto;
   align-items: center;
   column-gap: 12px;
   row-gap: 8px;
@@ -1328,14 +1594,17 @@ watch([days, repoFilter], load)
   min-width: 0;
 }
 .flow-row-impact {
+  display: flex;
+  align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
 }
 .flow-row-gate {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
+  flex-wrap: nowrap;
 }
 .gate-pct {
   flex-shrink: 0;
@@ -1343,7 +1612,7 @@ watch([days, repoFilter], load)
   opacity: 0.88;
 }
 .flow-row-actions {
-  opacity: 0.4;
+  opacity: 0.55;
   transition: opacity 0.18s ease;
 }
 .flow-row-card:hover .flow-row-actions {
