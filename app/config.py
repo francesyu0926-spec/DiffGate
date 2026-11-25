@@ -31,7 +31,11 @@ class Settings(BaseSettings):
     repo_clone_root: str = "./data/repos"
 
     # 精准回归调度中心（第四步联动）；为空则跳过
+    # 本地测试可设 http://127.0.0.1:8000/api/v1/dispatch/regression
     dispatch_center_url: str = ""
+
+    # DiffGate API 根地址，供调度 payload / coverage.py 回传门禁
+    api_public_base_url: str = "http://127.0.0.1:8000"
 
     # 本地单进程：FastAPI BackgroundTasks 执行分析，仅需 uvicorn（默认）
     use_background_tasks: bool = True

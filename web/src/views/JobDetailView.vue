@@ -73,12 +73,29 @@ const apis = computed(() => job.value?.affected_apis?.apis ?? [])
 const suspects = computed(() => job.value?.changed_symbols?.suspects ?? [])
 const symbols = computed(() => job.value?.changed_symbols?.symbols ?? [])
 
+function isApiChainLabel(label: string) {
+  return /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\//.test(label)
+}
+
+function callPathDisplayLayers(row: CallPath & { chain_labels?: string[] }) {
+  const labels = row.chain_labels?.length ? row.chain_labels : row.chain ?? []
+  if (labels.length > 1) return Math.max(0, labels.length - 1)
+  if (typeof row.layers === 'number' && row.layers > 0) return row.layers
+  if (labels.length === 1 && isApiChainLabel(labels[0])) return null
+  if (typeof row.layers === 'number') return row.layers
+  return null
+}
+
 const callPathRows = computed(() => {
   const paths = job.value?.affected_apis?.call_paths ?? []
-  return paths.map((row) => ({
-    ...row,
-    chain_labels: row.chain_labels?.length ? row.chain_labels : row.chain ?? [],
-  }))
+  return paths.map((row) => {
+    const chain_labels = row.chain_labels?.length ? row.chain_labels : row.chain ?? []
+    return {
+      ...row,
+      chain_labels,
+      display_layers: callPathDisplayLayers({ ...row, chain_labels }),
+    }
+  })
 })
 
 const suspectRows = computed(() => {
@@ -92,6 +109,105 @@ const suspectRows = computed(() => {
   }))
 })
 
+const suspectSearch = ref('')
+const suspectApiOnly = ref(false)
+
+function shortSuspectName(qualifiedName: string) {
+  const parts = qualifiedName.replace(/\\/g, '.').split('.').filter(Boolean)
+  if (!parts.length) return qualifiedName
+  const method = parts[parts.length - 1]
+  const prev = parts.length >= 2 ? parts[parts.length - 2] : ''
+  const withCall = method.includes('(') ? method : `${method}()`
+  if (prev && /^[A-Z]/.test(prev)) return `${prev}.${withCall}`
+  return withCall
+}
+
+function callersAbove(graphData: JobGraph, nodeId: string) {
+  const ids = new Set(graphData.nodes.map((n) => n.id))
+  const keys = new Set([nodeId, nodeId.split('.').pop() ?? nodeId])
+  const callers: string[] = []
+  for (const e of graphData.edges) {
+    const hit =
+      keys.has(e.target) ||
+      [...keys].some((k) => e.target === k || e.target.endsWith(`.${k}`))
+    if (hit && ids.has(e.source)) callers.push(e.source)
+  }
+  return callers
+}
+
+function graphReachesApi(graphData: JobGraph | null, qualifiedName: string) {
+  if (!graphData?.nodes.length) return false
+  const apiIds = new Set(graphData.nodes.filter((n) => n.type === 'api').map((n) => n.id))
+  if (!apiIds.size) return false
+  const idSet = new Set(graphData.nodes.map((n) => n.id))
+  const seeds = [
+    qualifiedName,
+    ...graphData.nodes
+      .filter((n) => n.id === qualifiedName || n.id.endsWith(`.${qualifiedName.split('.').pop()}`))
+      .map((n) => n.id),
+  ]
+  const q = [...new Set(seeds.filter((s) => idSet.has(s))) ]
+  const seen = new Set<string>()
+  while (q.length) {
+    const cur = q.pop()!
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    if (apiIds.has(cur)) return true
+    for (const up of callersAbove(graphData, cur)) q.push(up)
+  }
+  return false
+}
+
+const callPathSymbolSet = computed(() => {
+  const set = new Set<string>()
+  for (const row of callPathRows.value) {
+    const extra = row as CallPath & { chain_full?: string[] }
+    for (const item of [...(row.chain ?? []), ...(row.chain_labels ?? []), ...(extra.chain_full ?? [])]) {
+      if (!item || /^(GET|POST|PUT|PATCH|DELETE)\s+\//.test(item)) continue
+      set.add(item)
+      set.add(item.split('.').pop() ?? item)
+    }
+  }
+  return set
+})
+
+function suspectHitsApi(row: SuspectFunction) {
+  const q = row.qualified_name
+  const short = q.split('.').pop() ?? q
+  if (callPathSymbolSet.value.has(q) || callPathSymbolSet.value.has(short)) return true
+  return graphReachesApi(graph.value, q)
+}
+
+type SuspectTableRow = SuspectFunction & {
+  displayName: string
+  locationLine: string
+  hitsApi: boolean
+}
+
+const suspectTableRows = computed(() => {
+  const q = suspectSearch.value.trim().toLowerCase()
+  const rows: SuspectTableRow[] = suspectRows.value.map((row) => ({
+    ...row,
+    displayName: shortSuspectName(row.qualified_name),
+    locationLine:
+      row.file && row.file !== '—' && row.start_line
+        ? `${row.file} · L${row.start_line}-${row.end_line}`
+        : row.file && row.file !== '—'
+          ? row.file
+          : '—',
+    hitsApi: suspectHitsApi(row),
+  }))
+  return rows.filter((row) => {
+    if (suspectApiOnly.value && !row.hitsApi) return false
+    if (!q) return true
+    return (
+      row.qualified_name.toLowerCase().includes(q) ||
+      row.displayName.toLowerCase().includes(q) ||
+      row.file.toLowerCase().includes(q)
+    )
+  })
+})
+
 const changedIds = computed(() => symbols.value)
 
 const drawerOpen = ref(false)
@@ -102,7 +218,31 @@ const drawerPick = ref<{
   endLine: number
   nodeType: GraphNodePick['type']
   highlight?: string
+  impactPath?: string
 } | null>(null)
+
+function drawerEndLine(pick: GraphNodePick) {
+  const line = pick.line ?? 1
+  if (pick.type === 'api') {
+    const graphEnd =
+      pick.end_line && pick.end_line > line ? pick.end_line : line + 32
+    return Math.min(Math.max(graphEnd, line + 8), line + 40)
+  }
+  const span = 56
+  const maxSpan = 120
+  const graphSpan = pick.end_line && pick.end_line > line ? pick.end_line - line : span
+  const useSpan = Math.min(Math.max(graphSpan, 12), maxSpan)
+  return line + useSpan
+}
+
+function formatImpactPath(pick: GraphNodePick, title: string) {
+  if (pick.type !== 'api' || !pick.calleeHints?.length) return undefined
+  const chain = pick.calleeHints.map((id) => {
+    const short = id.split('.').pop() ?? id
+    return `${short}() [变更]`
+  })
+  return `波及路径: ${chain.join(' → ')} → ${title}`
+}
 
 function formatCallChain(row: CallPath & { chain_labels?: string[] }) {
   const labels = row.chain_labels?.length ? row.chain_labels : row.chain ?? []
@@ -119,11 +259,6 @@ function httpPillClass(method: string | undefined) {
 
 function openDrawerFromNode(pick: GraphNodePick) {
   if (!pick.file || !pick.line) return
-  const span = pick.type === 'api' ? 64 : 48
-  const end =
-    pick.end_line && pick.end_line > pick.line + 3
-      ? pick.end_line
-      : pick.line + span
   const title =
     pick.type === 'api' && pick.method && pick.route
       ? `${pick.method.toUpperCase()} ${pick.route}`
@@ -132,17 +267,18 @@ function openDrawerFromNode(pick: GraphNodePick) {
     title,
     file: pick.file.replace(/\\/g, '/'),
     startLine: pick.line,
-    endLine: end,
+    endLine: drawerEndLine(pick),
     nodeType: pick.type,
     highlight: pick.calleeHints?.join(','),
+    impactPath: formatImpactPath(pick, title),
   }
   drawerOpen.value = true
 }
 
-function openDrawerFromSuspect(row: SuspectFunction) {
+function openDrawerFromSuspect(row: SuspectFunction & { displayName?: string }) {
   if (!row.file || row.file === '—' || !row.start_line) return
   drawerPick.value = {
-    title: row.qualified_name.split('.').pop() ?? row.qualified_name,
+    title: row.displayName ?? shortSuspectName(row.qualified_name),
     file: row.file,
     startLine: row.start_line,
     endLine: row.end_line || row.start_line,
@@ -366,32 +502,83 @@ onUnmounted(clearPoll)
                 <span class="chain">{{ formatCallChain(row) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="layers" label="层数" width="64" />
+            <el-table-column label="层数" width="72">
+              <template #default="{ row }">
+                <span
+                  class="layer-depth"
+                  :title="
+                    row.display_layers == null
+                      ? '调用链未完整索引（多为旧分析任务）。请重新跑一次变更分析。'
+                      : '自变更符号到接口的传播跳数'
+                  "
+                >
+                  {{ row.display_layers == null ? '—' : row.display_layers }}
+                </span>
+              </template>
+            </el-table-column>
           </el-table>
         </div>
       </el-col>
       <el-col :span="12">
-        <h3 class="job-section__title">初始变更函数明细</h3>
+        <div class="job-section-head">
+          <h3 class="job-section__title job-section__title--tight">初始变更函数明细</h3>
+          <div class="suspect-toolbar">
+            <label class="suspect-toolbar__toggle">
+              <input v-model="suspectApiOnly" type="checkbox" />
+              仅看波及接口
+            </label>
+            <input
+              v-model="suspectSearch"
+              type="search"
+              class="suspect-toolbar__search"
+              placeholder="搜索函数或文件"
+              aria-label="搜索变更函数"
+            />
+          </div>
+        </div>
         <div class="job-panel job-panel--table">
           <el-table
-            :data="suspectRows"
+            :data="suspectTableRows"
             size="small"
             stripe
-            max-height="280"
+            max-height="340"
             empty-text="暂无变更函数"
-            class="job-click-table"
+            class="job-click-table job-suspect-table"
             @row-click="openDrawerFromSuspect"
           >
-            <el-table-column prop="qualified_name" label="函数" show-overflow-tooltip />
-            <el-table-column prop="file" label="文件" min-width="140" show-overflow-tooltip>
+            <el-table-column label="变更函数" min-width="200">
               <template #default="{ row }">
-                <span class="mono file-cell">{{ row.file }}</span>
+                <el-tooltip
+                  :content="row.qualified_name"
+                  placement="top"
+                  :show-after="320"
+                  :disabled="row.qualified_name === row.displayName"
+                >
+                  <div class="suspect-cell">
+                    <div class="suspect-cell__main">
+                      <span class="suspect-cell__name">{{ row.displayName }}</span>
+                      <span
+                        class="suspect-impact-badge"
+                        :class="row.hitsApi ? 'suspect-impact-badge--hit' : 'suspect-impact-badge--iso'"
+                      >
+                        {{ row.hitsApi ? '命中接口' : '孤立变更' }}
+                      </span>
+                    </div>
+                    <span class="suspect-cell__loc mono">{{ row.locationLine }}</span>
+                  </div>
+                </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="行号" width="108">
+            <el-table-column label="操作" width="108" align="right">
               <template #default="{ row }">
-                <span v-if="row.start_line">{{ row.start_line }}-{{ row.end_line }}</span>
-                <span v-else>—</span>
+                <button
+                  type="button"
+                  class="suspect-diff-btn"
+                  @click.stop="openDrawerFromSuspect(row)"
+                >
+                  查看 Diff
+                  <span aria-hidden="true">→</span>
+                </button>
               </template>
             </el-table-column>
           </el-table>
@@ -400,27 +587,28 @@ onUnmounted(clearPoll)
     </el-row>
 
     <CodeDiffDrawer
-      v-if="drawerPick"
+      v-if="job"
       v-model:open="drawerOpen"
       :job-id="props.id"
-      :title="drawerPick.title"
-      :file="drawerPick.file"
-      :start-line="drawerPick.startLine"
-      :end-line="drawerPick.endLine"
-      :node-type="drawerPick.nodeType"
-      :highlight="drawerPick.highlight"
-      :repo="job?.repo"
-      :head-sha="job?.head_sha"
+      :title="drawerPick?.title"
+      :file="drawerPick?.file"
+      :start-line="drawerPick?.startLine"
+      :end-line="drawerPick?.endLine"
+      :node-type="drawerPick?.nodeType"
+      :highlight="drawerPick?.highlight"
+      :impact-path="drawerPick?.impactPath"
+      :repo="job.repo"
+      :head-sha="job.head_sha"
     />
   </div>
 </template>
 
 <style scoped>
-.page {
+.job-detail-page.page {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-top: 8px;
+  padding-top: 20px;
 }
 .job-page-head {
   display: flex;
@@ -648,6 +836,118 @@ onUnmounted(clearPoll)
 }
 .job-click-table :deep(.el-table__row) {
   cursor: pointer;
+}
+.job-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+.job-section__title--tight {
+  margin: 4px 0 0;
+}
+.suspect-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: min(100%, 14rem);
+}
+.suspect-toolbar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  user-select: none;
+}
+.suspect-toolbar__search {
+  width: min(100%, 168px);
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #2a2e35;
+  background: #252930;
+  color: #e8eaed;
+  font-size: 12px;
+  outline: none;
+}
+.suspect-toolbar__search:focus {
+  border-color: rgba(138, 180, 248, 0.45);
+}
+.job-suspect-table :deep(.el-table__cell) {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.suspect-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.suspect-cell__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.suspect-cell__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f3f5;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.suspect-cell__loc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.48);
+  word-break: break-all;
+}
+.suspect-impact-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+.suspect-impact-badge--hit {
+  color: #fdd663;
+  background: rgba(253, 214, 99, 0.14);
+  border: 1px solid rgba(253, 214, 99, 0.38);
+  box-shadow: 0 0 10px rgba(253, 214, 99, 0.12);
+}
+.suspect-impact-badge--iso {
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid #2a2e35;
+}
+.suspect-diff-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: #8ab4f8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.suspect-diff-btn:hover {
+  color: #aecbfb;
+  text-decoration: underline;
+}
+.job-suspect-table :deep(.el-table__row:hover .suspect-cell__name) {
+  color: #ffffff;
 }
 .file-cell {
   font-size: 12px;

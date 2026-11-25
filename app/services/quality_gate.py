@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from app.db.models import AnalysisJob, Repository
+from app.utils.time_format import as_utc_iso
 
 REASON_LABELS: dict[str, str] = {
     "incremental_coverage_low": "增量覆盖率不足",
@@ -13,6 +14,13 @@ REASON_LABELS: dict[str, str] = {
     "core_api_regression": "核心接口回归失败",
     "high_risk_unreviewed": "高危模块未评审",
     "pending_coverage": "待覆盖率回传",
+}
+
+OVERRIDE_REASON_LABELS: dict[str, str] = {
+    "hotfix": "紧急线上 Hotfix 优先发布",
+    "branch_unsimulatable": "极端异常分支无法模拟",
+    "non_core_reviewed": "非核心逻辑已评审确认无风险",
+    "other": "其他",
 }
 
 HIGH_RISK_API_THRESHOLD = 5
@@ -204,15 +212,66 @@ def reconcile_gates_for_jobs(jobs: list[AnalysisJob], db) -> None:
         db.commit()
 
 
+def apply_manual_override(
+    job: AnalysisJob,
+    *,
+    reason_category: str,
+    reason_detail: str,
+    actor: str = "admin",
+) -> dict[str, Any]:
+    gr = dict(job.gate_result or {})
+    if str(gr.get("gate") or "").upper() != "BLOCK":
+        raise ValueError("仅 BLOCK 状态的批次可人工豁免")
+
+    label = OVERRIDE_REASON_LABELS.get(reason_category, reason_category)
+    now = datetime.utcnow().isoformat() + "Z"
+    gr.update(
+        {
+            "gate": "OVERRIDDEN",
+            "gate_label": "PASS（人工豁免）",
+            "previous_block_reason": gr.get("block_reason"),
+            "previous_block_reason_label": gr.get("block_reason_label"),
+            "block_reason": None,
+            "block_reason_label": None,
+            "manual_override": {
+                "actor": actor,
+                "at": now,
+                "reason_category": reason_category,
+                "reason_category_label": label,
+                "reason_detail": reason_detail.strip(),
+            },
+        }
+    )
+    job.gate_result = gr
+    return gr
+
+
 def apply_gate_result(
     job: AnalysisJob,
     repo: Repository | None,
     *,
     incremental_coverage_pct: float | None = None,
     tests_passed: bool | None = None,
+    coverage_probes: list[dict[str, Any]] | None = None,
+    covered_changed_lines: int | None = None,
+    api_smoke_results: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     threshold = threshold_for_repo(job, repo)
     prev = job.gate_result or {}
+    if prev.get("gate") == "OVERRIDDEN" and prev.get("manual_override"):
+        updated = dict(prev)
+        if incremental_coverage_pct is not None:
+            updated["incremental_coverage_pct"] = float(incremental_coverage_pct)
+        if tests_passed is not None:
+            updated["tests_passed"] = bool(tests_passed)
+        if coverage_probes is not None:
+            updated["coverage_probes"] = coverage_probes
+            if covered_changed_lines is not None:
+                updated["covered_changed_lines"] = int(covered_changed_lines)
+        if api_smoke_results is not None:
+            updated["api_smoke_results"] = api_smoke_results
+        job.gate_result = updated
+        return updated
     cov = incremental_coverage_pct
     if cov is None and prev.get("incremental_coverage_pct") is not None:
         cov = float(prev["incremental_coverage_pct"])
@@ -226,6 +285,22 @@ def apply_gate_result(
         incremental_coverage_pct=cov,
         tests_passed=tests,
     )
+    probes = coverage_probes
+    if probes is None and prev.get("coverage_probes"):
+        probes = prev.get("coverage_probes")
+    if probes is not None:
+        result["coverage_probes"] = probes
+        if covered_changed_lines is not None:
+            result["covered_changed_lines"] = int(covered_changed_lines)
+        else:
+            result["covered_changed_lines"] = sum(
+                1 for p in probes if isinstance(p, dict) and p.get("covered") is True
+            )
+    smoke = api_smoke_results
+    if smoke is None and prev.get("api_smoke_results"):
+        smoke = prev.get("api_smoke_results")
+    if smoke is not None:
+        result["api_smoke_results"] = smoke
     job.gate_result = result
     return result
 
@@ -240,7 +315,7 @@ def gate_snapshot_for_dashboard(job: AnalysisJob) -> dict[str, Any]:
         "api_impact": int(gr.get("api_impact") or _api_count(job)),
         "coverage": round(float(cov), 1) if cov is not None else None,
         "gate": gr.get("gate") or "PENDING",
-        "time": job.created_at.isoformat() if job.created_at else None,
+        "time": as_utc_iso(job.created_at),
         "job_id": job.id,
         "block_reason_label": gr.get("block_reason_label"),
     }

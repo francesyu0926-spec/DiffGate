@@ -5,7 +5,25 @@ from pydantic import BaseModel, Field
 
 
 AuthMethod = Literal["none", "token", "ssh"]
-GateStatus = Literal["PASS", "BLOCK", "PENDING"]
+GateStatus = Literal["PASS", "BLOCK", "PENDING", "OVERRIDDEN"]
+OverrideReasonCategory = Literal[
+    "hotfix", "branch_unsimulatable", "non_core_reviewed", "other"
+]
+
+
+class CoverageProbeLine(BaseModel):
+    file: str = Field(..., min_length=1, max_length=512)
+    line: int = Field(..., ge=1)
+    covered: bool
+    prefix: str = "+"
+
+
+class GateOverrideIn(BaseModel):
+    """人工豁免放行（仅 BLOCK 批次）。"""
+
+    reason_category: OverrideReasonCategory
+    reason_detail: str = Field(..., min_length=2, max_length=2000)
+    actor: str = Field(default="admin", max_length=64)
 
 
 class GateReportIn(BaseModel):
@@ -13,6 +31,7 @@ class GateReportIn(BaseModel):
 
     incremental_coverage_pct: float = Field(..., ge=0, le=100)
     tests_passed: bool = True
+    coverage_probes: list[CoverageProbeLine] | None = None
 
 
 class RepositoryCreate(BaseModel):

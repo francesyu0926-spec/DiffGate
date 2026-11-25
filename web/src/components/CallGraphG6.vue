@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Graph } from '@antv/g6'
+import { Graph, type IElementEvent } from '@antv/g6'
 import type { GraphNode, GraphNodeType, JobGraph } from '@/api/types'
 
 export interface GraphNodePick {
@@ -37,6 +37,8 @@ const emit = defineEmits<{ nodePick: [GraphNodePick] }>()
 
 const filterApiOnly = ref(true)
 const compactLayers = ref(false)
+const aggregateByFile = ref(true)
+const expandedFiles = ref<Set<string>>(new Set())
 const selectedId = ref<string | null>(null)
 
 const hasNodes = computed(() => Boolean(props.data?.nodes?.length))
@@ -58,6 +60,19 @@ const TYPE_STROKES: Record<string, string> = {
 
 const NODE_SIZE: [number, number] = [230, 54]
 const API_NODE_SIZE: [number, number] = [268, 50]
+const FILE_CLUSTER_SIZE: [number, number] = [276, 58]
+
+const EDGE_DIM = 'rgba(44, 49, 58, 0.35)'
+const EDGE_ACTIVE = '#8ab4f8'
+
+function fileKey(file: string) {
+  return file.replace(/\\/g, '/')
+}
+
+function fileBasename(file: string) {
+  const parts = fileKey(file).split('/')
+  return parts[parts.length - 1] || file
+}
 const FIT_PADDING = 32
 const MAX_FIT_ZOOM = 1
 const MIN_FIT_ZOOM = 0.65
@@ -85,7 +100,74 @@ function pickLayout(nodes: GraphNode[], edges: { source: string; target: string 
 }
 
 function nodeSize(d: { data?: { kind?: string } }): [number, number] {
-  return d.data?.kind === 'api' ? API_NODE_SIZE : NODE_SIZE
+  const kind = d.data?.kind
+  if (kind === 'api') return API_NODE_SIZE
+  if (kind === 'file-cluster') return FILE_CLUSTER_SIZE
+  return NODE_SIZE
+}
+
+function aggregateGraphByFile(
+  nodes: GraphNode[],
+  edges: { source: string; target: string }[],
+  expanded: Set<string>,
+) {
+  if (!aggregateByFile.value) return { nodes, edges }
+
+  const byFile = new Map<string, GraphNode[]>()
+  for (const n of nodes) {
+    if (n.type === 'api' || !n.file) continue
+    const fk = fileKey(n.file)
+    if (!byFile.has(fk)) byFile.set(fk, [])
+    byFile.get(fk)!.push(n)
+  }
+
+  const idToCluster = new Map<string, string>()
+  const keepIndividual = new Set<string>()
+  const clusterNodes: GraphNode[] = []
+
+  for (const n of nodes) {
+    if (n.type === 'api' || !n.file) {
+      keepIndividual.add(n.id)
+      continue
+    }
+    const fk = fileKey(n.file)
+    const group = byFile.get(fk) ?? []
+    if (group.length <= 1 || expanded.has(fk)) {
+      keepIndividual.add(n.id)
+    } else {
+      idToCluster.set(n.id, `file:${fk}`)
+    }
+  }
+
+  for (const [fk, group] of byFile) {
+    if (group.length <= 1 || expanded.has(fk)) continue
+    const clusterId = `file:${fk}`
+    if (clusterNodes.some((c) => c.id === clusterId)) continue
+    const changedN = group.filter((g) => g.type === 'changed').length
+    const suffix = changedN > 0 ? `${changedN} 处变更` : `${group.length} 个函数`
+    clusterNodes.push({
+      id: clusterId,
+      label: `${fileBasename(fk)} · ${suffix}`,
+      type: 'changed',
+      file: fk,
+      line: Math.min(...group.map((g) => g.line ?? 1)),
+    })
+  }
+
+  const outNodes = [...nodes.filter((n) => keepIndividual.has(n.id)), ...clusterNodes]
+  const remap = (id: string) => idToCluster.get(id) ?? id
+  const edgeKey = new Set<string>()
+  const outEdges: { source: string; target: string }[] = []
+  for (const e of edges) {
+    const s = remap(e.source)
+    const t = remap(e.target)
+    if (s === t) continue
+    const key = `${s}\0${t}`
+    if (edgeKey.has(key)) continue
+    edgeKey.add(key)
+    outEdges.push({ source: s, target: t })
+  }
+  return { nodes: outNodes, edges: outEdges }
 }
 
 function buildAdj(edges: { source: string; target: string }[]) {
@@ -206,7 +288,37 @@ const displayData = computed(() => {
     nodes = compact.nodes
     edges = compact.edges
   }
-  return { nodes, edges }
+  const aggregated = aggregateGraphByFile(nodes, edges, expandedFiles.value)
+  return { nodes: aggregated.nodes, edges: aggregated.edges }
+})
+
+const graphHasRenderable = computed(() => Boolean(displayData.value?.nodes?.length))
+
+const impactSummary = computed(() => {
+  const raw = props.data
+  if (!raw?.nodes?.length) return ''
+  const fileCounts = new Map<string, number>()
+  for (const n of raw.nodes) {
+    if (n.type === 'api' || !n.file) continue
+    const fk = fileKey(n.file)
+    fileCounts.set(fk, (fileCounts.get(fk) ?? 0) + 1)
+  }
+  const fileNames = [...fileCounts.keys()].map(fileBasename)
+  const sampleFiles = fileNames.slice(0, 3).join('、')
+  const totalSymbols =
+    props.changedIds.length || raw.nodes.filter((n) => n.type === 'changed').length
+  const apis = raw.nodes.filter((n) => n.type === 'api')
+  const apiLabels = apis
+    .map((a) => `${(a.method || 'GET').toUpperCase()} ${a.route || a.label || '/'}`)
+    .join('、')
+  const filePart =
+    fileCounts.size > 0
+      ? `${fileCounts.size} 个文件${sampleFiles ? `（含 ${sampleFiles}${fileCounts.size > 3 ? ' 等' : ''}）` : ''}`
+      : '若干文件'
+  if (!apis.length) {
+    return `影响评估结论：本次变更涉及 ${filePart}，约 ${totalSymbols} 处变更符号。经调用链追踪，未发现对外部接口的传播影响；其余为内部工具函数变更。`
+  }
+  return `影响评估结论：本次变更涉及 ${filePart}，约 ${totalSymbols} 处变更符号。经调用链追踪，共 ${apis.length} 个外部接口受影响：${apiLabels}。`
 })
 
 function nodeTitle(d: {
@@ -218,6 +330,9 @@ function nodeTitle(d: {
   }
 }) {
   const kind = d.data?.kind
+  if (kind === 'file-cluster') {
+    return d.data?.label ?? '模块'
+  }
   if (kind === 'api') {
     const method = (d.data?.method || 'GET').toUpperCase()
     return `${method} ${d.data?.route || '/'}`
@@ -227,8 +342,12 @@ function nodeTitle(d: {
 }
 
 function nodeSubtitle(d: {
-  data?: { file?: string; line?: number; end_line?: number }
+  data?: { kind?: string; file?: string; line?: number; end_line?: number }
 }) {
+  const kind = d.data?.kind
+  if (kind === 'file-cluster') {
+    return '点击展开文件内函数'
+  }
   const file = d.data?.file
   if (!file) return ''
   const start = d.data?.line
@@ -275,10 +394,22 @@ function scheduleFitView() {
   }, 100)
 }
 
+function resolvePickNode(id: string): GraphNode | null {
+  if (id.startsWith('file:')) {
+    const fk = id.slice(5)
+    const raw = props.data?.nodes ?? []
+    const member =
+      raw.find((n) => n.file && fileKey(n.file) === fk && n.type === 'changed') ??
+      raw.find((n) => n.file && fileKey(n.file) === fk)
+    return member ?? null
+  }
+  return displayData.value?.nodes.find((n) => n.id === id) ?? null
+}
+
 function pickNode(id: string) {
   const src = displayData.value
   if (!src) return
-  const node = src.nodes.find((n) => n.id === id)
+  const node = resolvePickNode(id)
   if (!node) return
   const fwd = buildAdj(src.edges).fwd
   const calleeHints = [...(fwd.get(id) ?? [])]
@@ -296,8 +427,30 @@ function pickNode(id: string) {
 }
 
 function nodeIdFromEvent(event: unknown): string | null {
-  const target = (event as { target?: { id?: string } })?.target
-  return target?.id ? String(target.id) : null
+  if (!graph) return null
+  const evt = event as IElementEvent
+  const nodeIds = new Set(displayData.value?.nodes.map((n) => n.id) ?? [])
+  const known = (id?: string) => {
+    if (!id) return null
+    if (nodeIds.has(id)) return id
+    try {
+      graph!.getNodeData(id)
+      return id
+    } catch {
+      return null
+    }
+  }
+  if (evt.targetType === 'node') {
+    const hit = known(evt.target?.id)
+    if (hit) return hit
+  }
+  let cur = evt.originalTarget as { id?: string; parent?: { id?: string; parent?: unknown } } | undefined
+  for (let depth = 0; depth < 14 && cur; depth += 1) {
+    const hit = known(cur.id)
+    if (hit) return hit
+    cur = cur.parent as typeof cur
+  }
+  return null
 }
 
 function bindGraphEvents() {
@@ -305,19 +458,34 @@ function bindGraphEvents() {
   graph.on('node:click', (event) => {
     const id = nodeIdFromEvent(event)
     if (!id) return
+    if (id.startsWith('file:')) {
+      const fk = id.slice(5)
+      const next = new Set(expandedFiles.value)
+      if (next.has(fk)) next.delete(fk)
+      else next.add(fk)
+      expandedFiles.value = next
+      selectedId.value = null
+      renderGraph()
+      return
+    }
+    pickNode(id)
     selectedId.value = id
     const ids = displayData.value?.nodes.map((n) => n.id) ?? []
     const state: Record<string, string | string[]> = {}
     for (const nodeId of ids) {
       state[nodeId] = nodeId === id ? 'selected' : []
     }
-    void graph?.setElementState(state)
-    pickNode(id)
+    void graph?.setElementState(state).catch(() => undefined)
   })
 }
 
 function renderGraph() {
-  if (!containerRef.value || !displayData.value?.nodes?.length) return
+  if (!containerRef.value) return
+  if (!displayData.value?.nodes?.length) {
+    graph?.destroy()
+    graph = null
+    return
+  }
 
   graph?.destroy()
   graph = new Graph({
@@ -328,7 +496,7 @@ function renderGraph() {
         id: n.id,
         data: {
           label: n.label,
-          kind: n.type,
+          kind: n.id.startsWith('file:') ? 'file-cluster' : n.type,
           file: n.file,
           line: n.line,
           end_line: n.end_line,
@@ -354,15 +522,29 @@ function renderGraph() {
         labelFill: '#e8eaed',
         labelPlacement: 'center',
         labelWordWrap: true,
-        labelMaxWidth: (d: { data?: { kind?: string } }) =>
-          d.data?.kind === 'api' ? 248 : 210,
+        labelMaxWidth: (d: { data?: { kind?: string } }) => {
+          const kind = d.data?.kind
+          if (kind === 'api') return 248
+          if (kind === 'file-cluster') return 256
+          return 210
+        },
         labelMaxLines: 2,
-        fill: (d: { data?: { kind?: string } }) => TYPE_COLORS[d.data?.kind ?? 'symbol'],
+        fill: (d: { data?: { kind?: string } }) => {
+          const kind = d.data?.kind ?? 'symbol'
+          if (kind === 'file-cluster') return 'rgba(253, 214, 99, 0.24)'
+          return TYPE_COLORS[kind] ?? TYPE_COLORS.symbol
+        },
         stroke: (d: { data?: { kind?: string } }) => {
           const kind = d.data?.kind ?? 'symbol'
+          if (kind === 'file-cluster') return '#fdd663'
           return kind === 'api' ? '#f6aea8' : TYPE_STROKES[kind]
         },
-        lineWidth: (d: { data?: { kind?: string } }) => (d.data?.kind === 'api' ? 2.5 : 1.5),
+        lineWidth: (d: { data?: { kind?: string } }) => {
+          const kind = d.data?.kind
+          if (kind === 'api') return 2.5
+          if (kind === 'file-cluster') return 2
+          return 1.5
+        },
         shadowBlur: (d: { data?: { kind?: string } }) => (d.data?.kind === 'api' ? 12 : 0),
         shadowColor: (d: { data?: { kind?: string } }) =>
           d.data?.kind === 'api' ? 'rgba(242, 139, 130, 0.35)' : 'transparent',
@@ -380,22 +562,22 @@ function renderGraph() {
     },
     edge: {
       style: {
-        stroke: '#5f6368',
+        stroke: EDGE_DIM,
+        lineWidth: 1,
         endArrow: true,
-        opacity: 0.85,
+        opacity: 1,
       },
       state: {
-        active: { stroke: '#9aa0a6', opacity: 1 },
-        inactive: { opacity: 0.2 },
+        active: { stroke: EDGE_ACTIVE, lineWidth: 2.25, opacity: 1 },
+        inactive: { stroke: EDGE_DIM, opacity: 0.12 },
       },
     },
     behaviors: [
       'drag-canvas',
       { type: 'zoom-canvas', maxZoom: MAX_FIT_ZOOM, minZoom: MIN_FIT_ZOOM },
-      'drag-element',
       {
         type: 'hover-activate',
-        degree: 1,
+        degree: 2,
         direction: 'both',
         state: 'active',
         inactiveState: 'inactive',
@@ -418,10 +600,20 @@ function resetZoom() {
 }
 
 watch(
-  () => [displayData.value, filterApiOnly.value, compactLayers.value],
+  () => [
+    displayData.value,
+    filterApiOnly.value,
+    compactLayers.value,
+    aggregateByFile.value,
+    expandedFiles.value,
+  ],
   () => renderGraph(),
   { deep: true },
 )
+
+watch(aggregateByFile, (on) => {
+  if (on) expandedFiles.value = new Set()
+})
 
 onMounted(renderGraph)
 onBeforeUnmount(() => {
@@ -449,6 +641,10 @@ onBeforeUnmount(() => {
           仅看命中 API 的有效链路
         </label>
         <label class="graph-toggle">
+          <input v-model="aggregateByFile" type="checkbox" />
+          按文件聚合
+        </label>
+        <label class="graph-toggle">
           <input v-model="compactLayers" type="checkbox" />
           折叠冗长层级
         </label>
@@ -456,10 +652,14 @@ onBeforeUnmount(() => {
         <button type="button" class="graph-tool-btn" title="重置缩放" @click="resetZoom">重置缩放</button>
         </div>
       </header>
-      <div ref="containerRef" class="graph" />
+      <p v-if="impactSummary" class="graph-summary" role="status">{{ impactSummary }}</p>
+      <div v-if="!graphHasRenderable" class="graph-filter-empty" role="status">
+        当前筛选条件下没有可展示的节点；可关闭「仅看命中 API」或开启「按文件聚合」。
+      </div>
+      <div v-show="graphHasRenderable" ref="containerRef" class="graph" />
     </div>
     <div class="legend">
-      <span><i class="dot changed" />变更符号</span>
+      <span><i class="dot changed" />变更符号 / 文件聚合</span>
       <span><i class="dot symbol" />上游方法</span>
       <span><i class="dot api" />受影响 API</span>
     </div>
@@ -498,6 +698,29 @@ onBeforeUnmount(() => {
   font-weight: 600;
   color: #e8eaed;
   letter-spacing: 0.01em;
+}
+.graph-summary {
+  margin: 0;
+  padding: 12px 16px 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: rgba(232, 234, 237, 0.88);
+  background: rgba(26, 115, 232, 0.08);
+  border-bottom: 1px solid rgba(42, 46, 53, 0.55);
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.graph-filter-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  padding: 24px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
 }
 .graph {
   width: 100%;

@@ -19,12 +19,58 @@ class SymbolDef:
 
 FASTAPI_DECORATORS = {"get", "post", "put", "patch", "delete", "head", "options", "api_route"}
 API_DECORATOR_ROOTS = {"router", "app", "api_router"}
+BUILTIN_CALL_NAMES = frozenset(
+    {
+        "str",
+        "int",
+        "float",
+        "bool",
+        "len",
+        "range",
+        "list",
+        "dict",
+        "set",
+        "tuple",
+        "print",
+        "max",
+        "min",
+        "enumerate",
+        "isinstance",
+        "getattr",
+        "setattr",
+        "hasattr",
+        "type",
+        "super",
+        "open",
+        "any",
+        "all",
+        "sorted",
+        "zip",
+        "map",
+        "filter",
+        "abs",
+        "round",
+        "repr",
+        "format",
+    }
+)
 
 
 def _qualify(module_path: str, stack: list[str], name: str) -> str:
     parts = [module_path.replace("/", ".").removesuffix(".py")]
     parts.extend(stack)
     parts.append(name)
+    return ".".join(p for p in parts if p)
+
+
+def _relative_import_module(module_path: str, level: int, module: str | None) -> str:
+    if level == 0:
+        return (module or "").replace("/", ".")
+    parts = module_path.split(".")
+    trim = min(level, len(parts))
+    parts = parts[:-trim] if trim else []
+    if module:
+        parts.extend(module.split("."))
     return ".".join(p for p in parts if p)
 
 
@@ -47,12 +93,209 @@ def _route_from_decorator(dec: ast.Call) -> tuple[str | None, str | None]:
     return method, route
 
 
+def _name_id(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    return None
+
+
+@dataclass
+class ResolveContext:
+    module_path: str
+    stack: list[str]
+    imports: dict[str, str]
+    module_bindings: dict[str, str]
+    class_names: set[str]
+
+    @property
+    def class_qname(self) -> str | None:
+        for name in reversed(self.stack):
+            if name in self.class_names:
+                parts = [self.module_path, *self.stack[: self.stack.index(name) + 1]]
+                return ".".join(parts)
+        return None
+
+    def import_stub(self, name: str) -> str | None:
+        return self.imports.get(name)
+
+    def resolve_ctor_name(self, node: ast.AST) -> str | None:
+        if isinstance(node, ast.Call):
+            return self.resolve_type_name(node.func)
+        return self.resolve_type_name(node)
+
+    def resolve_type_name(self, node: ast.AST) -> str | None:
+        if isinstance(node, ast.Name):
+            stub = self.import_stub(node.id)
+            if stub:
+                return stub
+            if node.id in self.class_names:
+                return _qualify(self.module_path, self.stack, node.id)
+            return None
+        if isinstance(node, ast.Attribute):
+            raw = _call_name(node)
+            if not raw:
+                return None
+            head, _, tail = raw.partition(".")
+            base = self.import_stub(head) or head
+            return f"{base}.{tail}" if tail else base
+        return None
+
+
+def _resolve_call(raw: str, ctx: ResolveContext, locals_map: dict[str, str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(*candidates: str) -> None:
+        for c in candidates:
+            if not c or c in seen:
+                continue
+            seen.add(c)
+            out.append(c)
+
+    add(raw)
+
+    if raw.startswith("self."):
+        method = raw.split(".", 1)[1]
+        cq = ctx.class_qname
+        if cq:
+            add(f"{cq}.{method}")
+        add(method)
+        return out
+
+    if raw == "self":
+        return out
+
+    parts = raw.split(".")
+    if len(parts) == 1:
+        bare = parts[0]
+        stub = ctx.import_stub(bare)
+        if stub:
+            add(stub)
+        return out
+
+    if len(parts) == 2:
+        base, attr = parts
+        bound = locals_map.get(base) or ctx.module_bindings.get(base)
+        if bound:
+            add(f"{bound}.{attr}")
+        stub = ctx.import_stub(base)
+        if stub:
+            add(f"{stub}.{attr}")
+        if base in ctx.class_names:
+            add(f"{_qualify(ctx.module_path, ctx.stack, base)}.{attr}")
+        short_class = bound.split(".")[-1] if bound else base
+        add(f"{short_class}.{attr}")
+        return out
+
+    if len(parts) >= 3:
+        head = parts[0]
+        tail = ".".join(parts[1:])
+        stub = ctx.import_stub(head)
+        if stub:
+            add(f"{stub}.{tail}")
+        bound = locals_map.get(head) or ctx.module_bindings.get(head)
+        if bound:
+            add(f"{bound}.{tail}")
+
+    return out
+
+
+def _iter_call_sites(fn: ast.FunctionDef | ast.AsyncFunctionDef):
+    for stmt in fn.body:
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Await) and isinstance(child.value, ast.Call):
+                yield child.value
+            elif isinstance(child, ast.Call):
+                yield child
+
+
+def _collect_local_bindings(fn: ast.FunctionDef | ast.AsyncFunctionDef, ctx: ResolveContext) -> dict[str, str]:
+    locals_map: dict[str, str] = {}
+    for stmt in fn.body:
+        for child in ast.walk(stmt):
+            if isinstance(child, ast.Assign):
+                typ = ctx.resolve_ctor_name(child.value)
+                if not typ:
+                    continue
+                for target in child.targets:
+                    name = _name_id(target)
+                    if name:
+                        locals_map[name] = typ
+            elif isinstance(child, ast.AnnAssign) and child.annotation and child.target:
+                name = _name_id(child.target)
+                if not name:
+                    continue
+                typ = ctx.resolve_type_name(child.annotation)
+                if typ:
+                    locals_map[name] = typ
+    return locals_map
+
+
+def _collect_calls(fn: ast.FunctionDef | ast.AsyncFunctionDef, ctx: ResolveContext) -> list[str]:
+    locals_map = _collect_local_bindings(fn, ctx)
+    calls: list[str] = []
+    seen: set[str] = set()
+    for call_node in _iter_call_sites(fn):
+        raw = _call_name(call_node.func)
+        if not raw:
+            continue
+        head = raw.split(".", 1)[0]
+        if head in BUILTIN_CALL_NAMES and head not in ctx.imports:
+            continue
+        if head in {"asyncio", "logging", "pd", "pandas"}:
+            continue
+        for target in _resolve_call(raw, ctx, locals_map):
+            if target not in seen:
+                seen.add(target)
+                calls.append(target)
+    return calls
+
+
 class SymbolVisitor(ast.NodeVisitor):
     def __init__(self, module_path: str, rel_path: str):
         self.module_path = module_path
         self.rel_path = rel_path
         self.stack: list[str] = []
         self.symbols: list[SymbolDef] = []
+        self.imports: dict[str, str] = {}
+        self.module_bindings: dict[str, str] = {}
+        self.class_names: set[str] = set()
+
+    @property
+    def _ctx(self) -> ResolveContext:
+        return ResolveContext(
+            module_path=self.module_path,
+            stack=list(self.stack),
+            imports=self.imports,
+            module_bindings=dict(self.module_bindings),
+            class_names=set(self.class_names),
+        )
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            name = alias.asname or alias.name
+            stub = alias.name.replace(".", ".")
+            self.imports[name] = stub
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        base = _relative_import_module(self.module_path, node.level, node.module)
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            local = alias.asname or alias.name
+            self.imports[local] = f"{base}.{alias.name}"
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if self.stack:
+            self.generic_visit(node)
+            return
+        typ = self._ctx.resolve_ctor_name(node.value)
+        if typ:
+            for target in node.targets:
+                name = _name_id(target)
+                if name:
+                    self.module_bindings[name] = typ
+        self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._handle_function(node)
@@ -78,19 +321,15 @@ class SymbolVisitor(ast.NodeVisitor):
             elif isinstance(dec, ast.Attribute):
                 dec_names.append(dec.attr)
 
-        calls: list[str] = []
-        for child in ast.walk(node):
-            if isinstance(child, ast.Call):
-                name = _call_name(child.func)
-                if name:
-                    calls.append(name)
+        calls = _collect_calls(node, self._ctx)
 
         end_line = getattr(node, "end_lineno", node.lineno)
+        in_class = any(name in self.class_names for name in self.stack)
         self.symbols.append(
             SymbolDef(
                 qualified_name=qname,
                 file_path=self.rel_path,
-                kind="method" if self.stack else "function",
+                kind="method" if in_class else "function",
                 start_line=node.lineno,
                 end_line=end_line or node.lineno,
                 calls=calls,
@@ -107,6 +346,7 @@ class SymbolVisitor(ast.NodeVisitor):
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         qname = _qualify(self.module_path, self.stack, node.name)
+        self.class_names.add(node.name)
         end_line = getattr(node, "end_lineno", node.lineno)
         self.symbols.append(
             SymbolDef(
@@ -120,6 +360,7 @@ class SymbolVisitor(ast.NodeVisitor):
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
+        self.class_names.discard(node.name)
 
 
 def parse_python_file(repo_root: Path, rel_path: str) -> list[SymbolDef]:

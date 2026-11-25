@@ -82,3 +82,27 @@ a {
   font-family: var(--diffgate-mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* 全站暗黑极细圆角滚动条 (Chrome / Edge / Safari + Firefox) */
+html:has(.v-theme--darkMonochrome) * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+html:has(.v-theme--darkMonochrome) *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html:has(.v-theme--darkMonochrome) *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html:has(.v-theme--darkMonochrome) *::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+html:has(.v-theme--darkMonochrome) *::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}

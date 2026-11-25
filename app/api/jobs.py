@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.graph.stores import load_job_graph
 from app.services.code_snippet import job_code_view
 from app.services.quality_gate import apply_gate_result
+from app.utils.time_format import as_utc_iso
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -53,7 +54,7 @@ def _job_list_item(job: AnalysisJob) -> dict:
         "method_count": method_count,
         "trigger_label": _trigger_label(job.provider),
         "commit_message": commit_message or None,
-        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "created_at": as_utc_iso(job.created_at),
     }
 
 
@@ -156,6 +157,8 @@ def get_job_code_diff(
         raise HTTPException(status_code=400, detail="end_line 必须 >= start_line")
     settings = get_settings()
     hints = [h.strip() for h in (highlight or "").split(",") if h.strip()]
+    repo_rec = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
+    scan_root = (repo_rec.scan_root if repo_rec and repo_rec.scan_root else ".") or "."
     try:
         return job_code_view(
             repo_full_name=job.repo_full_name,
@@ -167,6 +170,7 @@ def get_job_code_diff(
             end_line=end_line,
             node_type=node_type,
             highlight_qnames=hints or None,
+            scan_root=scan_root,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -191,7 +195,7 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> dict:
         "changed_symbols": job.changed_symbols,
         "error_message": job.error_message,
         "gate_result": job.gate_result,
-        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "created_at": as_utc_iso(job.created_at),
     }
 
 
@@ -202,11 +206,15 @@ def report_job_gate(job_id: str, body: GateReportIn, db: Session = Depends(get_d
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     repo = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
+    probes = (
+        [p.model_dump() for p in body.coverage_probes] if body.coverage_probes is not None else None
+    )
     gate = apply_gate_result(
         job,
         repo,
         incremental_coverage_pct=body.incremental_coverage_pct,
         tests_passed=body.tests_passed,
+        coverage_probes=probes,
     )
     db.commit()
     return {"ok": True, "job_id": job_id, "gate_result": gate}

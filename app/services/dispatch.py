@@ -32,8 +32,13 @@ def notify_dispatch_center(
         "suspects": [s.qualified_name for s in report.suspect_functions],
         "stats": report.to_dict()["stats"],
         "test_suite_id": test_suite_id,
+        "line_ranges": report.to_dict().get("line_ranges") or [],
         "gate_report_url": f"/api/v1/jobs/{job_id}/gate-report",
     }
+    if settings.api_public_base_url:
+        base = settings.api_public_base_url.rstrip("/")
+        payload["api_base"] = base
+        payload["gate_report_url"] = f"{base}/api/v1/jobs/{job_id}/gate-report"
     try:
         with httpx.Client(timeout=30.0) as client:
             resp = client.post(settings.dispatch_center_url, json=payload)

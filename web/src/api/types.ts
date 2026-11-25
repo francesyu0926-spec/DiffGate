@@ -161,6 +161,8 @@ export interface CodeDiffView {
   lines: CodeDiffLine[]
   highlight_lines: number[]
   hint?: string | null
+  source_label?: string | null
+  empty_reason?: 'workspace_missing' | 'file_not_found' | 'range_empty' | null
 }
 
 export interface GraphEdge {

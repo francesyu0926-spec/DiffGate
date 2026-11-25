@@ -60,21 +60,10 @@ def _bucket_trend(jobs: list[AnalysisJob], days: int, threshold: int) -> dict:
             round(sum(b["coverages"]) / len(b["coverages"]), 1) if b["coverages"] else None
         )
 
-    filled_coverage: list[float] = []
-    last: float | None = None
-    for c in cov_by_day:
-        if c is not None:
-            last = c
-            filled_coverage.append(c)
-        elif last is not None:
-            filled_coverage.append(last)
-        else:
-            filled_coverage.append(float(threshold))
-
     return {
         "labels": labels,
         "changed_lines": lines_by_day,
-        "coverage": filled_coverage,
+        "coverage": cov_by_day,
         "threshold": threshold,
     }
 
@@ -177,7 +166,7 @@ def dashboard_overview(
     for job in jobs:
         gr = job.gate_result or {}
         gate = gr.get("gate") or "PENDING"
-        if gate == "PASS":
+        if gate in ("PASS", "OVERRIDDEN"):
             passed += 1
         elif gate == "BLOCK":
             blocked += 1
@@ -198,6 +187,7 @@ def dashboard_overview(
 
     kpi = {
         "avg_coverage": avg_coverage,
+        "coverage_sample_count": len(coverages),
         "coverage_delta": _coverage_delta(jobs),
         "gate_baseline": default_threshold,
         "first_pass_rate": first_pass_rate,

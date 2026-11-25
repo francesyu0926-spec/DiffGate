@@ -38,6 +38,17 @@ def build_g6_payload(graph: CallGraph, changed: list[str]) -> dict:
         hits = [n for n in node_ids if n == callee or n.endswith(f".{callee}")]
         if hits:
             return hits
+        if "." in callee:
+            cls, _, method = callee.rpartition(".")
+            cls_tail = cls.split(".")[-1]
+            hits = [
+                n
+                for n in node_ids
+                if n.split(".")[-1] == method
+                and (n.endswith(f".{cls}.{method}") or cls_tail in n.split("."))
+            ]
+            if hits:
+                return hits
         return [n for n in node_ids if n.split(".")[-1] == callee]
 
     edges: list[dict] = []

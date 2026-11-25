@@ -27,7 +27,23 @@ class CallGraph:
                 if short != callee:
                     self.reverse[short].add(caller)
 
+    def _canonical(self, node: str) -> str:
+        if node in self.symbols:
+            return node
+        short = node.split(".")[-1]
+        if short in self.symbols:
+            return short
+        matches = [
+            n
+            for n in self.symbols
+            if n == node or n.endswith(f".{node}") or n.split(".")[-1] == short
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return node
+
     def _reverse_neighbors(self, node: str) -> set[str]:
+        node = self._canonical(node)
         keys = {node, node.split(".")[-1]}
         sym = self.symbols.get(node)
         if sym:
@@ -35,7 +51,7 @@ class CallGraph:
         callers: set[str] = set()
         for key in keys:
             callers.update(self.reverse.get(key, ()))
-        return callers
+        return {self._canonical(c) for c in callers}
 
     def resolve_callers(self, seed: set[str]) -> set[str]:
         """第三步：反向 BFS，Visited Set 避免环/递归死循环。"""
@@ -53,12 +69,24 @@ class CallGraph:
 
     def _rebuild_chain(self, api_node: str, parent: dict[str, str | None]) -> list[str]:
         chain: list[str] = []
-        cur: str | None = api_node
-        while cur is not None:
+        cur: str | None = self._canonical(api_node)
+        seen: set[str] = set()
+        while cur is not None and cur not in seen:
+            seen.add(cur)
             chain.append(cur)
-            cur = parent.get(cur)
+            nxt = parent.get(cur)
+            if nxt is None:
+                short = cur.split(".")[-1]
+                for alt in (short, self._canonical(cur)):
+                    nxt = parent.get(alt)
+                    if nxt is not None:
+                        break
+            cur = self._canonical(nxt) if nxt else None
         chain.reverse()
         return chain
+
+    def _hop_depth(self, api_node: str, parent: dict[str, str | None]) -> int:
+        return max(0, len(self._rebuild_chain(api_node, parent)) - 1)
 
     def _label(self, qname: str) -> str:
         sym = self.symbols.get(qname)
@@ -75,15 +103,16 @@ class CallGraph:
         parent: dict[str, str | None] = {}
 
         for s in seeds:
-            if s not in parent:
-                parent[s] = None
-                queue.append(s)
+            seed = self._canonical(s)
+            if seed not in parent:
+                parent[seed] = None
+                queue.append(seed)
 
         traces: list[dict] = []
         seen_api: set[str] = set()
 
         while queue:
-            node = queue.popleft()
+            node = self._canonical(queue.popleft())
             if node in visited:
                 continue
             visited.add(node)
@@ -94,6 +123,7 @@ class CallGraph:
                 if api_key not in seen_api:
                     seen_api.add(api_key)
                     chain = self._rebuild_chain(node, parent)
+                    hops = self._hop_depth(node, parent)
                     traces.append(
                         {
                             "handler": node,
@@ -103,11 +133,12 @@ class CallGraph:
                             "line": sym.start_line,
                             "chain": chain,
                             "chain_labels": [self._label(x) for x in chain],
-                            "layers": max(0, len(chain) - 1),
+                            "layers": hops,
                         }
                     )
 
             for caller in self._reverse_neighbors(node):
+                caller = self._canonical(caller)
                 if caller in visited:
                     continue
                 if caller not in parent:

@@ -6,10 +6,14 @@ import {
   fetchRegressionBatchDetail,
   fetchRegressionBatches,
   fetchRegressionOverview,
+  readApiError,
+  submitRegressionGateOverride,
+  type GateOverrideReasonCategory,
   type RegressionBatchDetail,
   type RegressionBatchItem,
 } from '@/api/client'
 import RepoAutocompleteFilter, { type RepoGateStat } from '@/components/RepoAutocompleteFilter.vue'
+import { formatLocalDateTime } from '@/utils/datetime'
 
 const router = useRouter()
 const route = useRoute()
@@ -42,6 +46,120 @@ const selectedId = ref<string | null>(null)
 const detail = ref<RegressionBatchDetail | null>(null)
 const detailLoading = ref(false)
 const detailTab = ref<'cases' | 'coverage'>('cases')
+const expandedCaseKey = ref<string | null>(null)
+
+const overrideDialog = ref(false)
+const overrideSubmitting = ref(false)
+const overrideActor = ref('admin')
+const overrideCategory = ref<GateOverrideReasonCategory>('hotfix')
+const overrideDetail = ref('')
+const overrideError = ref('')
+
+const overrideReasonOptions = [
+  { value: 'hotfix' as const, title: '紧急线上 Hotfix 优先发布' },
+  { value: 'branch_unsimulatable' as const, title: '极端异常分支无法模拟' },
+  { value: 'non_core_reviewed' as const, title: '非核心逻辑已评审确认无风险' },
+  { value: 'other' as const, title: '其他' },
+]
+
+function repoShortName(repo: string) {
+  const parts = repo.split('/').filter(Boolean)
+  return parts[parts.length - 1] ?? repo
+}
+
+function formatBatchTime(iso: string | null | undefined) {
+  const full = formatLocalDateTime(iso)
+  if (!full || full === '—') return '—'
+  const m = full.match(/\d{2}:\d{2}$/)
+  return m ? m[0] : full
+}
+
+function formatBranchLabel(ref: string | null | undefined) {
+  if (!ref) return ''
+  const raw = ref.replace(/^refs\/heads\//i, '').replace(/^refs\/tags\//i, '')
+  return raw.slice(0, 24)
+}
+
+function formatBatchMeta(item: RegressionBatchItem) {
+  const time = formatBatchTime(item.created_at)
+  const cov = item.coverage != null ? `${item.coverage}%` : '—'
+  return `${item.commit} · ${time} · ${item.api_impact} API · ${cov}`
+}
+
+function caseRowKey(row: { method: string; path: string }) {
+  return `${row.method}:${row.path}`
+}
+
+function toggleCaseRow(row: { method: string; path: string }) {
+  const key = caseRowKey(row)
+  expandedCaseKey.value = expandedCaseKey.value === key ? null : key
+}
+
+function caseAssertions(row: RegressionBatchDetail['cases'][number]) {
+  if (row.assertions?.length) return row.assertions
+  return row.status === 'FAIL'
+    ? ['状态码断言失败', '响应体结构不匹配']
+    : ['状态码 200', 'JSON Schema 校验通过']
+}
+
+function caseResponsePreview(row: RegressionBatchDetail['cases'][number]) {
+  const raw = row.response_preview?.trim()
+  if (raw) return raw
+  if (row.status === 'FAIL') {
+    return JSON.stringify(
+      {
+        detail: 'assertion failed',
+        status: row.http_status ?? 502,
+        message: '响应体为空或结构不符合 YAML 断言',
+      },
+      null,
+      2,
+    )
+  }
+  return JSON.stringify({ ok: true, status: row.http_status ?? 200 }, null, 2)
+}
+
+const coverageKpi = computed(() => {
+  if (
+    detail.value?.job_id === selectedId.value &&
+    detail.value.incremental_coverage_pct != null
+  ) {
+    return {
+      pct: detail.value.incremental_coverage_pct,
+      changed: detail.value.changed_lines ?? 0,
+      covered:
+        detail.value.covered_lines ??
+        detail.value.coverage_lines.filter((l) => l.covered === true).length,
+    }
+  }
+  const k = overview.value?.kpi
+  return {
+    pct: k?.incremental_coverage_pct ?? null,
+    changed: k?.changed_lines ?? 0,
+    covered: k?.covered_lines ?? 0,
+  }
+})
+
+const passKpi = computed(() => {
+  if (detail.value?.job_id === selectedId.value && detail.value.cases.length) {
+    const passed = detail.value.cases.filter((c) => c.status === 'PASS').length
+    const total = detail.value.cases.length
+    return {
+      passed,
+      total,
+      rate: total > 0 ? (passed / total) * 100 : null,
+    }
+  }
+  const k = overview.value?.kpi
+  if (!k || k.latest_total <= 0) {
+    return { passed: 0, total: 0, rate: null as number | null }
+  }
+  return {
+    passed: k.latest_passed,
+    total: k.latest_total,
+    rate: k.latest_pass_rate,
+  }
+})
 
 const gateOptions: FilterOption[] = [
   { title: '全部状态', value: null },
@@ -53,11 +171,30 @@ const gateOptions: FilterOption[] = [
 const kpiCards = computed(() => {
   const k = overview.value?.kpi
   if (!k) return []
-  const gate = k.current_gate
+  const gate =
+    detail.value?.job_id === selectedId.value && detail.value.gate
+      ? detail.value.gate
+      : k.current_gate
+  const dLabel =
+    detail.value?.job_id === selectedId.value ? detail.value.gate_label : undefined
   const gateLabel =
-    gate === 'PASS' ? 'PASS 放行' : gate === 'BLOCK' ? 'BLOCK 阻断' : gate === 'PENDING' ? '待 CI 回传' : '—'
+    gate === 'OVERRIDDEN'
+      ? dLabel || 'PASS（人工豁免）'
+      : gate === 'PASS'
+        ? 'PASS 放行'
+        : gate === 'BLOCK'
+          ? 'BLOCK 阻断'
+          : gate === 'PENDING'
+            ? '待 CI 回传'
+            : '—'
   const gateColor =
-    gate === 'PASS' ? '#81C995' : gate === 'BLOCK' ? '#F28B82' : '#8E9299'
+    gate === 'OVERRIDDEN'
+      ? '#FDD663'
+      : gate === 'PASS'
+        ? '#81C995'
+        : gate === 'BLOCK'
+          ? '#F28B82'
+          : '#8E9299'
   return [
     {
       title: '累计精准执行用例数',
@@ -73,10 +210,10 @@ const kpiCards = computed(() => {
     },
     {
       title: '最近批次用例通过率',
-      value: k.latest_total > 0 ? `${k.latest_pass_rate}%` : '—',
+      value: passKpi.value.rate != null ? `${passKpi.value.rate.toFixed(1)}%` : '—',
       sub:
-        k.latest_total > 0
-          ? `通过 ${k.latest_passed} / ${k.latest_total} 条`
+        passKpi.value.total > 0
+          ? `通过 ${passKpi.value.passed} / ${passKpi.value.total} 条`
           : '暂无已执行用例批次',
       accent: '#81C995',
       icon: 'mdi-check-circle-outline',
@@ -85,10 +222,10 @@ const kpiCards = computed(() => {
     },
     {
       title: '探针增量行覆盖率',
-      value: k.incremental_coverage_pct != null ? `${k.incremental_coverage_pct}%` : '—',
+      value: coverageKpi.value.pct != null ? `${coverageKpi.value.pct}%` : '—',
       sub:
-        k.changed_lines > 0
-          ? `变更 ${k.changed_lines} 行，探针命中 ${k.covered_lines} 行`
+        coverageKpi.value.changed > 0
+          ? `变更 ${coverageKpi.value.changed} 行，探针命中 ${coverageKpi.value.covered} 行`
           : '待 CI 回传 coverage.py 结果',
       accent: '#FDD663',
       icon: 'mdi-chart-timeline-variant',
@@ -100,8 +237,14 @@ const kpiCards = computed(() => {
       value: gateLabel,
       sub: '基于最近一批回归与覆盖率门禁',
       accent: gateColor,
-      icon: gate === 'BLOCK' ? 'mdi-shield-alert' : 'mdi-shield-check',
-      iconBg: gate === 'BLOCK' ? 'rgba(234, 67, 53, 0.15)' : 'rgba(52, 168, 83, 0.15)',
+      icon:
+        gate === 'BLOCK' ? 'mdi-shield-alert' : gate === 'OVERRIDDEN' ? 'mdi-shield-edit' : 'mdi-shield-check',
+      iconBg:
+        gate === 'BLOCK'
+          ? 'rgba(234, 67, 53, 0.15)'
+          : gate === 'OVERRIDDEN'
+            ? 'rgba(253, 214, 99, 0.18)'
+            : 'rgba(52, 168, 83, 0.15)',
       iconColor: gateColor,
       valueColor: gateColor,
       isGate: true,
@@ -109,24 +252,77 @@ const kpiCards = computed(() => {
   ]
 })
 
-function formatTime(iso: string | null | undefined) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 function gateChipClass(gate: string) {
+  if (gate === 'OVERRIDDEN') return 'batch-chip--override'
   if (gate === 'PASS') return 'batch-chip--pass'
   if (gate === 'BLOCK') return 'batch-chip--block'
   return 'batch-chip--pending'
 }
 
+function batchGateChipText(gate: string) {
+  if (gate === 'OVERRIDDEN') return '豁免'
+  return gate
+}
+
+function detailGateDisplayText(d: RegressionBatchDetail) {
+  return d.gate_label || d.gate
+}
+
 function detailMetaGateClass(gate: string) {
+  if (gate === 'OVERRIDDEN') return 'detail-gate-chip--override'
   if (gate === 'PASS') return 'detail-gate-chip--pass'
   if (gate === 'BLOCK') return 'detail-gate-chip--block'
   return 'detail-gate-chip--pending'
+}
+
+function formatOverrideAudit(mo: NonNullable<RegressionBatchDetail['manual_override']>) {
+  const when = formatLocalDateTime(mo.at)
+  const t = when.match(/\d{2}:\d{2}/)?.[0] ?? when
+  const day = when.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? ''
+  const stamp = day && t ? `${day} ${t}` : when
+  return `已由 @${mo.actor} 于 ${stamp} 人工特批放行 · 原因：${mo.reason_category_label}。${mo.reason_detail}`
+}
+
+const overrideDetailMinLen = 2
+
+const overrideDetailHint = computed(() => {
+  const n = overrideDetail.value.trim().length
+  if (n >= overrideDetailMinLen) return ''
+  return `详细说明至少 ${overrideDetailMinLen} 个字（当前 ${n} 字）`
+})
+
+const overrideSubmitDisabled = computed(
+  () => overrideDetail.value.trim().length < overrideDetailMinLen || overrideSubmitting.value,
+)
+
+function openOverrideDialog() {
+  overrideCategory.value = 'hotfix'
+  overrideDetail.value = ''
+  overrideError.value = ''
+  overrideDialog.value = true
+}
+
+async function submitOverride() {
+  if (!selectedId.value || overrideDetail.value.trim().length < overrideDetailMinLen) return
+  overrideSubmitting.value = true
+  overrideError.value = ''
+  try {
+    await submitRegressionGateOverride(selectedId.value, {
+      reason_category: overrideCategory.value,
+      reason_detail: overrideDetail.value.trim(),
+      actor: overrideActor.value.trim() || 'admin',
+    })
+    overrideDialog.value = false
+    await Promise.all([loadList(), loadDetail(selectedId.value)])
+  } catch (err) {
+    overrideError.value = readApiError(
+      err,
+      '提交失败；若接口返回 404，请重启 API（scripts/run_api.ps1）后再试',
+    )
+  } finally {
+    overrideSubmitting.value = false
+  }
 }
 
 const detailIsSparse = computed(() => {
@@ -171,6 +367,7 @@ async function loadDetail(jobId: string) {
 }
 
 watch(selectedId, (id) => {
+  expandedCaseKey.value = null
   if (id) loadDetail(id)
 })
 
@@ -316,12 +513,20 @@ watch(
                   class="batch-chip"
                   :class="gateChipClass(item.gate)"
                 >
-                  {{ item.gate }}
+                  {{ batchGateChipText(item.gate) }}
                 </v-chip>
-                <span class="mono text-caption text-medium-emphasis d-block mb-1">{{ item.commit }}</span>
-                <div class="text-body-2 font-weight-medium text-truncate">{{ item.repo }}</div>
-                <div class="text-caption text-medium-emphasis mt-1">
-                  {{ formatTime(item.created_at) }} · {{ item.api_impact }} API
+                <div class="batch-card__head">
+                  <div class="batch-card__title text-truncate">{{ repoShortName(item.repo) }}</div>
+                  <span
+                    v-if="formatBranchLabel(item.ref)"
+                    class="batch-branch-tag"
+                    :title="item.ref"
+                  >
+                    {{ formatBranchLabel(item.ref) }}
+                  </span>
+                </div>
+                <div class="batch-card__meta mono text-caption text-medium-emphasis">
+                  {{ formatBatchMeta(item) }}
                 </div>
               </button>
             </div>
@@ -371,17 +576,37 @@ watch(
                 </div>
                 <div class="detail-meta-item detail-meta-item--gate">
                   <span class="detail-meta-label">门禁</span>
-                  <v-chip
-                    size="small"
-                    variant="flat"
-                    rounded="pill"
-                    class="detail-gate-chip"
-                    :class="detailMetaGateClass(detail.gate)"
-                  >
-                    {{ detail.gate }}
-                  </v-chip>
+                  <div class="detail-gate-row">
+                    <v-chip
+                      size="small"
+                      variant="flat"
+                      rounded="pill"
+                      class="detail-gate-chip"
+                      :class="detailMetaGateClass(detail.gate)"
+                    >
+                      {{ detailGateDisplayText(detail) }}
+                    </v-chip>
+                    <v-btn
+                      v-if="detail.gate === 'BLOCK'"
+                      size="small"
+                      variant="outlined"
+                      rounded="pill"
+                      class="text-none override-gate-btn"
+                      @click="openOverrideDialog"
+                    >
+                      人工豁免放行
+                    </v-btn>
+                  </div>
                 </div>
               </div>
+              <p
+                v-if="detail.manual_override"
+                class="override-audit-banner"
+                role="status"
+              >
+                <v-icon icon="mdi-shield-account" size="18" class="me-2" />
+                {{ formatOverrideAudit(detail.manual_override) }}
+              </p>
               <div class="detail-tab-content">
                 <v-window v-model="detailTab">
                   <v-window-item value="cases">
@@ -397,35 +622,87 @@ watch(
                     </div>
                     <div v-else class="case-list">
                       <div
-                        v-for="(row, i) in detail.cases"
-                        :key="i"
-                        class="case-row"
+                        v-for="row in detail.cases"
+                        :key="caseRowKey(row)"
+                        class="case-block"
                       >
-                        <div class="case-main min-width-0">
-                          <div class="mono text-body-2 font-weight-medium">
-                            {{ row.method }} {{ row.path }}
-                          </div>
-                          <div class="text-caption text-medium-emphasis mono">{{ row.yaml_file }}</div>
-                        </div>
-                        <v-chip
-                          size="x-small"
-                          variant="flat"
-                          rounded="pill"
-                          :class="row.status === 'PASS' ? 'case-chip--pass' : 'case-chip--fail'"
+                        <button
+                          type="button"
+                          class="case-row"
+                          :class="{ 'case-row--open': expandedCaseKey === caseRowKey(row) }"
+                          @click="toggleCaseRow(row)"
                         >
-                          {{ row.status }}
-                        </v-chip>
-                        <span class="mono text-caption case-ms">{{ row.duration_ms }} ms</span>
+                          <div class="case-main min-width-0">
+                            <div class="mono text-body-2 font-weight-medium">
+                              {{ row.method }} {{ row.path }}
+                            </div>
+                            <div class="text-caption text-medium-emphasis mono">{{ row.yaml_file }}</div>
+                          </div>
+                          <div class="case-assertions text-caption">
+                            <span
+                              v-for="(a, ai) in caseAssertions(row)"
+                              :key="ai"
+                              class="case-assertion-pill"
+                            >
+                              {{ a }}
+                            </span>
+                          </div>
+                          <div class="case-row__tail">
+                            <v-chip
+                              size="x-small"
+                              variant="flat"
+                              rounded="pill"
+                              :class="row.status === 'PASS' ? 'case-chip--pass' : 'case-chip--fail'"
+                            >
+                              {{ row.status }}
+                            </v-chip>
+                            <span class="mono text-caption case-ms">{{ row.duration_ms }} ms</span>
+                            <span class="case-expand-label">查看报文详情</span>
+                            <v-icon
+                              :icon="
+                                expandedCaseKey === caseRowKey(row)
+                                  ? 'mdi-chevron-up'
+                                  : 'mdi-chevron-down'
+                              "
+                              size="18"
+                            />
+                          </div>
+                        </button>
+                        <div
+                          v-if="expandedCaseKey === caseRowKey(row)"
+                          class="case-expand"
+                        >
+                          <div class="case-expand__section">
+                            <span class="case-expand__label">请求</span>
+                            <pre class="case-expand__pre mono">{{ row.request_preview || `${row.method} ${row.path}` }}</pre>
+                          </div>
+                          <div class="case-expand__section">
+                            <span class="case-expand__label">响应</span>
+                            <pre class="case-expand__pre mono">{{ caseResponsePreview(row) }}</pre>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </v-window-item>
                   <v-window-item value="coverage">
                     <div class="coverage-summary">
                       <span class="coverage-summary-label">增量覆盖率</span>
-                      <span class="coverage-summary-value mono">{{ detail.incremental_coverage_pct ?? '—' }}%</span>
+                      <span class="coverage-summary-value mono">
+                        {{
+                          detail.incremental_coverage_pct != null
+                            ? `${detail.incremental_coverage_pct}%`
+                            : '—'
+                        }}
+                      </span>
                       <span class="coverage-summary-divider" aria-hidden="true">·</span>
                       <span class="coverage-summary-meta">变更 {{ detail.changed_lines }} 行</span>
                     </div>
+                    <p
+                      v-if="detail.incremental_coverage_pct == null && detail.coverage_lines.length"
+                      class="coverage-pending-hint"
+                    >
+                      已展示变更行探针占位；覆盖率百分比待 CI 回传 coverage 报告后更新。
+                    </p>
                     <div
                       v-if="!detail.coverage_lines.length"
                       class="detail-hint-box detail-hint-box--compact"
@@ -462,6 +739,67 @@ watch(
         </v-card>
       </v-col>
     </v-row>
+
+    <v-dialog v-model="overrideDialog" max-width="520" scrollable>
+      <v-card class="override-dialog" rounded="xl">
+        <v-card-title class="text-h6 font-weight-bold">人工豁免放行</v-card-title>
+        <v-card-subtitle class="text-body-2 text-medium-emphasis pb-0">
+          仅记录审计信息并调整门禁展示；请确认已与测试负责人达成共识。
+        </v-card-subtitle>
+        <v-card-text class="pt-4">
+          <div class="text-caption text-medium-emphasis mb-2">原因分类</div>
+          <v-radio-group v-model="overrideCategory" hide-details class="override-radio-group">
+            <v-radio
+              v-for="opt in overrideReasonOptions"
+              :key="opt.value"
+              :value="opt.value"
+              :label="opt.title"
+              color="#8ab4f8"
+            />
+          </v-radio-group>
+          <v-textarea
+            v-model="overrideDetail"
+            class="mt-4"
+            label="详细说明（必填）"
+            placeholder="例：已与测试负责人确认，该异常分支仅在磁盘损坏时触发，同意发版。"
+            rows="3"
+            variant="outlined"
+            rounded="lg"
+            :hint="
+              overrideDetailHint ||
+              (overrideDetail.trim().length >= overrideDetailMinLen
+                ? '已满足最少字数，可提交豁免'
+                : `请填写豁免依据，至少 ${overrideDetailMinLen} 个字`)
+            "
+            persistent-hint
+          />
+          <p v-if="overrideError" class="override-error mt-3 mb-0" role="alert">{{ overrideError }}</p>
+          <v-text-field
+            v-model="overrideActor"
+            class="mt-3"
+            label="操作人"
+            variant="outlined"
+            density="compact"
+            rounded="lg"
+            hide-details
+          />
+        </v-card-text>
+        <v-card-actions class="px-4 pb-4">
+          <v-spacer />
+          <v-btn variant="text" class="text-none" @click="overrideDialog = false">取消</v-btn>
+          <v-btn
+            color="#8ab4f8"
+            variant="flat"
+            class="text-none"
+            :disabled="overrideSubmitDisabled"
+            :loading="overrideSubmitting"
+            @click="submitOverride"
+          >
+            确认豁免
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -469,6 +807,26 @@ watch(
 .regression-page {
   width: 100%;
   max-width: 100%;
+}
+.regression-page :deep(.kpi-row),
+.regression-page :deep(.master-detail-row) {
+  margin-inline: 0;
+  width: 100%;
+}
+.regression-page :deep(.kpi-row > .v-col),
+.regression-page :deep(.master-detail-row > .v-col) {
+  padding-inline: 8px;
+}
+.regression-page :deep(.kpi-row > .v-col:first-child),
+.regression-page :deep(.master-detail-row > .v-col:first-child) {
+  padding-inline-start: 0;
+}
+.regression-page :deep(.kpi-row > .v-col:last-child),
+.regression-page :deep(.master-detail-row > .v-col:last-child) {
+  padding-inline-end: 0;
+}
+.master-detail-row .batch-panel :deep(.v-card-title.panel-title) {
+  padding: 20px 22px 12px !important;
 }
 .regression-sub {
   max-width: 640px;
@@ -485,10 +843,10 @@ watch(
   flex: 0 0 280px;
 }
 .filter-gate {
-  width: 120px;
-  min-width: 120px;
-  max-width: 120px;
-  flex: 0 0 120px;
+  width: 130px;
+  min-width: 130px;
+  max-width: 130px;
+  flex: 0 0 130px;
 }
 .regression-filters :deep(.repo-autocomplete.filter-select-repo .v-field__input),
 .filter-gate :deep(.v-field__input) {
@@ -550,9 +908,6 @@ watch(
 .m3-elevated {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.28);
 }
-.panel-title {
-  padding: 16px 24px 8px !important;
-}
 .batch-panel,
 .detail-panel {
   display: flex;
@@ -561,7 +916,11 @@ watch(
 .batch-list-wrap {
   flex: 1;
   min-height: 400px;
-  padding: 0 24px 24px !important;
+  padding: 0 22px 24px !important;
+}
+.master-detail-row .detail-panel {
+  padding: 20px 22px 24px;
+  box-sizing: border-box;
 }
 .detail-head {
   display: flex;
@@ -569,7 +928,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 12px 16px;
-  padding: 20px 24px 0;
+  padding: 0;
 }
 .detail-head-title {
   margin: 0;
@@ -597,7 +956,7 @@ watch(
 }
 .detail-body {
   flex: 1;
-  padding: 16px 24px 24px !important;
+  padding: 16px 0 0 !important;
 }
 .detail-body--sparse {
   min-height: 0 !important;
@@ -616,9 +975,32 @@ watch(
 .batch-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   max-height: 520px;
   overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+.batch-list::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.batch-list::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.batch-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.batch-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+.batch-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
 }
 .batch-card {
   position: relative;
@@ -629,14 +1011,51 @@ watch(
   border: 1px solid rgb(var(--v-theme-outline));
   background: rgb(var(--v-theme-surface));
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
 }
 .batch-card:hover {
   background: #24282e;
 }
 .batch-card--active {
-  border-color: #8ab4f8;
-  background: rgba(138, 180, 248, 0.08);
+  border: 1px solid rgba(138, 180, 248, 0.45);
+  background: #242933;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(138, 180, 248, 0.12);
+}
+.batch-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-right: 56px;
+}
+.batch-card__title {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #f1f3f5;
+  min-width: 0;
+}
+.batch-branch-tag {
+  flex-shrink: 0;
+  max-width: 92px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-card__meta {
+  margin-top: 6px;
+  line-height: 1.45;
+  opacity: 0.72;
 }
 .batch-chip {
   position: absolute;
@@ -708,7 +1127,42 @@ watch(
   color: #f28b82 !important;
 }
 .detail-gate-chip--pending {
+  background: rgba(142, 146, 153, 0.2) !important;
+  color: #bdc1c6 !important;
+}
+.detail-gate-chip--override {
   background: rgba(253, 214, 99, 0.22) !important;
+  color: #fdd663 !important;
+}
+.detail-gate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.override-gate-btn {
+  border-color: rgba(253, 214, 99, 0.45) !important;
+  color: #fdd663 !important;
+}
+.override-error {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #f28b82;
+}
+.override-audit-banner {
+  display: flex;
+  align-items: flex-start;
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(253, 214, 99, 0.28);
+  background: rgba(253, 214, 99, 0.08);
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(253, 214, 99, 0.92);
+}
+.batch-chip--override {
+  background: rgba(253, 214, 99, 0.18) !important;
   color: #fdd663 !important;
 }
 .detail-hint-box {
@@ -737,15 +1191,86 @@ watch(
   flex-direction: column;
   gap: 8px;
 }
+.case-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
 .case-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) auto;
+  gap: 10px 12px;
   align-items: center;
+  width: 100%;
+  text-align: left;
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid rgb(var(--v-theme-outline));
   background: #1a1d21;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.case-row:hover {
+  background: #22262c;
+  border-color: #3a4048;
+}
+.case-row--open {
+  border-color: #8ab4f8;
+  background: rgba(138, 180, 248, 0.06);
+}
+.case-assertions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.case-assertion-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+}
+.case-row__tail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.case-expand-label {
+  font-size: 11px;
+  color: rgba(138, 180, 248, 0.92);
+  white-space: nowrap;
+}
+.case-expand {
+  margin-top: -4px;
+  padding: 10px 14px 12px;
+  border: 1px solid #2e333b;
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  background: #14171a;
+}
+.case-expand__section + .case-expand__section {
+  margin-top: 10px;
+}
+.case-expand__label {
+  display: block;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.48);
+  margin-bottom: 4px;
+}
+.case-expand__pre {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #0d0f11;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.82);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .case-chip--pass {
   background: rgba(52, 168, 83, 0.16) !important;
@@ -779,6 +1304,12 @@ watch(
   color: rgba(255, 255, 255, 0.5);
   font-size: 13px;
 }
+.coverage-pending-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(253, 214, 99, 0.82);
+}
 .coverage-scroll-shell {
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -793,7 +1324,7 @@ watch(
   font-size: 12px;
   line-height: 1.6;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.28) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
 .coverage-scroll::-webkit-scrollbar {
   width: 6px;
@@ -807,11 +1338,11 @@ watch(
   background: transparent;
 }
 .coverage-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
 }
 .coverage-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.28);
 }
 .coverage-line {
   display: flex;

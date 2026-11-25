@@ -21,6 +21,7 @@ import type {
   RepositoryPayload,
 } from '@/api/types'
 import { parseFullNameFromCloneUrl } from '@/utils/git'
+import { formatLocalDateTime } from '@/utils/datetime'
 
 const router = useRouter()
 const loading = ref(false)
@@ -134,14 +135,10 @@ const repoRowMenuProps = {
 } as const
 
 function formatIndexedAt(iso: string | null | undefined) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) {
-    const m = iso.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/)
-    return m ? `${m[1]} ${m[2]}` : iso.slice(0, 16).replace('T', ' ')
-  }
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const full = formatLocalDateTime(iso)
+  if (!full || full === '—') return '—'
+  const m = full.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/)
+  return m ? `${m[1]} ${m[2]}` : full
 }
 
 const repoForm = ref<RepositoryPayload>({

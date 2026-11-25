@@ -11,6 +11,7 @@ from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
 from app.services.repo_index import reindex_repository, resolve_head_shas
 from app.services.analysis_runner import schedule_analyze_merge
+from app.utils.time_format import as_utc_iso
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 
@@ -57,6 +58,9 @@ def _to_out(repo: Repository, job_count: int = 0) -> dict:
     data["token_configured"] = bool(repo.access_token)
     data["ssh_configured"] = bool(repo.ssh_private_key)
     data["job_count"] = job_count
+    data["last_indexed_at"] = as_utc_iso(repo.last_indexed_at)
+    data["created_at"] = as_utc_iso(repo.created_at)
+    data["updated_at"] = as_utc_iso(repo.updated_at)
     return data
 
 

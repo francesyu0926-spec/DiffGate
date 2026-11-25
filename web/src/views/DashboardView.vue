@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { fetchDashboardOverview, fetchJobAnalysisStats, fetchJobs } from '@/api/client'
 import type { JobAnalysisStats, JobListItem, JobStatus } from '@/api/types'
 import RepoAutocompleteFilter, { type RepoGateStat } from '@/components/RepoAutocompleteFilter.vue'
+import { formatLocalDateTime } from '@/utils/datetime'
 
 const router = useRouter()
 const openNewAnalysis = inject<() => void>('openNewAnalysis', () => {})
@@ -65,8 +66,7 @@ function statusChipClass(status: JobStatus) {
 }
 
 function formatTime(iso: string | null) {
-  if (!iso) return '—'
-  return iso.replace('T', ' ').replace(/\.\d+Z?$/, '').slice(0, 16)
+  return formatLocalDateTime(iso)
 }
 
 function jobCommitLine(job: JobListItem) {

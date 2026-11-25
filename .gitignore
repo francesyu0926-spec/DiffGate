@@ -9,3 +9,6 @@ __pycache__/
 .pytest_cache/
 .cursor/
 .hypothesis/
+.coverage
+dump.rdb
+tools/ngrok/

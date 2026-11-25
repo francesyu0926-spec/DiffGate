@@ -192,6 +192,7 @@ export interface DashboardOverview {
   }
   kpi: {
     avg_coverage: number
+    coverage_sample_count?: number
     coverage_delta: number
     gate_baseline: number
     first_pass_rate: number
@@ -219,6 +220,7 @@ export interface DashboardOverview {
     gate: string
     time: string | null
     job_id: string | null
+    block_reason_label?: string | null
   }[]
 }
 
@@ -266,6 +268,14 @@ export interface RegressionBatchDetail {
   repo: string
   commit: string
   gate: string
+  gate_label?: string
+  manual_override?: {
+    actor: string
+    at: string
+    reason_category: string
+    reason_category_label: string
+    reason_detail: string
+  } | null
   gate_result: Record<string, unknown>
   cases: {
     method: string
@@ -273,6 +283,10 @@ export interface RegressionBatchDetail {
     yaml_file: string
     status: string
     duration_ms: number
+    assertions?: string[]
+    request_preview?: string
+    response_preview?: string
+    http_status?: number | null
   }[]
   coverage_lines: {
     file: string
@@ -282,6 +296,7 @@ export interface RegressionBatchDetail {
   }[]
   incremental_coverage_pct: number | null
   changed_lines: number
+  covered_lines?: number
 }
 
 export async function fetchRegressionOverview(repo?: string, gate?: string) {
@@ -300,5 +315,26 @@ export async function fetchRegressionBatches(repo?: string, gate?: string, limit
 
 export async function fetchRegressionBatchDetail(jobId: string) {
   const { data } = await http.get<RegressionBatchDetail>(`/regression/batches/${jobId}`)
+  return data
+}
+
+export type GateOverrideReasonCategory =
+  | 'hotfix'
+  | 'branch_unsimulatable'
+  | 'non_core_reviewed'
+  | 'other'
+
+export async function submitRegressionGateOverride(
+  jobId: string,
+  body: {
+    reason_category: GateOverrideReasonCategory
+    reason_detail: string
+    actor?: string
+  },
+) {
+  const { data } = await http.post<{ ok: boolean; gate_result: Record<string, unknown> }>(
+    `/regression/batches/${jobId}/override`,
+    body,
+  )
   return data
 }
