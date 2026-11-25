@@ -132,14 +132,35 @@ export interface JobDetail {
   created_at: string | null
 }
 
+export type GraphNodeType = 'api' | 'changed' | 'symbol'
+
 export interface GraphNode {
   id: string
   label: string
-  type: 'api' | 'changed' | 'symbol'
+  type: GraphNodeType
   file?: string
   line?: number
+  end_line?: number
   method?: string | null
   route?: string | null
+}
+
+export interface CodeDiffLine {
+  line_no: number | null
+  text: string
+  kind: 'add' | 'del' | 'ctx'
+}
+
+export interface CodeDiffView {
+  view: 'diff' | 'source'
+  file: string
+  start_line: number
+  end_line: number
+  base_sha: string
+  head_sha: string
+  lines: CodeDiffLine[]
+  highlight_lines: number[]
+  hint?: string | null
 }
 
 export interface GraphEdge {

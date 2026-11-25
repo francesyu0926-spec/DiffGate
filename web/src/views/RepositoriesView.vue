@@ -36,10 +36,83 @@ const testSuiteOptions = ref<string[]>([])
 const accessToken = ref('')
 const sshPrivateKey = ref('')
 const editingTokenConfigured = ref(false)
+const editingSshConfigured = ref(false)
 const deleteDialog = ref(false)
 const deleteTarget = ref<RepositoryItem | null>(null)
 const submitLoading = ref(false)
 const kpiTick = ref(0)
+const tablePage = ref(1)
+const tableItemsPerPage = ref(10)
+const tablePerPageOptions = [10, 25, 50]
+
+const tablePageCount = computed(() =>
+  Math.max(1, Math.ceil(rows.value.length / tableItemsPerPage.value)),
+)
+const tableRangeStart = computed(() =>
+  rows.value.length === 0 ? 0 : (tablePage.value - 1) * tableItemsPerPage.value + 1,
+)
+const tableRangeEnd = computed(() =>
+  Math.min(tablePage.value * tableItemsPerPage.value, rows.value.length),
+)
+
+const canGoPrev = computed(() => tablePage.value > 1)
+const canGoNext = computed(() => tablePage.value < tablePageCount.value)
+
+function goFirstPage() {
+  tablePage.value = 1
+}
+function goPrevPage() {
+  tablePage.value = Math.max(1, tablePage.value - 1)
+}
+function goNextPage() {
+  tablePage.value = Math.min(tablePageCount.value, tablePage.value + 1)
+}
+function goLastPage() {
+  tablePage.value = tablePageCount.value
+}
+
+function isLastTableRow(item: RepositoryItem) {
+  const idx = rows.value.findIndex((r) => r.id === item.id)
+  return idx >= 0 && idx === rows.value.length - 1
+}
+
+watch(tableItemsPerPage, () => {
+  tablePage.value = 1
+})
+watch(tablePageCount, (n) => {
+  if (tablePage.value > n) tablePage.value = n
+})
+
+const paginationNavButtons = computed(() => [
+  {
+    id: 'first',
+    label: '第一页',
+    icon: 'mdi-chevron-double-left',
+    disabled: !canGoPrev.value,
+    onClick: goFirstPage,
+  },
+  {
+    id: 'prev',
+    label: '上一页',
+    icon: 'mdi-chevron-left',
+    disabled: !canGoPrev.value,
+    onClick: goPrevPage,
+  },
+  {
+    id: 'next',
+    label: '下一页',
+    icon: 'mdi-chevron-right',
+    disabled: !canGoNext.value,
+    onClick: goNextPage,
+  },
+  {
+    id: 'last',
+    label: '最后一页',
+    icon: 'mdi-chevron-double-right',
+    disabled: !canGoNext.value,
+    onClick: goLastPage,
+  },
+])
 
 type SnackbarVariant = 'success' | 'error'
 const snackbar = ref<{ show: boolean; text: string; variant: SnackbarVariant }>({
@@ -54,10 +127,10 @@ function notify(text: string, variant: SnackbarVariant = 'success') {
 
 const repoRowMenuProps = {
   contentClass: 'repo-row-action-menu',
-  elevation: 0,
+  elevation: 12,
   rounded: 'lg',
-  minWidth: 216,
-  maxWidth: 240,
+  minWidth: 220,
+  maxWidth: 260,
 } as const
 
 function formatIndexedAt(iso: string | null | undefined) {
@@ -222,6 +295,7 @@ function openCreate() {
   accessToken.value = ''
   sshPrivateKey.value = ''
   editingTokenConfigured.value = false
+  editingSshConfigured.value = false
   Object.assign(repoForm.value, {
     full_name: '',
     provider: 'gitlab' as RepoProvider,
@@ -244,6 +318,7 @@ function openEdit(row: RepositoryItem) {
   accessToken.value = ''
   sshPrivateKey.value = ''
   editingTokenConfigured.value = Boolean(row.token_configured)
+  editingSshConfigured.value = Boolean(row.ssh_configured)
   Object.assign(repoForm.value, {
     full_name: row.full_name,
     provider: row.provider,
@@ -275,6 +350,13 @@ function buildPayload(): RepositoryPayload {
 async function submit() {
   const { valid } = (await formRef.value?.validate()) ?? { valid: false }
   if (!valid) return
+  if (repoForm.value.auth_method === 'ssh') {
+    const pasted = sshPrivateKey.value.trim().length > 0
+    if (!pasted && !editingSshConfigured.value) {
+      notify('请粘贴 SSH 私钥（与 GitHub Deploy key 配对的那把私钥文件全文）', 'error')
+      return
+    }
+  }
   const payload = buildPayload()
   submitLoading.value = true
   try {
@@ -343,6 +425,7 @@ async function onReindex(row: RepositoryItem) {
     await refreshAfterMutation()
     notify('仓库已接入，AST 调用链图谱构建完成')
   } catch (err) {
+    if (import.meta.env.DEV) console.error('reindex failed', err)
     notify(
       readApiError(err, '索引失败，请检查 Clone 地址、默认分支，或确认已开启「启用分析」'),
       'error',
@@ -381,7 +464,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="repo-page">
     <div class="d-flex flex-wrap align-center justify-space-between gap-3 mb-4 repo-page-head">
       <h2 class="text-h5 font-weight-bold repo-page-title">仓库管理</h2>
       <div class="repo-toolbar">
@@ -400,8 +483,9 @@ onMounted(async () => {
           @keyup.enter="load"
         />
         <v-btn
-          class="cta-repo-action cta-repo-action--contrast text-none"
-          variant="flat"
+          class="cta-repo-action cta-repo-action--tonal text-none"
+          variant="tonal"
+          color="primary"
           rounded="pill"
           height="40"
           prepend-icon="mdi-plus"
@@ -412,28 +496,34 @@ onMounted(async () => {
       </div>
     </div>
 
-    <v-row class="mb-2 kpi-row" :class="{ 'kpi-row--pulse': kpiTick > 0 }">
-      <v-col v-for="card in kpiCards" :key="card.title" cols="12" sm="6" md="3">
-        <v-card class="h-100 kpi-card repo-kpi-card m3-surface-card" rounded="xl" :border="false">
-          <span class="repo-kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
-          <v-card-text class="repo-kpi-inner">
-            <div class="d-flex align-start justify-space-between gap-2 mb-2">
-              <div class="text-body-2 repo-kpi-title">{{ card.title }}</div>
-              <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }">
-                <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
-              </v-avatar>
-            </div>
-            <div class="kpi-value text-h4">{{ card.value }}</div>
+    <div class="repo-kpi-grid" :class="{ 'repo-kpi-grid--pulse': kpiTick > 0 }">
+      <v-card
+        v-for="card in kpiCards"
+        :key="card.title"
+        class="h-100 kpi-card repo-kpi-card"
+        rounded="xl"
+        :border="false"
+      >
+        <span class="repo-kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
+        <v-card-text class="repo-kpi-inner d-flex flex-column">
+          <div class="d-flex align-start justify-space-between gap-2 mb-2">
+            <div class="text-body-2 repo-kpi-title">{{ card.title }}</div>
+            <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }">
+              <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
+            </v-avatar>
+          </div>
+          <div class="kpi-value text-h4">{{ card.value }}</div>
+          <div class="repo-kpi-sub-slot">
             <div
-              class="text-caption repo-kpi-sub mt-2"
+              class="text-caption repo-kpi-sub"
               :class="{ 'repo-kpi-sub--warn': 'subWarn' in card && card.subWarn }"
             >
               {{ card.sub }}
             </div>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
+          </div>
+        </v-card-text>
+      </v-card>
+    </div>
 
     <v-card class="repo-table-card" rounded="xl" :border="false">
       <v-progress-linear v-if="loading && rows.length === 0" indeterminate color="primary" />
@@ -459,8 +549,9 @@ onMounted(async () => {
             </div>
             <div class="repo-empty-module__actions">
               <v-btn
-                class="cta-repo-action cta-repo-action--contrast text-none"
-                variant="flat"
+                class="cta-repo-action cta-repo-action--tonal text-none"
+                variant="tonal"
+                color="primary"
                 rounded="pill"
                 height="40"
                 prepend-icon="mdi-plus"
@@ -479,11 +570,48 @@ onMounted(async () => {
         :loading="loading"
         item-value="id"
         hover
+        v-model:page="tablePage"
+        v-model:items-per-page="tableItemsPerPage"
         class="repo-table"
-        :items-per-page="10"
-        :items-per-page-options="[10, 25, 50]"
-        items-per-page-text="每页"
+        :items-per-page-options="tablePerPageOptions"
       >
+        <template #bottom>
+          <div class="repo-pagination-wrapper">
+            <div class="repo-pagination-left">
+              <span class="repo-pagination-label">每页</span>
+              <v-select
+                v-model="tableItemsPerPage"
+                :items="tablePerPageOptions"
+                density="compact"
+                hide-details
+                variant="solo"
+                flat
+                class="page-size-select"
+                menu-icon="mdi-menu-down"
+              />
+            </div>
+            <div class="repo-pagination-right">
+              <span class="page-text">
+                {{ tableRangeStart }}-{{ tableRangeEnd }} 共 {{ rows.length }}
+              </span>
+              <div class="page-buttons" role="navigation" aria-label="表格分页">
+                <v-btn
+                  v-for="btn in paginationNavButtons"
+                  :key="btn.id"
+                  class="page-btn"
+                  icon
+                  variant="text"
+                  density="comfortable"
+                  :disabled="btn.disabled"
+                  :aria-label="btn.label"
+                  @click="btn.onClick"
+                >
+                  <v-icon :icon="btn.icon" size="20" />
+                </v-btn>
+              </div>
+            </div>
+          </div>
+        </template>
         <template #item.full_name="{ item }">
           <span class="font-weight-medium">{{ item.full_name }}</span>
         </template>
@@ -516,8 +644,10 @@ onMounted(async () => {
             <v-switch
               :model-value="item.enabled"
               color="primary"
-              density="compact"
+              density="comfortable"
               hide-details
+              inset
+              class="repo-table-switch"
               @update:model-value="(v) => toggleEnabled(item, v)"
             />
           </div>
@@ -540,8 +670,8 @@ onMounted(async () => {
         <template #item.actions="{ item }">
           <div class="repo-table-cell repo-table-cell--actions">
             <v-menu
-              location="bottom end"
-              origin="overlap"
+              :location="isLastTableRow(item) ? 'top end' : 'bottom end'"
+              :offset="8"
               scroll-strategy="reposition"
               :close-on-content-click="true"
               :z-index="2500"
@@ -590,7 +720,7 @@ onMounted(async () => {
                     <v-icon icon="mdi-pencil-outline" size="18" class="repo-action-menu__icon" />
                   </template>
                 </v-list-item>
-                <v-divider class="repo-action-menu__divider" />
+                <div class="repo-action-menu__separator" role="separator" aria-hidden="true" />
                 <v-list-item
                   class="repo-action-menu__item repo-action-menu__item--danger"
                   rounded="lg"
@@ -608,12 +738,16 @@ onMounted(async () => {
       </v-data-table>
     </v-card>
 
-    <v-dialog v-model="dialogVisible" max-width="760" scrollable class="repo-dialog">
-      <v-card class="repo-dialog-card" :title="editingId ? '编辑仓库' : '添加仓库'">
+    <v-dialog v-model="dialogVisible" max-width="760" class="repo-dialog">
+      <v-card class="repo-dialog-card" rounded="xl">
+        <v-card-title class="repo-dialog-title">
+          {{ editingId ? '编辑仓库' : '添加仓库' }}
+        </v-card-title>
+        <v-divider class="repo-dialog-title-divider" />
         <v-card-text class="repo-dialog-body">
           <v-form ref="formRef" class="repo-dialog-form" @submit.prevent="submit">
-            <v-row class="repo-form-grid" dense>
-              <v-col cols="12" md="4">
+            <v-row class="repo-form-grid">
+              <v-col cols="12" md="3">
                 <v-select
                   v-model="repoForm.provider"
                   label="来源"
@@ -622,18 +756,18 @@ onMounted(async () => {
                   item-value="value"
                   :rules="[required]"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   hide-details="auto"
                   class="repo-form-field"
                 />
               </v-col>
-              <v-col cols="12" md="8">
+              <v-col cols="12" md="9">
                 <v-textarea
                   v-model="repoForm.clone_url"
                   label="Clone URL"
                   :rules="[required]"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   rows="1"
                   auto-grow
                   :max-rows="3"
@@ -643,28 +777,28 @@ onMounted(async () => {
                 />
               </v-col>
 
-              <v-col cols="12" md="8">
+              <v-col cols="12" md="6">
                 <v-textarea
                   v-model="repoForm.full_name"
                   label="全称"
                   :rules="[required]"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   rows="1"
                   auto-grow
                   :max-rows="3"
                   hide-details="auto"
                   placeholder="group/project"
-                  class="repo-form-field repo-form-field--name mono"
+                  class="repo-form-field repo-form-field--name"
                   @update:model-value="fullNameManual = true"
                 />
               </v-col>
-              <v-col cols="12" md="4">
+              <v-col cols="12" md="6">
                 <v-text-field
                   v-model="repoForm.default_branch"
                   label="默认分支"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   hide-details="auto"
                   class="repo-form-field"
                 />
@@ -678,7 +812,7 @@ onMounted(async () => {
                   item-title="title"
                   item-value="value"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   hide-details="auto"
                   class="repo-form-field"
                 />
@@ -688,7 +822,7 @@ onMounted(async () => {
                   v-model="repoForm.scan_root"
                   label="源码根目录"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   hide-details="auto"
                   placeholder="app 或 src/main/python，默认 ."
                   class="repo-form-field"
@@ -701,7 +835,7 @@ onMounted(async () => {
                   label="Access Token"
                   type="password"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   hide-details="auto"
                   :placeholder="
                     editingTokenConfigured ? '已配置，留空表示不修改' : '后端静默拉取代码执行 Git Diff / AST'
@@ -714,12 +848,24 @@ onMounted(async () => {
                   v-model="sshPrivateKey"
                   label="SSH 私钥"
                   variant="outlined"
-                  density="compact"
-                  rows="3"
+                  density="comfortable"
+                  rows="6"
                   hide-details="auto"
                   placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
                   class="repo-form-field"
+                  :hint="
+                    editingSshConfigured
+                      ? '已配置私钥：留空表示不修改；要更换密钥请粘贴新私钥全文'
+                      : '粘贴私钥全文（勿粘贴 .pub 公钥）'
+                  "
+                  persistent-hint
                 />
+                <p class="repo-ssh-hint text-caption text-medium-emphasis mt-2 mb-0">
+                  仅在此填写<strong class="font-weight-medium">私钥</strong>。在 GitHub / GitLab
+                  后台添加的是配对的<strong class="font-weight-medium">公钥</strong>（以
+                  <span class="mono">ssh-ed25519</span> 或 <span class="mono">ssh-rsa</span> 开头，通常来自
+                  <span class="mono">id_ed25519.pub</span>），不要粘贴私钥行。
+                </p>
               </v-col>
 
               <v-col cols="12" md="6">
@@ -728,15 +874,15 @@ onMounted(async () => {
                   label="关联用例集"
                   :items="testSuiteOptions"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   hide-details="auto"
                   clearable
                   placeholder="API 测试平台项目标识"
                   class="repo-form-field"
                 />
               </v-col>
-              <v-col cols="12" md="6" class="d-flex flex-column justify-center">
-                <div class="text-caption text-medium-emphasis mb-1">
+              <v-col cols="12" md="6" class="d-flex flex-column justify-center repo-form-slider-col">
+                <div class="repo-form-slider-label text-medium-emphasis mb-2">
                   增量覆盖率阈值：{{ repoForm.coverage_threshold }}%
                 </div>
                 <v-slider
@@ -751,46 +897,47 @@ onMounted(async () => {
                 />
               </v-col>
 
-              <v-col cols="12">
+              <v-col cols="12" class="repo-form-desc-col">
                 <v-text-field
                   v-model="repoForm.description"
                   label="描述"
                   variant="outlined"
-                  density="compact"
+                  density="comfortable"
                   hide-details="auto"
                   class="repo-form-field"
-                />
-              </v-col>
-
-              <v-col cols="12" sm="6">
-                <v-switch
-                  v-model="repoForm.enabled"
-                  label="启用分析"
-                  color="secondary"
-                  density="compact"
-                  hide-details
-                  class="repo-form-switch"
-                />
-              </v-col>
-              <v-col cols="12" sm="6">
-                <v-switch
-                  v-model="repoForm.webhook_enabled"
-                  label="接收 Webhook"
-                  color="secondary"
-                  density="compact"
-                  hide-details
-                  class="repo-form-switch"
                 />
               </v-col>
             </v-row>
           </v-form>
         </v-card-text>
-        <v-card-actions class="px-4 pb-4 repo-dialog-actions">
+        <div class="repo-dialog-toggles">
+          <v-switch
+            v-model="repoForm.enabled"
+            label="启用分析"
+            color="primary"
+            density="comfortable"
+            hide-details
+            class="repo-form-switch"
+          />
+          <v-switch
+            v-model="repoForm.webhook_enabled"
+            label="接收 Webhook"
+            color="primary"
+            density="comfortable"
+            hide-details
+            class="repo-form-switch"
+          />
+        </div>
+        <v-divider class="repo-dialog-footer-divider" />
+        <v-card-actions class="repo-dialog-actions">
           <v-spacer />
-          <v-btn variant="text" @click="dialogVisible = false">取消</v-btn>
+          <v-btn class="repo-dialog-cancel text-none" variant="text" @click="dialogVisible = false">
+            取消
+          </v-btn>
           <v-btn
             class="repo-dialog-submit text-none"
             variant="flat"
+            color="primary"
             :loading="submitLoading"
             @click="submit"
           >
@@ -817,30 +964,61 @@ onMounted(async () => {
       v-model="snackbar.show"
       location="bottom"
       position="sticky"
-      :timeout="3000"
-      rounded="pill"
+      :timeout="snackbar.variant === 'error' ? 9000 : 3000"
+      :rounded="snackbar.variant === 'error' ? 'lg' : 'pill'"
       elevation="6"
       :color="snackbar.variant === 'error' ? 'error' : undefined"
       :class="[
         'feedback-snackbar',
         snackbar.variant === 'success' && 'feedback-snackbar--success',
+        snackbar.variant === 'error' && 'feedback-snackbar--error',
       ]"
     >
-      <div class="d-flex align-center ga-2 px-1">
+      <div class="d-flex align-start ga-2 px-1 feedback-snackbar__content">
         <v-icon
           :icon="snackbar.variant === 'error' ? 'mdi-alert-circle-outline' : 'mdi-check-circle-outline'"
           size="small"
+          class="feedback-snackbar__icon"
         />
-        <span class="text-body-2">{{ snackbar.text }}</span>
+        <span class="text-body-2 feedback-snackbar__text">{{ snackbar.text }}</span>
       </div>
     </v-snackbar>
   </div>
 </template>
 
 <style scoped>
+.repo-page {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 .repo-page-head {
   width: 100%;
   box-sizing: border-box;
+  margin-bottom: 24px !important;
+}
+.repo-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  width: 100%;
+  margin-bottom: 24px;
+  box-sizing: border-box;
+}
+@media (max-width: 1280px) {
+  .repo-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .repo-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.repo-kpi-grid--pulse .repo-kpi-card {
+  transition:
+    box-shadow 0.35s ease,
+    border-color 0.35s ease;
 }
 .repo-page-title {
   flex: 1 1 auto;
@@ -862,11 +1040,12 @@ onMounted(async () => {
   max-width: 280px;
 }
 .repo-search-field :deep(.v-field) {
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: #1e1e1e !important;
   box-shadow: none;
   font-size: 13px;
   min-height: 40px;
+  border-radius: 9999px;
 }
 .repo-search-field :deep(.v-field__input) {
   min-height: 40px;
@@ -883,45 +1062,51 @@ onMounted(async () => {
   letter-spacing: 0;
   flex-shrink: 0;
 }
-.cta-repo-action--contrast {
-  background-color: #f1f3f5 !important;
-  color: #111315 !important;
-  font-weight: 700;
+.cta-repo-action--tonal {
+  font-weight: 600;
   padding-inline: 18px !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  letter-spacing: 0.01em;
 }
-.cta-repo-action--contrast :deep(.v-btn__overlay) {
-  opacity: 0;
+.cta-repo-action--tonal :deep(.v-btn__underlay) {
+  background: rgba(138, 180, 248, 0.16) !important;
 }
-.cta-repo-action--contrast:hover {
-  background-color: #e8eaed !important;
-}
-.cta-repo-action--contrast :deep(.v-icon) {
-  color: #111315 !important;
+.cta-repo-action--tonal:hover :deep(.v-btn__underlay) {
+  background: rgba(138, 180, 248, 0.24) !important;
 }
 .repo-table-card {
   background-color: rgb(var(--v-theme-surface)) !important;
   border: 1px solid #2a2e35 !important;
   box-shadow: none !important;
-}
-.m3-surface-card {
-  background-color: rgb(var(--v-theme-surface)) !important;
-  border: 1px solid rgb(var(--v-theme-outline));
+  width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
 }
 .repo-kpi-card {
   position: relative;
   overflow: hidden;
+  background-color: #1e1e1e !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.24);
 }
 .repo-kpi-accent {
   position: absolute;
   left: 0;
-  top: 12px;
-  bottom: 12px;
+  top: 14px;
+  bottom: 14px;
   width: 3px;
-  border-radius: 0 2px 2px 0;
+  border-radius: 0 3px 3px 0;
+  opacity: 0.88;
 }
 .repo-kpi-inner {
-  padding: 18px 20px 20px 22px !important;
+  padding: 20px 20px 18px 22px !important;
+  min-height: 156px;
+}
+.repo-kpi-sub-slot {
+  margin-top: auto;
+  min-height: 44px;
+  display: flex;
+  align-items: flex-end;
+  padding-top: 10px;
 }
 .repo-kpi-title {
   opacity: 0.72;
@@ -930,23 +1115,58 @@ onMounted(async () => {
   line-height: 1.45;
   letter-spacing: 0.02em;
   font-size: 13px !important;
-  color: rgba(255, 255, 255, 0.58);
+  color: rgba(255, 255, 255, 0.62);
 }
 .repo-table :deep(thead th) {
-  color: rgba(255, 255, 255, 0.62) !important;
-  font-weight: 500 !important;
+  color: rgba(255, 255, 255, 0.78) !important;
+  font-weight: 600 !important;
   font-size: 13px !important;
   white-space: nowrap;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+  padding-top: 14px !important;
+  padding-bottom: 14px !important;
+}
+.repo-table :deep(thead th:first-child),
+.repo-table :deep(tbody td:first-child) {
+  padding-left: 24px !important;
+}
+.repo-table :deep(thead th:last-child),
+.repo-table :deep(tbody td:last-child) {
+  padding-right: 24px !important;
 }
 .repo-table :deep(tbody tr) {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: none;
+}
+.repo-table :deep(.v-data-table__td) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  box-shadow: none !important;
+}
+.repo-table :deep(tbody tr:last-child .v-data-table__td) {
+  border-bottom: none !important;
+}
+.repo-table :deep(.v-table__wrapper) {
+  border-bottom: none;
 }
 .repo-table :deep(tbody td),
 .repo-table :deep(.v-data-table__td) {
   vertical-align: middle !important;
-  padding-top: 11px !important;
-  padding-bottom: 11px !important;
+  padding-top: 18px !important;
+  padding-bottom: 18px !important;
+}
+.repo-table-switch :deep(.v-switch__track) {
+  opacity: 1 !important;
+  background-color: rgba(255, 255, 255, 0.14) !important;
+}
+.repo-table-switch :deep(.v-switch__thumb) {
+  background-color: rgba(210, 214, 220, 0.92) !important;
+  color: rgba(210, 214, 220, 0.92) !important;
+}
+.repo-table-switch.v-input--dirty :deep(.v-switch__track) {
+  background-color: rgba(138, 180, 248, 0.38) !important;
+}
+.repo-table-switch.v-input--dirty :deep(.v-switch__thumb) {
+  background-color: #b8d4f7 !important;
+  color: #b8d4f7 !important;
 }
 .repo-ast-scale {
   display: inline-block;
@@ -967,11 +1187,19 @@ onMounted(async () => {
   min-height: 40px;
 }
 .repo-table-cell--actions {
-  justify-content: flex-end;
+  justify-content: center;
+  width: 100%;
 }
 .repo-tone-chip {
   font-weight: 500;
   letter-spacing: 0.01em;
+  border-radius: 4px !important;
+  padding: 4px 10px !important;
+  height: auto !important;
+}
+.repo-tone-chip :deep(.v-chip__underlay),
+.repo-tone-chip :deep(.v-chip__overlay) {
+  opacity: 0 !important;
 }
 .repo-tone-chip--warn {
   background: rgba(255, 193, 7, 0.16) !important;
@@ -989,53 +1217,112 @@ onMounted(async () => {
   width: 40px !important;
   height: 40px !important;
   border-radius: 50% !important;
-  color: rgba(255, 255, 255, 0.78) !important;
+  color: rgba(255, 255, 255, 0.52) !important;
+  background: transparent !important;
 }
 .repo-row-action:hover {
   background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+}
+.repo-row-action :deep(.v-btn__overlay),
+.repo-row-action :deep(.v-btn__underlay) {
+  opacity: 0 !important;
 }
 .repo-table :deep(.v-data-table-footer) {
-  padding: 8px 12px 12px !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
 }
-.repo-table :deep(.v-data-table-footer__info) {
-  min-width: 0;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.55);
+.repo-table :deep(.v-divider) {
+  display: none !important;
 }
-.repo-table :deep(.v-data-table-footer__items-per-page) {
+.repo-pagination-wrapper {
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+  padding: 16px 24px 20px !important;
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px 16px;
+  background-color: transparent;
+}
+.repo-pagination-left {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-inline-end: 8px;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.55);
 }
-.repo-table :deep(.v-data-table-footer__items-per-page .v-select) {
-  max-width: 76px;
+.repo-pagination-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-inline-start: auto;
 }
-.repo-table :deep(.v-data-table-footer__items-per-page .v-field) {
+.page-text {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.page-size-select {
+  width: 96px;
+  flex: 0 0 96px;
+}
+.page-size-select :deep(.v-field) {
+  min-height: 32px !important;
+  height: 32px !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.page-size-select :deep(.v-field__input) {
   min-height: 32px;
+  padding: 0 12px !important;
+  padding-top: 0;
+  padding-bottom: 0;
+  justify-content: center;
 }
-.repo-table :deep(.v-pagination) {
-  gap: 2px;
+.page-size-select :deep(.v-field__outline),
+.page-size-select :deep(.v-field__overlay) {
+  opacity: 0 !important;
 }
-.repo-table :deep(.v-pagination__first),
-.repo-table :deep(.v-pagination__last),
-.repo-table :deep(.v-pagination__prev),
-.repo-table :deep(.v-pagination__next),
-.repo-table :deep(.v-pagination__item) {
-  min-width: 36px;
-  height: 36px;
+.page-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.repo-pagination-wrapper .page-btn {
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
   border-radius: 8px;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.6) !important;
+  background: transparent !important;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
 }
-.repo-table :deep(.v-pagination__first:hover),
-.repo-table :deep(.v-pagination__last:hover),
-.repo-table :deep(.v-pagination__prev:hover),
-.repo-table :deep(.v-pagination__next:hover),
-.repo-table :deep(.v-pagination__item:hover) {
-  background: rgba(255, 255, 255, 0.08);
+.repo-pagination-wrapper .page-btn :deep(.v-btn__overlay),
+.repo-pagination-wrapper .page-btn :deep(.v-btn__underlay) {
+  opacity: 0 !important;
+}
+.repo-pagination-wrapper .page-btn :deep(.v-icon) {
+  color: inherit !important;
+  opacity: 1 !important;
+}
+.repo-pagination-wrapper .page-btn:hover:not(.v-btn--disabled) {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+.repo-pagination-wrapper .page-btn.v-btn--disabled {
+  color: rgba(255, 255, 255, 0.2) !important;
+  opacity: 1 !important;
+}
+.repo-pagination-wrapper .page-btn.v-btn--disabled :deep(.v-icon) {
+  color: rgba(255, 255, 255, 0.2) !important;
 }
 .repo-kpi-sub--warn {
   color: #f28b82;
@@ -1107,14 +1394,13 @@ onMounted(async () => {
   justify-content: center;
   background: transparent;
 }
-.kpi-value {
+.repo-kpi-card .kpi-value {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
 }
 
-.kpi-row--pulse .kpi-card {
-  transition: box-shadow 0.35s ease, border-color 0.35s ease;
-}
 
 .feedback-snackbar--success :deep(.v-snackbar__wrapper) {
   background-color: #188038 !important;
@@ -1122,25 +1408,135 @@ onMounted(async () => {
   min-width: min(520px, 92vw);
   padding-inline: 8px;
 }
+.feedback-snackbar--error :deep(.v-snackbar__wrapper) {
+  max-width: min(560px, 92vw);
+  padding: 12px 16px !important;
+}
+.feedback-snackbar__content {
+  width: 100%;
+}
+.feedback-snackbar__icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.feedback-snackbar__text {
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  word-break: break-word;
+}
 
-.repo-dialog-card :deep(.v-card-title) {
-  padding: 20px 24px 12px;
-  font-size: 1.125rem;
-  font-weight: 600;
+.repo-dialog :deep(.v-overlay__content) {
+  border-radius: 16px;
+  overflow: visible;
+}
+.repo-dialog-card {
+  display: flex;
+  flex-direction: column;
+  max-height: min(88vh, 680px);
+  border-radius: 16px !important;
+  overflow: hidden;
+  background: #1c1d21 !important;
+}
+.repo-dialog-title,
+.repo-dialog-title-divider,
+.repo-dialog-toggles,
+.repo-dialog-footer-divider,
+.repo-dialog-actions {
+  flex-shrink: 0;
+}
+.repo-dialog-title {
+  padding: 20px 24px 16px !important;
+  font-size: 1.25rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.95) !important;
+  line-height: 1.3;
+}
+.repo-dialog-title-divider,
+.repo-dialog-footer-divider {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  opacity: 1;
+}
+.repo-dialog-footer-divider {
+  border-color: rgba(255, 255, 255, 0.05) !important;
 }
 .repo-dialog-body {
-  padding: 4px 24px 16px !important;
-  max-height: min(58vh, 520px);
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 20px 10px 0 24px !important;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+.repo-dialog-form {
+  padding-right: 16px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.repo-dialog-form .repo-form-grid {
+  margin-inline: 0 !important;
+  width: 100%;
+  max-width: 100%;
+}
+.repo-dialog-body::-webkit-scrollbar {
+  width: 6px;
+}
+.repo-dialog-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.repo-dialog-body::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+.repo-dialog-body:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.26);
+}
+.repo-dialog-body::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.36);
+}
+.repo-dialog-body::-webkit-scrollbar-button,
+.repo-dialog-body::-webkit-scrollbar-corner {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .repo-form-grid {
   margin-top: 0;
-  --v-input-control-height: 40px;
+  --v-input-control-height: 44px;
 }
 .repo-form-grid > .v-col {
-  padding-top: 6px;
-  padding-bottom: 6px;
+  padding-top: 8px;
+  padding-bottom: 16px;
+}
+.repo-form-grid > .v-col.repo-form-desc-col {
+  padding-bottom: 24px !important;
+}
+.repo-form-slider-col {
+  padding-bottom: 16px !important;
+}
+.repo-form-slider-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.72);
+  margin-bottom: 8px !important;
+}
+.repo-dialog-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 0 24px 16px;
+}
+.repo-dialog-toggles .repo-form-switch {
+  flex: 1 1 200px;
+  max-width: calc(50% - 12px);
+  margin: 0;
 }
 .repo-coverage-slider :deep(.v-slider-track__background) {
   background-color: rgba(255, 255, 255, 0.12);
@@ -1155,25 +1551,33 @@ onMounted(async () => {
 .repo-form-switch :deep(.v-switch__track) {
   opacity: 0.85;
 }
+.repo-dialog-actions {
+  padding: 16px 24px 20px !important;
+  gap: 8px;
+}
+.repo-dialog-cancel {
+  color: rgba(255, 255, 255, 0.65) !important;
+  font-weight: 500;
+}
+.repo-dialog-cancel:hover {
+  color: rgba(255, 255, 255, 0.88) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
 .repo-dialog-submit {
-  background-color: #f1f3f5 !important;
-  color: #111315 !important;
-  font-weight: 700;
-  padding-inline: 18px !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
-}
-.repo-dialog-submit:hover {
-  background-color: #e8eaed !important;
-}
-.repo-dialog-actions :deep(.v-btn--variant-text) {
-  color: rgba(255, 255, 255, 0.72);
+  font-weight: 600;
+  padding-inline: 20px !important;
+  min-height: 40px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 .repo-dialog-form :deep(.v-field) {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.1) !important;
   color: #e8eaed;
+  min-height: 44px;
+  border-radius: 8px;
 }
 .repo-dialog-form :deep(.v-field--focused) {
-  border-color: rgba(138, 180, 248, 0.55);
+  border-color: rgba(138, 180, 248, 0.65) !important;
+  box-shadow: 0 0 0 1px rgba(138, 180, 248, 0.28);
 }
 .repo-dialog-form :deep(.v-field__input) {
   color: #f1f3f5;
@@ -1182,10 +1586,12 @@ onMounted(async () => {
   text-overflow: clip;
   white-space: pre-wrap;
   min-height: 1.5em;
+  padding-inline: 12px !important;
 }
 .repo-dialog-form :deep(.v-label) {
   color: rgba(255, 255, 255, 0.72);
   opacity: 1;
+  margin-bottom: 8px;
 }
 .repo-form-field--url :deep(textarea),
 .repo-form-field--name :deep(textarea) {
@@ -1195,8 +1601,12 @@ onMounted(async () => {
   word-break: break-all;
   overflow-wrap: anywhere;
   field-sizing: content;
-  min-height: 2.75rem;
-  padding-block: 10px;
+  min-height: 44px;
+  padding-block: 12px;
+}
+.repo-form-field--name :deep(.v-label),
+.repo-form-field--url :deep(.v-label) {
+  font-family: 'Noto Sans SC', Roboto, 'Segoe UI', system-ui, sans-serif;
 }
 .repo-dialog-form :deep(.v-field__field) {
   align-items: flex-start;
@@ -1205,56 +1615,75 @@ onMounted(async () => {
 .repo-dialog-form :deep(.v-field--focused .v-label) {
   color: rgba(255, 255, 255, 0.88);
 }
-.repo-action-menu {
-  padding: 4px 0 !important;
-  background: transparent !important;
+</style>
+
+<!-- v-menu 挂到 body，菜单样式必须全局且铺在 .repo-row-action-menu 下 -->
+<style>
+.repo-row-action-menu {
+  z-index: 2600 !important;
+  background-color: #353b45 !important;
+  border: none !important;
+  outline: none !important;
+  border-radius: 8px !important;
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.52),
+    0 4px 14px rgba(0, 0, 0, 0.32) !important;
+  overflow: hidden;
+  isolation: isolate;
+  opacity: 1 !important;
 }
-.repo-action-menu__item {
+.repo-row-action-menu .v-overlay__content {
+  border: none !important;
+  box-shadow: none !important;
+}
+.repo-row-action-menu .v-list,
+.repo-row-action-menu .repo-action-menu {
+  background-color: #353b45 !important;
+  padding: 6px !important;
+}
+.repo-row-action-menu .repo-action-menu__item.v-list-item {
   min-height: 40px !important;
-  padding: 10px 16px !important;
-  margin: 0 4px;
+  padding: 8px 12px !important;
+  margin: 2px 0;
   font-size: 14px;
+  border-radius: 6px !important;
+  transition: background-color 0.15s ease;
 }
-.repo-action-menu__item :deep(.v-list-item__prepend) {
-  width: auto;
-  min-width: 0;
-  margin-inline-end: 12px;
+.repo-row-action-menu .repo-action-menu__item .v-list-item__prepend {
+  width: 20px;
+  min-width: 20px;
+  margin-inline-end: 12px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.repo-action-menu__item :deep(.v-list-item-title) {
+.repo-row-action-menu .repo-action-menu__item .v-list-item-title {
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
 }
-.repo-action-menu__item :deep(.v-list-item__overlay) {
+.repo-row-action-menu .repo-action-menu__item .v-list-item__overlay {
   opacity: 0 !important;
 }
-.repo-action-menu__item:not(.v-list-item--disabled):hover {
-  background: rgba(255, 255, 255, 0.08);
+.repo-row-action-menu .repo-action-menu__item:not(.v-list-item--disabled):hover {
+  background: rgba(255, 255, 255, 0.1) !important;
 }
-.repo-action-menu__item--danger :deep(.v-list-item-title),
-.repo-action-menu__item--danger :deep(.v-icon) {
+.repo-row-action-menu .repo-action-menu__item--danger .v-list-item-title,
+.repo-row-action-menu .repo-action-menu__item--danger .v-icon {
   color: #f28b82 !important;
 }
-.repo-action-menu__item--danger:hover {
-  background: rgba(244, 67, 54, 0.1) !important;
+.repo-row-action-menu .repo-action-menu__item--danger:not(.v-list-item--disabled):hover {
+  background: rgba(242, 139, 130, 0.16) !important;
 }
-.repo-action-menu__divider {
-  margin: 4px 12px;
-  border-color: rgba(255, 255, 255, 0.05);
-  opacity: 1;
-}
-</style>
-
-<style>
-.repo-row-action-menu {
-  z-index: 2500 !important;
-  background: #2c2c2c !important;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
-  overflow: hidden;
-}
-.repo-row-action-menu .v-list {
-  background: transparent !important;
+.repo-row-action-menu .repo-action-menu__separator {
+  display: block;
+  height: 1px;
+  margin: 6px 16px 4px;
+  border: none;
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: none;
+  pointer-events: none;
 }
 </style>

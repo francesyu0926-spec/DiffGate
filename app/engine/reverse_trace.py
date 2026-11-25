@@ -140,6 +140,7 @@ class ReverseTraceEngine:
                 "method": t["method"],
                 "path": t["path"],
                 "chain": t["chain_labels"],
+                "chain_labels": t["chain_labels"],
                 "chain_full": t["chain"],
                 "layers": t["layers"],
             }

@@ -7,8 +7,6 @@ def build_g6_payload(graph: CallGraph, changed: list[str]) -> dict:
     seeds = graph._expand_seeds(changed_set)
     upstream = graph.resolve_callers(seeds)
 
-    short_changed = {c.split(".")[-1] for c in changed_set}
-
     nodes: list[dict] = []
     for name in sorted(upstream):
         sym = graph.symbols.get(name)
@@ -17,7 +15,7 @@ def build_g6_payload(graph: CallGraph, changed: list[str]) -> dict:
         short = name.split(".")[-1]
         if sym.is_api_handler:
             node_type = "api"
-        elif name in changed_set or short in short_changed:
+        elif name in changed_set:
             node_type = "changed"
         else:
             node_type = "symbol"
@@ -28,6 +26,7 @@ def build_g6_payload(graph: CallGraph, changed: list[str]) -> dict:
                 "type": node_type,
                 "file": sym.file_path,
                 "line": sym.start_line,
+                "end_line": sym.end_line,
                 "method": (sym.http_method or "").upper() if sym.http_method else None,
                 "route": sym.route_path,
             }

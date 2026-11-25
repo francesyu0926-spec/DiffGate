@@ -12,7 +12,12 @@ from app.config import get_settings
 from app.db.models import AnalysisJob, Repository
 from app.db.session import SessionLocal
 from app.services.dispatch import notify_dispatch_center
-from app.services.git_clone import clear_clone_dest, clone_or_fallback
+from app.services.git_clone import (
+    clear_clone_dest,
+    clone_or_fallback,
+    git_ssh_command_for_repo,
+    git_ssh_process_env,
+)
 from app.services.impact import analyze_impact
 from app.services.quality_gate import apply_gate_result
 
@@ -44,9 +49,19 @@ def run_analyze_merge(
         scan_root = (repo_rec.scan_root if repo_rec and repo_rec.scan_root else ".") or "."
 
         repo = Repo(str(repo_dir))
-        repo.git.fetch("origin", base_sha, depth=50)
-        repo.git.fetch("origin", head_sha, depth=50)
-        repo.git.checkout(head_sha)
+
+        def _fetch_and_checkout() -> None:
+            repo.git.fetch("origin", base_sha, depth=50)
+            repo.git.fetch("origin", head_sha, depth=50)
+            repo.git.checkout(head_sha)
+
+        with git_ssh_command_for_repo(repo_rec) as ssh_cmd:
+            with git_ssh_process_env(ssh_cmd):
+                if ssh_cmd:
+                    with repo.git.custom_environment(GIT_SSH_COMMAND=ssh_cmd):
+                        _fetch_and_checkout()
+                else:
+                    _fetch_and_checkout()
 
         report = analyze_impact(
             repo_path=repo_dir,

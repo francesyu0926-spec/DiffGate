@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import CallGraphG6 from '@/components/CallGraphG6.vue'
+import CallGraphG6, { type GraphNodePick } from '@/components/CallGraphG6.vue'
+import CodeDiffDrawer from '@/components/CodeDiffDrawer.vue'
 import { fetchJob, fetchJobGraph } from '@/api/client'
-import type { JobDetail, JobGraph, JobStatus } from '@/api/types'
+import type { CallPath, JobDetail, JobGraph, JobStatus, SuspectFunction } from '@/api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -69,11 +70,99 @@ function reconcilePoll() {
 }
 
 const apis = computed(() => job.value?.affected_apis?.apis ?? [])
-const callPaths = computed(
-  () => job.value?.affected_apis?.call_paths ?? [],
-)
 const suspects = computed(() => job.value?.changed_symbols?.suspects ?? [])
 const symbols = computed(() => job.value?.changed_symbols?.symbols ?? [])
+
+const callPathRows = computed(() => {
+  const paths = job.value?.affected_apis?.call_paths ?? []
+  return paths.map((row) => ({
+    ...row,
+    chain_labels: row.chain_labels?.length ? row.chain_labels : row.chain ?? [],
+  }))
+})
+
+const suspectRows = computed(() => {
+  if (suspects.value.length) return suspects.value
+  return symbols.value.map((name) => ({
+    qualified_name: name,
+    file: '—',
+    start_line: 0,
+    end_line: 0,
+    changed_lines: [] as number[],
+  }))
+})
+
+const changedIds = computed(() => symbols.value)
+
+const drawerOpen = ref(false)
+const drawerPick = ref<{
+  title: string
+  file: string
+  startLine: number
+  endLine: number
+  nodeType: GraphNodePick['type']
+  highlight?: string
+} | null>(null)
+
+function formatCallChain(row: CallPath & { chain_labels?: string[] }) {
+  const labels = row.chain_labels?.length ? row.chain_labels : row.chain ?? []
+  return labels.join(' → ')
+}
+
+function httpPillClass(method: string | undefined) {
+  const m = (method || 'GET').toUpperCase()
+  if (m === 'POST') return 'http-pill--post'
+  if (m === 'PUT' || m === 'PATCH') return 'http-pill--put'
+  if (m === 'DELETE') return 'http-pill--delete'
+  return 'http-pill--get'
+}
+
+function openDrawerFromNode(pick: GraphNodePick) {
+  if (!pick.file || !pick.line) return
+  const span = pick.type === 'api' ? 64 : 48
+  const end =
+    pick.end_line && pick.end_line > pick.line + 3
+      ? pick.end_line
+      : pick.line + span
+  const title =
+    pick.type === 'api' && pick.method && pick.route
+      ? `${pick.method.toUpperCase()} ${pick.route}`
+      : pick.label
+  drawerPick.value = {
+    title,
+    file: pick.file.replace(/\\/g, '/'),
+    startLine: pick.line,
+    endLine: end,
+    nodeType: pick.type,
+    highlight: pick.calleeHints?.join(','),
+  }
+  drawerOpen.value = true
+}
+
+function openDrawerFromSuspect(row: SuspectFunction) {
+  if (!row.file || row.file === '—' || !row.start_line) return
+  drawerPick.value = {
+    title: row.qualified_name.split('.').pop() ?? row.qualified_name,
+    file: row.file,
+    startLine: row.start_line,
+    endLine: row.end_line || row.start_line,
+    nodeType: 'changed',
+  }
+  drawerOpen.value = true
+}
+
+function openDrawerFromCallPath(row: (typeof callPathRows.value)[number]) {
+  const api = apis.value.find((a) => a.path === row.path && a.method === row.method)
+  if (!api?.file || !api.line) return
+  drawerPick.value = {
+    title: `${row.method} ${row.path}`,
+    file: api.file,
+    startLine: api.line,
+    endLine: api.line + 24,
+    nodeType: 'api',
+  }
+  drawerOpen.value = true
+}
 
 const STATUS_LABEL: Record<JobStatus, string> = {
   pending: '排队中',
@@ -244,11 +333,13 @@ onUnmounted(clearPoll)
     </div>
 
     <section class="job-detail-block">
-      <h3 class="job-section__title">变更影响拓扑</h3>
       <CallGraphG6
         :data="graph"
+        :changed-ids="changedIds"
+        panel-title="变更影响拓扑"
         :empty-title="graphEmptyTitle"
         :empty-desc="graphEmptyDesc"
+        @node-pick="openDrawerFromNode"
       />
     </section>
 
@@ -256,12 +347,23 @@ onUnmounted(clearPoll)
       <el-col :span="12">
         <h3 class="job-section__title">受影响顶层接口</h3>
         <div class="job-panel job-panel--table">
-          <el-table :data="callPaths" size="small" stripe empty-text="暂无受影响 API，或未生成追溯链路">
-            <el-table-column prop="method" label="方法" width="80" />
+          <el-table
+            :data="callPathRows"
+            size="small"
+            stripe
+            empty-text="暂无受影响 API，或未生成追溯链路"
+            class="job-click-table"
+            @row-click="openDrawerFromCallPath"
+          >
+            <el-table-column prop="method" label="方法" width="92">
+              <template #default="{ row }">
+                <span class="http-pill" :class="httpPillClass(row.method)">{{ row.method }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="path" label="接口" min-width="140" show-overflow-tooltip />
             <el-table-column label="调用链" min-width="200">
               <template #default="{ row }">
-                <span class="chain">{{ row.chain_labels.join(' → ') }}</span>
+                <span class="chain">{{ formatCallChain(row) }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="layers" label="层数" width="64" />
@@ -272,25 +374,44 @@ onUnmounted(clearPoll)
         <h3 class="job-section__title">初始变更函数明细</h3>
         <div class="job-panel job-panel--table">
           <el-table
-            :data="suspects"
+            :data="suspectRows"
             size="small"
             stripe
             max-height="280"
-            empty-text="无 Git 命中时展示变更符号列表"
+            empty-text="暂无变更函数"
+            class="job-click-table"
+            @row-click="openDrawerFromSuspect"
           >
             <el-table-column prop="qualified_name" label="函数" show-overflow-tooltip />
+            <el-table-column prop="file" label="文件" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="mono file-cell">{{ row.file }}</span>
+              </template>
+            </el-table-column>
             <el-table-column label="行号" width="108">
-              <template #default="{ row }">{{ row.start_line }}-{{ row.end_line }}</template>
+              <template #default="{ row }">
+                <span v-if="row.start_line">{{ row.start_line }}-{{ row.end_line }}</span>
+                <span v-else>—</span>
+              </template>
             </el-table-column>
           </el-table>
-          <el-scrollbar v-if="!suspects.length && symbols.length" height="120px" class="job-sym-scroll">
-            <ul class="sym-list">
-              <li v-for="s in symbols" :key="s">{{ s }}</li>
-            </ul>
-          </el-scrollbar>
         </div>
       </el-col>
     </el-row>
+
+    <CodeDiffDrawer
+      v-if="drawerPick"
+      v-model:open="drawerOpen"
+      :job-id="props.id"
+      :title="drawerPick.title"
+      :file="drawerPick.file"
+      :start-line="drawerPick.startLine"
+      :end-line="drawerPick.endLine"
+      :node-type="drawerPick.nodeType"
+      :highlight="drawerPick.highlight"
+      :repo="job?.repo"
+      :head-sha="job?.head_sha"
+    />
   </div>
 </template>
 
@@ -299,6 +420,7 @@ onUnmounted(clearPoll)
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding-top: 8px;
 }
 .job-page-head {
   display: flex;
@@ -523,5 +645,44 @@ onUnmounted(clearPoll)
 }
 .job-detail-page :deep(.el-loading-mask) {
   background-color: rgba(11, 12, 14, 0.72);
+}
+.job-click-table :deep(.el-table__row) {
+  cursor: pointer;
+}
+.file-cell {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.62);
+}
+.http-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.25rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+.http-pill--get {
+  color: #81c995;
+  background: rgba(129, 201, 149, 0.14);
+  border: 1px solid rgba(129, 201, 149, 0.35);
+}
+.http-pill--post {
+  color: #8ab4f8;
+  background: rgba(138, 180, 248, 0.14);
+  border: 1px solid rgba(138, 180, 248, 0.35);
+}
+.http-pill--put {
+  color: #c58af9;
+  background: rgba(197, 138, 249, 0.12);
+  border: 1px solid rgba(197, 138, 249, 0.32);
+}
+.http-pill--delete {
+  color: #f28b82;
+  background: rgba(242, 139, 130, 0.14);
+  border: 1px solid rgba(242, 139, 130, 0.35);
 }
 </style>

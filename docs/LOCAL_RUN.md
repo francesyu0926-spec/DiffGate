@@ -22,6 +22,15 @@ cd "D:\Document\AI LAB\DiffGate"
 - 健康检查：http://127.0.0.1:8000/health  
 - API 文档：http://127.0.0.1:8000/docs  
 
+若在 Windows 上重启 API 后仍提示端口占用、或 `8000` 只响应旧版接口，先清理残留 worker：
+
+```powershell
+.\scripts\kill_stale_api.ps1
+.\scripts\run_api.ps1
+```
+
+`run_api.ps1` 启动前会自动调用清理脚本（`uvicorn --reload` 偶发遗留孤儿进程）。
+
 ### 不连 Webhook 时自测分析
 
 ```powershell

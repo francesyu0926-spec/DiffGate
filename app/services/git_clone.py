@@ -1,12 +1,16 @@
 import os
 import shutil
 import stat
-import tempfile
+import subprocess
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import quote, urlparse, urlunparse
 
 from git import Repo
 
+from app.config import get_settings
 from app.db.models import Repository
 
 
@@ -42,6 +46,81 @@ def clear_clone_dest(dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _harden_ssh_key_file(key_path: str) -> None:
+    """OpenSSH on Windows rejects keys with inherited ACLs (libcrypto load error)."""
+    try:
+        os.chmod(key_path, 0o600)
+    except OSError:
+        pass
+    if os.name != "nt":
+        return
+    user = os.environ.get("USERNAME") or os.environ.get("USER")
+    if not user:
+        return
+    subprocess.run(
+        ["icacls", key_path, "/inheritance:r", "/grant:r", f"{user}:R"],
+        capture_output=True,
+        check=False,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+
+def _normalize_ssh_private_key(raw: str) -> str:
+    text = raw.strip().replace("\r\n", "\n").replace("\r", "\n")
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def _write_ephemeral_ssh_key(repo: Repository) -> Path:
+    normalized_key = _normalize_ssh_private_key(repo.ssh_private_key or "")
+    keys_dir = (Path(get_settings().repo_clone_root).resolve().parent / "ssh_keys").resolve()
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    key_path_obj = keys_dir / f"{repo.id}.{uuid.uuid4().hex}.key"
+    key_path_obj.write_text(normalized_key, encoding="utf-8", newline="\n")
+    _harden_ssh_key_file(str(key_path_obj))
+    return key_path_obj
+
+
+def git_ssh_command_from_path(key_path: Path | str) -> str:
+    return f'ssh -i "{key_path}" -o StrictHostKeyChecking=no -o IdentitiesOnly=yes'
+
+
+@contextmanager
+def git_ssh_process_env(ssh_cmd: str | None) -> Iterator[None]:
+    """Ensure child git/ssh processes see GIT_SSH_COMMAND (Windows-friendly)."""
+    if not ssh_cmd:
+        yield
+        return
+    prev = os.environ.get("GIT_SSH_COMMAND")
+    os.environ["GIT_SSH_COMMAND"] = ssh_cmd
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop("GIT_SSH_COMMAND", None)
+        else:
+            os.environ["GIT_SSH_COMMAND"] = prev
+
+
+@contextmanager
+def git_ssh_command_for_repo(repo: Repository | None) -> Iterator[str | None]:
+    """Yield GIT_SSH_COMMAND value; cleans up ephemeral key file on exit."""
+    key_path: Path | None = None
+    try:
+        if repo and (repo.auth_method or "") == "ssh" and (repo.ssh_private_key or "").strip():
+            key_path = _write_ephemeral_ssh_key(repo)
+            yield git_ssh_command_from_path(key_path)
+        else:
+            yield None
+    finally:
+        if key_path is not None:
+            try:
+                key_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def inject_access_token(clone_url: str, token: str, provider: str) -> str:
     parsed = urlparse(clone_url)
     if not parsed.scheme.startswith("http"):
@@ -62,27 +141,26 @@ def clone_repository(repo: Repository, dest: Path, **clone_kwargs) -> Repo:
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
     method = repo.auth_method or "none"
+    clone_url = (repo.clone_url or "").strip()
+    needs_ssh = clone_url.startswith("git@") or clone_url.startswith("ssh://")
+    if method == "ssh" and not (repo.ssh_private_key or "").strip():
+        raise ValueError("认证方式为 SSH，但尚未保存私钥。请编辑仓库，粘贴私钥并保存后再索引。")
+    if needs_ssh and not (repo.ssh_private_key or "").strip() and method != "token":
+        raise ValueError(
+            "Clone URL 为 SSH 格式，需要配置 SSH 私钥：编辑仓库 → 认证选「SSH 私钥」→ 粘贴私钥 → 保存。"
+        )
 
     if method == "ssh" and repo.ssh_private_key:
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".key", encoding="utf-8") as f:
-            f.write(repo.ssh_private_key.strip())
-            f.write("\n")
-            key_path = f.name
-        try:
-            os.chmod(key_path, 0o600)
+        with git_ssh_command_for_repo(repo) as ssh_cmd:
+            assert ssh_cmd is not None
             env = os.environ.copy()
-            env["GIT_SSH_COMMAND"] = f'ssh -i "{key_path}" -o StrictHostKeyChecking=no'
+            env["GIT_SSH_COMMAND"] = ssh_cmd
             url = repo.clone_url
             if url.startswith("https://"):
                 parsed = urlparse(url)
                 path = parsed.path.strip("/").removesuffix(".git")
                 url = f"git@{parsed.hostname}:{path}.git"
             return Repo.clone_from(url, str(dest), env=env, **clone_kwargs)
-        finally:
-            try:
-                os.unlink(key_path)
-            except OSError:
-                pass
 
     url = repo.clone_url.strip()
     if repo.provider == "local":

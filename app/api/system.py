@@ -52,6 +52,9 @@ def system_status() -> dict:
     db_online = _db_online()
     ast_online = _ast_engine_online() if db_online else False
 
+    base = (settings.webhook_public_base_url or "").rstrip("/")
+    github_path = "/api/v1/webhooks/github"
+    gitlab_path = "/api/v1/webhooks/gitlab"
     return {
         "api_online": True,
         "db_online": db_online,
@@ -60,6 +63,11 @@ def system_status() -> dict:
         "use_redis": settings.use_redis,
         "worker_mode": worker_mode,
         "worker_online": worker_online,
-        "webhook_github": "POST /api/v1/webhooks/github",
-        "webhook_gitlab": "POST /api/v1/webhooks/gitlab",
+        "webhook_github": f"POST {github_path}",
+        "webhook_gitlab": f"POST {gitlab_path}",
+        "webhook_public_base_url": base or None,
+        "webhook_github_url": f"{base}{github_path}" if base else None,
+        "webhook_gitlab_url": f"{base}{gitlab_path}" if base else None,
+        "webhook_secret_github_configured": bool(settings.webhook_secret_github),
+        "webhook_secret_gitlab_configured": bool(settings.webhook_secret_gitlab),
     }

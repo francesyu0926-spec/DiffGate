@@ -67,6 +67,12 @@ def _enqueue_job(
     return job_id, meta.get("task_id")
 
 
+@router.get("/github")
+def github_webhook_probe() -> dict[str, str]:
+    """供 GitHub 添加 Webhook 时的 URL 可达性探测（正式事件仍走 POST）。"""
+    return {"ok": "true", "method": "POST", "events": "push,pull_request"}
+
+
 @router.post("/github")
 async def github_webhook(
     request: Request,
@@ -125,6 +131,11 @@ async def github_webhook(
     if task_id:
         out["celery_task_id"] = task_id
     return out
+
+
+@router.get("/gitlab")
+def gitlab_webhook_probe() -> dict[str, str]:
+    return {"ok": "true", "method": "POST"}
 
 
 @router.post("/gitlab")

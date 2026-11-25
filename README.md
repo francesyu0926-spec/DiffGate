@@ -50,7 +50,7 @@ copy .env.example .env
 
 前端：**Vue 3 + Vite + TypeScript**，调用链可视化使用 **AntV G6**（与 React 方案共用同一图数据 API）。详见 [web/README.md](web/README.md)。
 
-4. 配置 Webhook（指向本机或内网穿透地址）：
+4. 配置 Webhook（本机可用 [docs/WEBHOOK_NGROK.md](docs/WEBHOOK_NGROK.md) 一键 ngrok）：
 
 | 平台 | URL | 事件 |
 |------|-----|------|

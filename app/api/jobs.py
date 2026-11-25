@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 from app.api.schemas import GateReportIn
 from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
+from app.config import get_settings
 from app.graph.stores import load_job_graph
+from app.services.code_snippet import job_code_view
 from app.services.quality_gate import apply_gate_result
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -135,6 +137,41 @@ def get_job_graph(job_id: str, db: Session = Depends(get_db)) -> dict:
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not available for this job")
     return graph
+
+
+@router.get("/{job_id}/code-diff")
+def get_job_code_diff(
+    job_id: str,
+    db: Session = Depends(get_db),
+    file: str = Query(..., min_length=1),
+    start_line: int = Query(..., ge=1),
+    end_line: int = Query(..., ge=1),
+    node_type: str = Query("symbol", pattern="^(api|changed|symbol)$"),
+    highlight: str | None = Query(None, description="Comma-separated qualified names for call-site highlight"),
+) -> dict:
+    job = db.get(AnalysisJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if end_line < start_line:
+        raise HTTPException(status_code=400, detail="end_line 必须 >= start_line")
+    settings = get_settings()
+    hints = [h.strip() for h in (highlight or "").split(",") if h.strip()]
+    try:
+        return job_code_view(
+            repo_full_name=job.repo_full_name,
+            clone_root=settings.repo_clone_root,
+            base_sha=job.base_sha,
+            head_sha=job.head_sha,
+            file_path=file,
+            start_line=start_line,
+            end_line=end_line,
+            node_type=node_type,
+            highlight_qnames=hints or None,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"读取代码失败: {exc}") from exc
 
 
 @router.get("/{job_id}")

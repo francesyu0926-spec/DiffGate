@@ -1,5 +1,7 @@
 import axios from 'axios'
 import type {
+  CodeDiffView,
+  GraphNodeType,
   JobAnalysisStats,
   JobDetail,
   JobGraph,
@@ -14,13 +16,66 @@ const http = axios.create({
   timeout: 15000,
 })
 
+/** Turn verbose git/索引 failures into short Chinese hints for snackbars. */
+export function humanizeRepoIndexError(raw: string): string {
+  const body = raw.replace(/^索引失败:\s*/u, '').trim()
+  const lower = body.toLowerCase()
+
+  if (lower.includes('尚未保存私钥') || lower.includes('需要配置 ssh 私钥')) {
+    return body.includes('索引失败') ? body.replace(/^索引失败:\s*/u, '索引失败：') : `索引失败：${body}`
+  }
+  if (lower.includes('error in libcrypto') || lower.includes('unprotected private key')) {
+    return '索引失败：SSH 私钥在 Windows 上无法加载（多为临时文件权限）。已修复后端逻辑，请重启 API 后再次重建索引；若仍失败请重新粘贴私钥并保存。'
+  }
+  if (lower.includes('permission denied (publickey)') || /publickey|public key/u.test(lower)) {
+    return '索引失败：SSH 公钥认证被拒绝。请确认 GitHub Deploy key 与私钥为同一对，或改用 HTTPS + Token。'
+  }
+  if (
+    lower.includes('authentication failed') ||
+    lower.includes('invalid username or password') ||
+    lower.includes('access denied')
+  ) {
+    return '索引失败：Git 认证失败。请检查 Access Token、账号权限，或 SSH 私钥是否与该仓库匹配。'
+  }
+  if (lower.includes('repository not found') || lower.includes('could not find remote ref')) {
+    return '索引失败：远程仓库不存在、无权限，或默认分支不正确。请核对 Clone URL 与分支名。'
+  }
+  if (lower.includes('could not read from remote repository')) {
+    return '索引失败：无法从远程读取仓库。请确认认证方式、分支与网络可达性。'
+  }
+  if (lower.includes('command') && lower.includes('git clone') && lower.includes('timed out')) {
+    return '索引失败：克隆超时。请检查网络或仓库体积，稍后重试。'
+  }
+
+  const firstLine = body.split(/\r?\n/u).find((line) => line.trim())?.trim() ?? body
+  let brief = firstLine
+    .replace(/Cmd\([^)]*\):\s*/gi, '')
+    .replace(/cmd:\s*\[[^\]]*\]\s*/gi, '')
+    .replace(/['"][^'"]*(?:\\|\/)[^'"]*['"]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  if (!brief) brief = '请检查 Clone 地址、认证方式与默认分支'
+  if (brief.length > 96) brief = `${brief.slice(0, 93)}…`
+  return `索引失败：${brief}`
+}
+
+function normalizeApiDetail(detail: string): string {
+  const trimmed = detail.trim()
+  if (!trimmed) return trimmed
+  if (trimmed.includes('索引失败') || /git clone|gitpython|fatal:/iu.test(trimmed)) {
+    return humanizeRepoIndexError(trimmed)
+  }
+  if (trimmed.length > 180) return `${trimmed.slice(0, 177)}…`
+  return trimmed
+}
+
 /** FastAPI `detail` string or validation error message for snackbars. */
 export function readApiError(err: unknown, fallback: string): string {
   if (!axios.isAxiosError(err)) return fallback
   const data = err.response?.data as { detail?: string | Array<{ msg?: string }> } | undefined
   const detail = data?.detail
-  if (typeof detail === 'string' && detail.trim()) return detail
-  if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg
+  if (typeof detail === 'string' && detail.trim()) return normalizeApiDetail(detail)
+  if (Array.isArray(detail) && detail[0]?.msg) return normalizeApiDetail(detail[0].msg!)
   if (err.code === 'ECONNABORTED') return '请求超时，索引可能仍在进行，请稍后刷新列表'
   return fallback
 }
@@ -48,6 +103,20 @@ export async function fetchJob(jobId: string) {
 
 export async function fetchJobGraph(jobId: string) {
   const { data } = await http.get<JobGraph>(`/jobs/${jobId}/graph`)
+  return data
+}
+
+export async function fetchJobCodeDiff(
+  jobId: string,
+  params: {
+    file: string
+    start_line: number
+    end_line: number
+    node_type?: GraphNodeType
+    highlight?: string
+  },
+) {
+  const { data } = await http.get<CodeDiffView>(`/jobs/${jobId}/code-diff`, { params })
   return data
 }
 
@@ -97,6 +166,11 @@ export async function triggerRepoAnalysis(id: string) {
 }
 
 export interface SystemStatus {
+  webhook_public_base_url?: string | null
+  webhook_github_url?: string | null
+  webhook_gitlab_url?: string | null
+  webhook_secret_github_configured?: boolean
+  webhook_secret_gitlab_configured?: boolean
   api_online?: boolean
   db_online?: boolean
   ast_engine: string

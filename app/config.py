@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     debug: bool = False
     webhook_secret_github: str = ""
     webhook_secret_gitlab: str = ""
+    # 公网回调根地址（如 https://xxx.ngrok-free.app），供界面展示；无则仅用相对路径
+    webhook_public_base_url: str = ""
 
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/0"
