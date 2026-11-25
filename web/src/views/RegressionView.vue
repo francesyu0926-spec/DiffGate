@@ -912,10 +912,17 @@ watch(
 .detail-panel {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+}
+.batch-panel :deep(.v-card-text.batch-list-wrap) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .batch-list-wrap {
   flex: 1;
-  min-height: 400px;
+  min-height: 0;
   padding: 0 22px 24px !important;
 }
 .master-detail-row .detail-panel {
@@ -976,10 +983,11 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 520px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 6px;
-  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
@@ -1397,11 +1405,6 @@ watch(
   .detail-meta-item--gate {
     margin-inline-start: 0;
     width: 100%;
-  }
-}
-@media (max-width: 1279px) {
-  .batch-list {
-    max-height: 320px;
   }
 }
 </style>
