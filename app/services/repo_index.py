@@ -17,14 +17,46 @@ def _repo_dir(full_name: str) -> Path:
     return Path(settings.repo_clone_root) / safe
 
 
+def _resolve_scan_root(repo_dir: Path, scan_root: str) -> tuple[str, bool]:
+    """
+    若配置 scan_root 扫不到 Python，且仍为默认值 '.'，尝试常见后端目录（如 QuantLens/backend）。
+    返回 (有效 scan_root, 是否自动修正)。
+    """
+    from app.parsers.python_ast import scan_python_repo
+
+    root = (scan_root or ".").strip() or "."
+    symbols = scan_python_repo(repo_dir, root)
+    if symbols:
+        return root, False
+    if root not in (".", ""):
+        return root, False
+    best_root = root
+    best_n = 0
+    for candidate in ("backend", "src", "server", "api", "services"):
+        sub = repo_dir / candidate
+        if not sub.is_dir():
+            continue
+        n = len(scan_python_repo(repo_dir, candidate))
+        if n > best_n:
+            best_n = n
+            best_root = candidate
+    if best_n > 0:
+        return best_root, True
+    return root, False
+
+
 def reindex_repository(db: Session, repo: Repository) -> dict:
     settings = get_settings()
     repo_dir = _repo_dir(repo.full_name).resolve()
     clear_clone_dest(repo_dir)
     clone_repository(repo, repo_dir, branch=repo.default_branch, depth=1)
 
+    scan_root, auto_fixed = _resolve_scan_root(repo_dir, repo.scan_root or ".")
+    if auto_fixed and (repo.scan_root or ".") in (".", ""):
+        repo.scan_root = scan_root
+
     engine = ReverseTraceEngine()
-    symbols, graph = engine.step1_index(repo_dir, scan_root=repo.scan_root or ".")
+    symbols, graph = engine.step1_index(repo_dir, scan_root=scan_root)
     method_count = sum(1 for s in symbols if s.kind in ("function", "method"))
     api_count = sum(1 for s in symbols if s.is_api_handler)
 

@@ -1,0 +1,330 @@
+.graph-wrap {
+  position: relative;
+  background: #1a1d21;
+  border: 1px solid #2a2e35;
+  border-radius: 16px;
+  box-shadow: none;
+}
+.graph-wrap--empty {
+  min-height: 0;
+}
+.graph-wrap--filled {
+  min-height: 0;
+}
+.graph-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.graph-headbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(42, 46, 53, 0.65);
+}
+.graph-headbar__title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #e8eaed;
+  letter-spacing: 0.01em;
+  flex-shrink: 0;
+}
+.graph-summary-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(42, 46, 53, 0.55);
+}
+.graph-summary-banner--compact {
+  align-items: flex-start;
+  padding-bottom: 8px;
+}
+.graph-summary-banner--alert {
+  border-left: 3px solid rgba(138, 180, 248, 0.65);
+  background: linear-gradient(
+    90deg,
+    rgba(138, 180, 248, 0.1) 0%,
+    rgba(138, 180, 248, 0.04) 38%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+}
+.graph-summary-banner__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.graph-summary-apis {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.graph-summary-apis__title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.48);
+}
+.graph-summary-apis__title strong {
+  color: #8ab4f8;
+  font-weight: 600;
+}
+.graph-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+  max-width: 100%;
+}
+.graph-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  max-width: 100%;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  white-space: nowrap;
+}
+.graph-summary-chip__method {
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+.graph-summary-chip__path {
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+}
+.graph-summary-chip--get {
+  color: #6ee7b7;
+}
+.graph-summary-chip--get .graph-summary-chip__method {
+  color: #34d399;
+}
+.graph-summary-chip--post {
+  color: #fdba74;
+  background: rgba(251, 146, 60, 0.12);
+  border-color: rgba(251, 146, 60, 0.28);
+}
+.graph-summary-chip--post .graph-summary-chip__method {
+  color: #fb923c;
+}
+.graph-summary-chip--delete {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.24);
+}
+.graph-summary-num {
+  color: #8ab4f8 !important;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700 !important;
+}
+.graph-summary-banner__label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(174, 203, 250, 0.95);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(138, 180, 248, 0.12);
+}
+.graph-summary-banner__text {
+  margin: 0;
+  flex: 0 0 auto;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(232, 234, 237, 0.82);
+  word-break: break-word;
+}
+.graph-summary-banner__text strong {
+  color: #e8eaed;
+  font-weight: 600;
+}
+.graph-filter-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  padding: 24px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+}
+.graph-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px 14px;
+  flex: 1 1 auto;
+  min-width: min(100%, 18rem);
+}
+.graph-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.graph-toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 32px;
+  margin: 0 2px;
+  background: rgba(255, 255, 255, 0.14);
+  flex-shrink: 0;
+}
+.graph-toggle {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  min-height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(37, 41, 48, 0.88);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.graph-tool-btn {
+  pointer-events: auto;
+  min-height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(37, 41, 48, 0.88);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.graph-tool-btn:hover {
+  background: rgba(50, 54, 62, 0.95);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #f1f3f5;
+}
+.graph-tool-btn--icon {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.graph-tool-btn--icon .mdi {
+  font-size: 18px;
+  line-height: 1;
+}
+.graph-toolbar-group--view {
+  gap: 6px;
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-sizing: border-box;
+  height: 220px;
+  padding: 20px 24px;
+  text-align: center;
+}
+.empty-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #24282e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+.empty-icon__glyph {
+  font-size: 26px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.empty-icon--spin .empty-icon__glyph {
+  color: #8ab4f8;
+  animation: graph-empty-spin 0.95s linear infinite;
+}
+.graph-wrap--processing {
+  border-color: rgba(138, 180, 248, 0.22);
+  box-shadow: 0 0 0 1px rgba(138, 180, 248, 0.06) inset;
+}
+@keyframes graph-empty-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.78);
+}
+.empty-desc {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.5);
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 16px;
+  border-top: 1px solid #2a2e35;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.72);
+}
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.dot.changed {
+  background: #fdd663;
+}
+.dot.symbol {
+  background: #8ab4f8;
+}
+.dot.api {
+  background: #f28b82;
+}
+.dot.frontend {
+  background: #81c995;
+}

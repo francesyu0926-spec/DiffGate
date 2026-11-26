@@ -231,11 +231,39 @@ def _collect_local_bindings(fn: ast.FunctionDef | ast.AsyncFunctionDef, ctx: Res
     return locals_map
 
 
+def _depends_target(call_node: ast.Call, ctx: ResolveContext, locals_map: dict[str, str]) -> list[str]:
+    """解析 FastAPI Depends(...) 注入边。"""
+    func = call_node.func
+    name = _call_name(func)
+    bare = (name or "").split(".")[-1]
+    if bare != "Depends":
+        return []
+    if not call_node.args:
+        return []
+    dep_raw = _call_name(call_node.args[0])
+    if not dep_raw:
+        if isinstance(call_node.args[0], ast.Name):
+            dep_raw = call_node.args[0].id
+    if not dep_raw:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for target in _resolve_call(dep_raw, ctx, locals_map):
+        if target not in seen:
+            seen.add(target)
+            out.append(target)
+    return out
+
+
 def _collect_calls(fn: ast.FunctionDef | ast.AsyncFunctionDef, ctx: ResolveContext) -> list[str]:
     locals_map = _collect_local_bindings(fn, ctx)
     calls: list[str] = []
     seen: set[str] = set()
     for call_node in _iter_call_sites(fn):
+        for dep in _depends_target(call_node, ctx, locals_map):
+            if dep not in seen:
+                seen.add(dep)
+                calls.append(dep)
         raw = _call_name(call_node.func)
         if not raw:
             continue
@@ -322,6 +350,12 @@ class SymbolVisitor(ast.NodeVisitor):
                 dec_names.append(dec.attr)
 
         calls = _collect_calls(node, self._ctx)
+        locals_map = _collect_local_bindings(node, self._ctx)
+        for default in node.args.defaults:
+            if isinstance(default, ast.Call):
+                for dep in _depends_target(default, self._ctx, locals_map):
+                    if dep not in calls:
+                        calls.append(dep)
 
         end_line = getattr(node, "end_lineno", node.lineno)
         in_class = any(name in self.class_names for name in self.stack)

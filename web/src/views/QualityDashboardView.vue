@@ -17,6 +17,15 @@ const repoFilter = ref<string | null>(null)
 const loading = ref(false)
 const loadError = ref(false)
 const dashboard = ref<Awaited<ReturnType<typeof fetchDashboardOverview>> | null>(null)
+const chartsPending = ref(false)
+
+/** 首屏 / 硬刷新：尚无数据 */
+const pageBooting = computed(() => loading.value && !dashboard.value)
+/** 切换筛选或手动刷新：保留旧数据并叠加加载态 */
+const pageRefreshing = computed(() => loading.value && !!dashboard.value)
+const chartAreaBusy = computed(
+  () => pageRefreshing.value || chartsPending.value,
+)
 
 const trendRef = ref<HTMLDivElement | null>(null)
 const flowPanelEl = ref<HTMLElement | null>(null)
@@ -55,6 +64,38 @@ function coverageBarColor(coverage: number | null) {
   return coverage < gateBaseline.value ? 'error' : 'success'
 }
 
+/** 绿条仅表示覆盖率数值；BLOCK 时若并非「覆盖率不足」则不用成功色，避免「100% 像已通过」。 */
+function flowCoverageBarColor(item: FlowRow) {
+  const coverage = item.coverage
+  if (item.gate === 'BLOCK') {
+    if (item.block_reason === 'incremental_coverage_low' || item.block_reason === 'branch_coverage_low') {
+      return 'error'
+    }
+    if (item.block_reason === 'analysis_failed' || coverage == null) {
+      return 'secondary'
+    }
+    if (coverage != null && coverage >= gateBaseline.value) {
+      return 'warning'
+    }
+    return coverageBarColor(coverage)
+  }
+  return coverageBarColor(coverage)
+}
+
+function flowCoveragePctLabel(item: FlowRow) {
+  if (item.gate === 'BLOCK' && item.block_reason === 'analysis_failed') {
+    return '—'
+  }
+  return item.coverage != null ? `${item.coverage}%` : '—'
+}
+
+function flowApiImpactHint(item: FlowRow) {
+  if (item.changed_files > 0 && item.api_impact === 0) {
+    return '已检出变更文件，但未链到对外 API（多为 AST 索引或路由解析不完整）'
+  }
+  return ''
+}
+
 const kpiCards = computed(() => {
   const k = dashboard.value?.kpi
   if (!k) return []
@@ -62,71 +103,100 @@ const kpiCards = computed(() => {
   const delta = k.coverage_delta
   const trendPill =
     delta !== 0 ? `${delta > 0 ? '+' : ''}${delta}%` : undefined
+  const trendTone = delta > 0 ? 'up' : delta < 0 ? 'down' : undefined
   const coverageSamples = k.coverage_sample_count ?? 0
   const coverageNoData = coverageSamples === 0
-  const coverageValueColor = coverageNoData
-    ? undefined
+  const coverageTone = coverageNoData
+    ? ('muted' as const)
     : k.avg_coverage > 0 && k.avg_coverage < k.gate_baseline
-      ? '#F28B82'
-      : k.avg_coverage >= k.gate_baseline && k.avg_coverage > 0
-        ? '#81C995'
-        : undefined
-  const passValueColor =
+      ? ('warn' as const)
+      : ('success' as const)
+  const passTone =
     k.first_pass_rate >= 100 && k.pass_count > 0
-      ? '#81C995'
+      ? ('success' as const)
       : k.first_pass_rate > 0 && k.first_pass_rate < 60
-        ? '#FDD663'
-        : undefined
+        ? ('warn' as const)
+        : ('info' as const)
+
+  const toneStyle = (
+    tone: 'success' | 'warn' | 'danger' | 'info' | 'muted',
+  ): { accent: string; iconBg: string; iconColor: string; valueColor: string } => {
+    if (tone === 'success')
+      return {
+        accent: '#81C995',
+        iconBg: 'rgba(52, 168, 83, 0.15)',
+        iconColor: '#81C995',
+        valueColor: '#81C995',
+      }
+    if (tone === 'warn')
+      return {
+        accent: '#FDD663',
+        iconBg: 'rgba(253, 214, 99, 0.15)',
+        iconColor: '#FDD663',
+        valueColor: '#FB923C',
+      }
+    if (tone === 'danger')
+      return {
+        accent: '#F28B82',
+        iconBg: 'rgba(234, 67, 53, 0.15)',
+        iconColor: '#F28B82',
+        valueColor: '#F28B82',
+      }
+    if (tone === 'muted')
+      return {
+        accent: '#8E9299',
+        iconBg: 'rgba(142, 146, 153, 0.15)',
+        iconColor: '#8E9299',
+        valueColor: 'rgba(255, 255, 255, 0.38)',
+      }
+    return {
+      accent: '#8AB4F8',
+      iconBg: 'rgba(138, 180, 248, 0.15)',
+      iconColor: '#8AB4F8',
+      valueColor: '#8AB4F8',
+    }
+  }
 
   return [
     {
       title: '平均增量代码覆盖率',
       value: coverageNoData ? '—' : `${k.avg_coverage}%`,
       trendPill: coverageNoData ? undefined : trendPill,
+      trendTone,
       sub: coverageNoData ? '暂无覆盖率回传（非 0%）' : `门禁基线 ${k.gate_baseline}%`,
       icon: 'mdi-shield-check-outline',
-      iconColor: '#81C995',
-      iconBg: 'rgba(52, 168, 83, 0.15)',
-      accent: '#81C995',
-      valueColor: coverageValueColor,
-      muted: coverageNoData,
       action: 'trend' as const,
+      ...toneStyle(coverageTone),
     },
     {
       title: '质量门禁一次通过率',
       value: `${k.first_pass_rate}%`,
+      trendPill: undefined,
+      trendTone: undefined,
       sub: `通过 ${k.pass_count} 次 / 拦截 ${k.block_count} 次${pending ? ` / 待测 ${pending}` : ''}`,
       icon: 'mdi-check-decagram-outline',
-      iconColor: '#8AB4F8',
-      iconBg: 'rgba(138, 180, 248, 0.15)',
-      accent: '#8AB4F8',
-      valueColor: passValueColor,
-      muted: false,
       action: 'flows' as const,
+      ...toneStyle(passTone),
     },
     {
       title: '累计高危变更拦截',
       value: `${k.high_risk_total} 次`,
+      trendPill: undefined,
+      trendTone: undefined,
       sub: '点击查看拦截原因分布',
       icon: 'mdi-shield-alert-outline',
-      iconColor: '#F28B82',
-      iconBg: 'rgba(234, 67, 53, 0.15)',
-      accent: '#F28B82',
-      valueColor: undefined,
-      muted: false,
       action: 'intercept' as const,
+      ...toneStyle('danger'),
     },
     {
       title: '精准测试累计节省工时',
       value: `${k.saved_hours} h`,
+      trendPill: undefined,
+      trendTone: undefined,
       sub: `用例压缩率均值 ${k.case_compress_pct}%`,
       icon: 'mdi-lightning-bolt-outline',
-      iconColor: '#FDD663',
-      iconBg: 'rgba(253, 214, 99, 0.15)',
-      accent: '#FDD663',
-      valueColor: undefined,
-      muted: false,
       action: 'regression' as const,
+      ...toneStyle('success'),
     },
   ]
 })
@@ -153,12 +223,12 @@ const donutIsEmpty = computed(() => {
   return blocked === 0 && interceptTotal.value === 0
 })
 
-const DONUT_COLORS = ['#F28B82', '#FB8C00', '#FDD663'] as const
+const DONUT_COLORS = ['rgba(234, 139, 130, 0.78)', 'rgba(251, 191, 36, 0.7)', 'rgba(253, 214, 99, 0.62)'] as const
 
 const CHART = {
-  axis: 'rgba(255, 255, 255, 0.6)',
+  axis: 'rgba(255, 255, 255, 0.5)',
   axisDim: '#8E9299',
-  grid: 'rgba(255, 255, 255, 0.1)',
+  grid: 'rgba(255, 255, 255, 0.03)',
   line: '#8AB4F8',
   lineNode: '#1A1D21',
   lineNodeBorder: '#8AB4F8',
@@ -279,8 +349,10 @@ function resizeCharts() {
 async function load() {
   loading.value = true
   loadError.value = false
+  chartsPending.value = false
   try {
     dashboard.value = await fetchDashboardOverview(days.value, repoFilter.value || undefined)
+    chartsPending.value = true
     await nextTick()
     renderCharts()
     resizeCharts()
@@ -289,6 +361,7 @@ async function load() {
   } finally {
     loading.value = false
     await nextTick()
+    chartsPending.value = false
     resizeCharts()
   }
 }
@@ -316,6 +389,50 @@ const trendShowEmptyOverlay = computed(() => {
   if (!trend.labels?.length) return true
   return !trendHasActivity(trend)
 })
+
+const trendSparseCaption = computed(() => {
+  const trend = dashboard.value?.trend
+  if (!trend || trendShowEmptyOverlay.value) return ''
+  const active = trend.labels.reduce((n, _, i) => {
+    const lines = trend.changed_lines[i] ?? 0
+    const cov = trend.coverage[i]
+    return lines > 0 || cov != null ? n + 1 : n
+  }, 0)
+  const quiet = trend.labels.length - active
+  if (quiet > 0 && active > 0) return `过去 ${quiet} 天无代码变更 · 已聚焦最近有数据的时段`
+  return ''
+})
+
+function trendFocusPercent(
+  labels: string[],
+  changed_lines: number[],
+  coverage: (number | null)[],
+): { start: number; end: number } | null {
+  const n = labels.length
+  if (n <= 4) return null
+  let first = -1
+  let last = -1
+  for (let i = 0; i < n; i += 1) {
+    if ((changed_lines[i] ?? 0) > 0 || coverage[i] != null) {
+      first = i
+      break
+    }
+  }
+  for (let i = n - 1; i >= 0; i -= 1) {
+    if ((changed_lines[i] ?? 0) > 0 || coverage[i] != null) {
+      last = i
+      break
+    }
+  }
+  if (first < 0 || last < 0 || last - first >= n - 2) return null
+  const padFirst = Math.max(0, first - 1)
+  const padLast = Math.min(n - 1, last + 1)
+  if (n <= 1) return { start: 0, end: 100 }
+  return {
+    start: (padFirst / (n - 1)) * 100,
+    end: (padLast / (n - 1)) * 100,
+  }
+}
 
 const trendEmptyCta = computed(() => {
   if (!trendShowEmptyOverlay.value) return null
@@ -354,13 +471,9 @@ function renderCharts() {
   const peakLines = Math.max(...trend.changed_lines, 1)
   const linesYMax = peakLines <= 500 ? 500 : Math.ceil(peakLines / 200) * 200
   const hasCoverageSeries = trend.coverage.some((c) => c != null)
-  const activeDayCount = trend.labels.reduce((n, _, i) => {
-    const lines = trend.changed_lines[i] ?? 0
-    const cov = trend.coverage[i]
-    return lines > 0 || cov != null ? n + 1 : n
-  }, 0)
-  const sparseQuietDays = Math.max(0, trend.labels.length - activeDayCount)
   const coverageSeriesData = trend.coverage.map((c) => (c == null ? null : c))
+  const focusZoom = trendFocusPercent(trend.labels, trend.changed_lines, trend.coverage)
+  const splitLine = { show: true, lineStyle: { type: 'dashed' as const, color: CHART.grid } }
   const trendTooltip = {
     trigger: 'axis' as const,
     confine: true,
@@ -429,22 +542,18 @@ function renderCharts() {
         axisLine: { lineStyle: { color: CHART.grid } },
         axisTick: { lineStyle: { color: CHART.grid } },
       }
-      const graphicHint =
-        sparseQuietDays > 0
-          ? [
-              {
-                type: 'text' as const,
-                left: 'center',
-                top: hasCoverageSeries ? '44%' : '58%',
-                style: {
-                  text: `过去 ${sparseQuietDays} 天无代码变更`,
-                  fill: 'rgba(255, 255, 255, 0.42)',
-                  fontSize: 12,
-                  fontFamily: '"Noto Sans SC", system-ui, sans-serif',
-                },
-              },
-            ]
-          : []
+      const dataZoom = focusZoom
+        ? [
+            {
+              type: 'inside' as const,
+              xAxisIndex: [0, 1],
+              start: focusZoom.start,
+              end: focusZoom.end,
+              zoomOnMouseWheel: false,
+              moveOnMouseMove: false,
+            },
+          ]
+        : []
 
       trendChart.setOption(
         hasCoverageSeries
@@ -452,22 +561,12 @@ function renderCharts() {
               color: [CHART.bar, CHART.line],
               axisPointer: { link: [{ xAxisIndex: [0, 1] }] },
               grid: [
-                { left: 52, right: 24, top: 36, height: '34%' },
-                { left: 52, right: 56, top: '54%', height: '36%' },
+                { left: 52, right: 24, top: 28, height: '34%' },
+                { left: 52, right: 56, top: '52%', height: '38%' },
               ],
               tooltip: trendTooltip,
-              legend: {
-                show: true,
-                right: 4,
-                top: 2,
-                itemWidth: 14,
-                itemHeight: 8,
-                itemGap: 12,
-                textStyle: { color: 'rgba(255, 255, 255, 0.55)', fontSize: 11 },
-                data: ['变更行数', '增量覆盖率'],
-                selectedMode: false,
-              },
-              graphic: graphicHint,
+              legend: { show: false },
+              dataZoom,
               xAxis: [
                 { ...axisCommon, gridIndex: 0, axisLabel: { show: false } },
                 { ...axisCommon, gridIndex: 1, axisLabel: { color: CHART.axis } },
@@ -481,7 +580,7 @@ function renderCharts() {
                   max: linesYMax,
                   nameTextStyle: { color: CHART.axis },
                   axisLabel: { color: CHART.axis },
-                  splitLine: { lineStyle: { type: 'dashed', color: CHART.grid } },
+                  splitLine,
                 },
                 {
                   type: 'value',
@@ -492,7 +591,7 @@ function renderCharts() {
                   splitNumber: 4,
                   nameTextStyle: { color: CHART.axis },
                   axisLabel: { color: CHART.axis, formatter: (v: number) => `${v}%` },
-                  splitLine: { lineStyle: { type: 'dashed', color: CHART.grid } },
+                  splitLine,
                 },
               ],
               series: [
@@ -535,14 +634,15 @@ function renderCharts() {
                   markLine: {
                     silent: true,
                     symbol: 'none',
-                    lineStyle: { color: CHART.baseline, type: 'dashed', width: 1.25 },
+                    lineStyle: { color: 'rgba(242, 139, 130, 0.65)', type: 'dashed', width: 1 },
                     label: {
                       show: true,
                       formatter: `基线 ${threshold}%`,
-                      position: 'insideStartTop',
-                      color: CHART.baseline,
-                      fontSize: 11,
-                      distance: 4,
+                      position: 'insideEndTop',
+                      color: 'rgba(242, 139, 130, 0.88)',
+                      fontSize: 10,
+                      distance: 8,
+                      padding: [0, 0, 0, 6],
                     },
                     data: [{ yAxis: threshold }],
                   },
@@ -551,10 +651,10 @@ function renderCharts() {
             }
           : {
               color: [CHART.bar],
-              grid: { left: 52, right: 28, top: 40, bottom: 32, containLabel: false },
+              grid: { left: 52, right: 28, top: 32, bottom: 32, containLabel: false },
               tooltip: trendTooltip,
               legend: { show: false },
-              graphic: graphicHint,
+              dataZoom,
               xAxis: { ...axisCommon, axisLabel: { color: CHART.axis } },
               yAxis: {
                 type: 'value',
@@ -563,7 +663,7 @@ function renderCharts() {
                 max: linesYMax,
                 nameTextStyle: { color: CHART.axis },
                 axisLabel: { color: CHART.axis },
-                splitLine: { lineStyle: { type: 'dashed', color: CHART.grid } },
+                splitLine,
               },
               series: [
                 {
@@ -659,6 +759,16 @@ watch([days, repoFilter], load)
       </div>
     </div>
 
+    <v-progress-linear
+      v-if="loading"
+      class="dashboard-load-bar"
+      indeterminate
+      color="primary"
+      height="3"
+      rounded
+      aria-hidden="true"
+    />
+
     <v-alert
       v-if="loadError"
       type="warning"
@@ -672,52 +782,58 @@ watch([days, repoFilter], load)
       <code class="mono">/api/v1</code>。
     </v-alert>
 
-    <v-row class="dashboard-grid dashboard-stack-gap kpi-row">
-      <v-col v-for="(card, index) in kpiCards" :key="card.title" cols="12" sm="6" lg="3">
-        <v-card
-          class="h-100 kpi-card kpi-card--interactive m3-surface-card m3-elevated"
-          :class="[
-            index === 0 ? 'kpi-card--hero' : 'kpi-card--muted',
-            'muted' in card && card.muted ? 'kpi-card--no-data' : '',
-          ]"
-          rounded="xl"
-          :border="false"
-          tabindex="0"
-          role="button"
-          @click="onKpiNavigate(card.action)"
-          @keydown.enter="onKpiNavigate(card.action)"
-        >
-          <span class="kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
-          <v-card-text class="kpi-card-inner">
-            <div class="d-flex align-start justify-space-between gap-2 mb-3">
-              <div class="text-body-2 text-medium-emphasis kpi-title">{{ card.title }}</div>
-              <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }" class="kpi-icon-tonal">
-                <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
-              </v-avatar>
-            </div>
-            <div
-              class="kpi-metric"
-              :class="{ 'kpi-metric--muted': 'muted' in card && card.muted }"
-              :style="card.valueColor ? { color: card.valueColor } : undefined"
-            >
-              {{ card.value }}
-            </div>
-            <div class="d-flex flex-wrap align-center ga-1 mt-3">
-              <v-chip
-                v-if="'trendPill' in card && card.trendPill"
-                size="x-small"
-                variant="flat"
-                rounded="pill"
-                class="kpi-trend-pill kpi-trend-pill--up"
-              >
-                {{ card.trendPill }}
-              </v-chip>
-              <span class="text-caption text-medium-emphasis kpi-sub">{{ card.sub }}</span>
-            </div>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
+    <div class="load-section load-section--kpi" :aria-busy="loading">
+      <v-overlay
+        :model-value="pageRefreshing"
+        contained
+        persistent
+        scrim="rgba(26, 29, 33, 0.52)"
+        class="m3-load-overlay align-center justify-center"
+      >
+        <v-progress-circular indeterminate color="primary" size="36" width="3" aria-label="正在刷新" />
+      </v-overlay>
+      <v-row class="dashboard-grid dashboard-stack-gap kpi-row">
+        <template v-if="pageBooting">
+          <v-col v-for="n in 4" :key="`kpi-sk-${n}`" cols="12" sm="6" lg="3">
+            <v-skeleton-loader type="osseous" class="kpi-skeleton m3-skeleton-tonal" boilerplate />
+          </v-col>
+        </template>
+        <v-col v-for="card in kpiCards" v-else :key="card.title" cols="12" sm="6" lg="3">
+          <v-card
+            class="h-100 kpi-card kpi-card--nav m3-surface-card m3-elevated"
+            rounded="xl"
+            :border="false"
+            tabindex="0"
+            role="button"
+            @click="onKpiNavigate(card.action)"
+            @keydown.enter="onKpiNavigate(card.action)"
+          >
+            <span class="kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
+            <v-card-text class="kpi-card-inner">
+              <div class="d-flex align-start justify-space-between gap-2 mb-3">
+                <div class="text-body-2 text-medium-emphasis kpi-title">{{ card.title }}</div>
+                <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }">
+                  <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
+                </v-avatar>
+              </div>
+              <div class="kpi-metric-row">
+                <div class="kpi-metric" :style="{ color: card.valueColor }">{{ card.value }}</div>
+                <span
+                  v-if="card.trendPill"
+                  class="kpi-trend-badge mono"
+                  :class="
+                    card.trendTone === 'down' ? 'kpi-trend-badge--down' : 'kpi-trend-badge--up'
+                  "
+                >
+                  {{ card.trendPill }}
+                </span>
+              </div>
+              <p class="text-caption text-medium-emphasis mt-3 mb-0">{{ card.sub }}</p>
+            </v-card-text>
+          </v-card>
+        </v-col>
+      </v-row>
+    </div>
 
     <v-row class="dashboard-grid dashboard-stack-gap chart-row" align="stretch">
       <v-col cols="12" lg="8" class="chart-col-trend">
@@ -739,13 +855,28 @@ watch([days, repoFilter], load)
               </span>
             </div>
           </v-card-title>
-          <v-card-text class="chart-card-body">
-            <v-skeleton-loader v-if="loading && !dashboard" type="image" height="290" />
+          <p v-if="trendSparseCaption" class="trend-sparse-caption px-6 mb-0">{{ trendSparseCaption }}</p>
+          <v-card-text class="chart-card-body chart-card-body--load">
+            <v-skeleton-loader
+              v-if="pageBooting"
+              type="image"
+              height="290"
+              class="m3-skeleton-tonal chart-skeleton"
+            />
             <div
-              v-show="dashboard"
-              class="chart-box-wrap"
+              v-else
+              class="chart-box-wrap load-section"
               :class="{ 'chart-box-wrap--empty': trendShowEmptyOverlay }"
             >
+              <v-overlay
+                :model-value="chartAreaBusy"
+                contained
+                persistent
+                scrim="rgba(26, 29, 33, 0.48)"
+                class="m3-load-overlay align-center justify-center"
+              >
+                <v-progress-circular indeterminate color="primary" size="36" width="3" aria-label="图表加载中" />
+              </v-overlay>
               <div v-show="!trendShowEmptyOverlay" ref="trendRef" class="chart-box" />
               <div
                 v-if="trendShowEmptyOverlay && trendEmptyCta"
@@ -757,8 +888,8 @@ watch([days, repoFilter], load)
                     <v-icon icon="mdi-chart-timeline-variant" size="24" />
                   </div>
                   <div class="empty-module__text">
-                    <p class="empty-module__title">暂无近期数据</p>
-                    <p class="empty-module__desc">{{ trendEmptyCta.sub }}</p>
+                    <p class="empty-module__title">暂无近期趋势数据</p>
+                    <p class="empty-module__desc">请等待代码提交后自动更新，或通过下方操作生成趋势数据。</p>
                   </div>
                 </div>
                 <div class="empty-module__actions empty-module__actions--single">
@@ -787,13 +918,27 @@ watch([days, repoFilter], load)
           :border="false"
         >
           <v-card-title class="text-subtitle-1 font-weight-medium chart-card-title">门禁拦截原因分布</v-card-title>
-          <v-card-text class="chart-card-body donut-card-body pt-0">
-            <v-skeleton-loader v-if="loading && !dashboard" type="image" height="220" />
+          <v-card-text class="chart-card-body donut-card-body pt-0 chart-card-body--load">
+            <v-skeleton-loader
+              v-if="pageBooting"
+              type="image"
+              height="220"
+              class="m3-skeleton-tonal chart-skeleton"
+            />
             <div
-              v-show="dashboard"
-              class="donut-layout donut-layout--stacked"
+              v-else
+              class="donut-layout donut-layout--stacked load-section"
               :class="{ 'donut-layout--compact': donutIsEmpty }"
             >
+              <v-overlay
+                :model-value="chartAreaBusy"
+                contained
+                persistent
+                scrim="rgba(26, 29, 33, 0.48)"
+                class="m3-load-overlay align-center justify-center"
+              >
+                <v-progress-circular indeterminate color="primary" size="36" width="3" aria-label="图表加载中" />
+              </v-overlay>
               <template v-if="donutIsEmpty">
                 <div class="donut-empty-cluster">
                   <div class="donut-empty-positive">
@@ -872,6 +1017,36 @@ watch([days, repoFilter], load)
       </v-col>
     </v-row>
 
+    <v-row v-if="(dashboard?.code_hotspots?.length ?? 0) > 0" class="dashboard-grid dashboard-stack-gap">
+      <v-col cols="12">
+        <v-card class="m3-surface-card m3-elevated" rounded="xl" :border="false">
+          <v-card-title class="text-subtitle-1 font-weight-medium py-4">
+            高风险代码热点（近 30 天 Top 5）
+          </v-card-title>
+          <v-card-text class="pt-0 pb-4">
+            <v-table density="compact" class="hotspot-table">
+              <thead>
+                <tr>
+                  <th>路径</th>
+                  <th class="text-end">变更命中</th>
+                  <th class="text-end">拦截次数</th>
+                  <th class="text-end">风险分</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in dashboard?.code_hotspots" :key="row.path">
+                  <td class="mono text-body-2">{{ row.path }}</td>
+                  <td class="text-end">{{ row.change_hits }}</td>
+                  <td class="text-end">{{ row.block_hits }}</td>
+                  <td class="text-end font-weight-medium">{{ row.score }}</td>
+                </tr>
+              </tbody>
+            </v-table>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <v-row class="dashboard-grid dashboard-stack-gap flow-row">
       <v-col cols="12">
       <v-card
@@ -926,10 +1101,26 @@ watch([days, repoFilter], load)
         </v-card-title>
 
         <v-card-text
-          class="flow-panel-body"
+          class="flow-panel-body load-section"
           :class="{ 'flow-panel-body--empty': dashboard && !dashboard.recent_flows?.length }"
         >
-          <v-skeleton-loader v-if="loading && !dashboard" type="list-item@4" class="flow-skeleton" />
+          <v-skeleton-loader
+            v-if="pageBooting"
+            type="list-item@4"
+            class="flow-skeleton m3-skeleton-tonal"
+            boilerplate
+          />
+
+          <v-overlay
+            v-else-if="pageRefreshing"
+            :model-value="true"
+            contained
+            persistent
+            scrim="rgba(26, 29, 33, 0.45)"
+            class="m3-load-overlay align-center justify-center flow-refresh-overlay"
+          >
+            <v-progress-circular indeterminate color="primary" size="36" width="3" aria-label="列表刷新中" />
+          </v-overlay>
 
           <div v-else-if="!(dashboard?.recent_flows?.length)" class="flow-empty-inner">
             <div class="empty-module">
@@ -982,18 +1173,31 @@ watch([days, repoFilter], load)
 
           <div class="flow-row-impact d-none d-sm-flex align-center">
             <v-chip size="x-small" variant="flat" rounded="pill" class="impact-chip">{{ item.changed_files }} 文件</v-chip>
-            <v-chip size="x-small" variant="flat" rounded="pill" class="impact-chip impact-chip--accent">{{ item.api_impact }} API</v-chip>
+            <v-tooltip :text="flowApiImpactHint(item)" :disabled="!flowApiImpactHint(item)" location="top">
+              <template #activator="{ props: apiTip }">
+                <v-chip
+                  v-bind="apiTip"
+                  size="x-small"
+                  variant="flat"
+                  rounded="pill"
+                  class="impact-chip impact-chip--accent"
+                  :class="{ 'impact-chip--suspect': flowApiImpactHint(item) }"
+                >
+                  {{ item.api_impact }} API
+                </v-chip>
+              </template>
+            </v-tooltip>
           </div>
 
           <div class="flow-row-gate">
             <v-progress-linear
               :model-value="item.coverage ?? 0"
-              :color="coverageBarColor(item.coverage)"
+              :color="flowCoverageBarColor(item)"
               height="8"
               rounded
               class="gate-progress"
             />
-            <span class="mono text-caption gate-pct">{{ item.coverage != null ? `${item.coverage}%` : '—' }}</span>
+            <span class="mono text-caption gate-pct">{{ flowCoveragePctLabel(item) }}</span>
             <div class="gate-status-slot">
               <v-tooltip
                 :text="flowGateTooltip(item)"
@@ -1206,24 +1410,6 @@ watch([days, repoFilter], load)
   color: rgba(255, 255, 255, 0.68) !important;
   opacity: 1 !important;
 }
-.kpi-card--interactive {
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease;
-}
-.kpi-card--interactive:hover,
-.kpi-card--interactive:focus-visible {
-  transform: translateY(-2px);
-  box-shadow:
-    0 4px 14px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(255, 255, 255, 0.08);
-  outline: none;
-}
-.kpi-card--no-data .kpi-metric--muted {
-  color: rgba(255, 255, 255, 0.38) !important;
-}
 .intercept-hero {
   position: relative;
   display: flex;
@@ -1301,15 +1487,18 @@ watch([days, repoFilter], load)
   padding: 8px 8px 4px;
   min-height: 200px;
 }
-.intercept-bar-row + .intercept-bar-row {
-  margin-top: 14px;
+.intercept-bar-row {
+  margin-bottom: 16px;
+}
+.intercept-bar-row:last-of-type {
+  margin-bottom: 8px;
 }
 .intercept-bar-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 6px;
+  gap: 16px;
+  margin-bottom: 8px;
 }
 .intercept-bar-name {
   font-size: 13px;
@@ -1324,7 +1513,7 @@ watch([days, repoFilter], load)
   font-weight: 600;
 }
 .intercept-bar-track {
-  height: 8px;
+  height: 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
@@ -1334,10 +1523,24 @@ watch([days, repoFilter], load)
   border-radius: 999px;
   min-width: 4px;
   transition: width 0.35s ease;
+  opacity: 0.92;
 }
 .intercept-bar-cta {
   margin-inline: auto;
   display: flex;
+  color: #8ab4f8 !important;
+  opacity: 1 !important;
+  font-weight: 500;
+}
+.intercept-bar-cta:hover {
+  text-decoration: underline;
+  color: #aecbfb !important;
+}
+.trend-sparse-caption {
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.42);
+  letter-spacing: 0.01em;
 }
 .flow-filter-chip {
   background: rgba(239, 68, 68, 0.12) !important;
@@ -1592,29 +1795,6 @@ watch([days, repoFilter], load)
     0 1px 2px rgba(0, 0, 0, 0.45),
     0 2px 8px rgba(0, 0, 0, 0.28);
 }
-.kpi-card {
-  position: relative;
-  overflow: hidden;
-}
-.kpi-accent {
-  position: absolute;
-  left: 0;
-  top: 12px;
-  bottom: 12px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  opacity: 0.9;
-}
-.kpi-card-inner {
-  padding: 20px 20px 22px 22px !important;
-}
-.kpi-title {
-  line-height: 1.35;
-  opacity: 0.72;
-}
-.kpi-icon-tonal {
-  flex-shrink: 0;
-}
 .repo-link {
   display: inline-flex;
   align-items: center;
@@ -1630,11 +1810,6 @@ watch([days, repoFilter], load)
   opacity: 0.88;
   text-decoration: underline;
 }
-.kpi-trend-pill {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
 .dashboard-filters,
 .dashboard-toolbar {
   align-items: center;
@@ -1746,37 +1921,16 @@ watch([days, repoFilter], load)
 .dashboard-head {
   letter-spacing: -0.01em;
 }
-.kpi-card--hero {
-  background-color: #252a31 !important;
-  border-color: #32373f !important;
-}
-.kpi-card--muted {
-  background-color: rgb(var(--v-theme-surface)) !important;
-}
-.kpi-metric {
-  font-family: var(--diffgate-kpi);
-  font-size: 2.25rem;
-  font-weight: 600;
-  line-height: 1.12;
-  color: rgb(var(--v-theme-on-surface));
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-}
-.kpi-sub {
-  color: rgba(255, 255, 255, 0.62) !important;
-  opacity: 1;
-  font-size: 13px !important;
-}
-.kpi-trend-pill--up {
-  background: rgba(52, 168, 83, 0.16) !important;
-  color: #81c995 !important;
-}
 .impact-chip {
   background: #24282e !important;
   color: rgb(var(--v-theme-secondary)) !important;
 }
 .impact-chip--accent {
   color: rgb(var(--v-theme-primary)) !important;
+}
+.impact-chip--suspect {
+  border: 1px dashed rgba(251, 146, 60, 0.55) !important;
+  color: #fdba74 !important;
 }
 .gate-status-chip--pass {
   background: rgba(34, 197, 94, 0.1) !important;
@@ -1937,6 +2091,47 @@ watch([days, repoFilter], load)
 }
 .flow-row-card:hover .flow-row-actions {
   opacity: 1;
+}
+.dashboard-load-bar {
+  margin: -4px 0 16px;
+  opacity: 0.95;
+}
+.load-section {
+  position: relative;
+}
+.load-section--kpi {
+  margin-bottom: 24px;
+}
+.chart-card-body--load {
+  min-height: 220px;
+}
+.kpi-skeleton {
+  border-radius: 16px;
+  min-height: 168px;
+}
+.m3-skeleton-tonal :deep(.v-skeleton-loader__bone),
+.m3-skeleton-tonal :deep(.v-skeleton-loader__image) {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+.m3-skeleton-tonal :deep(.v-skeleton-loader__bone::after) {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.07),
+    transparent
+  ) !important;
+}
+.chart-skeleton {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.m3-load-overlay :deep(.v-overlay__content) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.flow-refresh-overlay {
+  min-height: 120px;
 }
 .flow-skeleton :deep(.v-skeleton-loader__list-item) {
   margin-bottom: 8px;

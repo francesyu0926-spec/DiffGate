@@ -42,6 +42,21 @@ class Settings(BaseSettings):
     # 为 True 时 Celery 在 API 进程内同步跑任务（仍依赖 celery 包，不需 Worker）
     celery_always_eager: bool = False
 
+    # Webhook 同分支防抖窗口（秒）；0 表示关闭
+    webhook_debounce_seconds: int = 20
+    # 分析使用 git worktree 沙箱（多分支并发）
+    use_job_worktree: bool = True
+    # Vue/TS tree-sitter 全栈追溯 + 跨仓 HTTP Client 扫描
+    use_fullstack_trace: bool = True
+
+    # 平台状态回写 / IM
+    github_token: str = ""
+    github_pr_comments: bool = True
+    gitlab_token: str = ""
+    feishu_webhook_url: str = ""
+    dingtalk_webhook_url: str = ""
+    wecom_webhook_url: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -317,5 +317,6 @@ def gate_snapshot_for_dashboard(job: AnalysisJob) -> dict[str, Any]:
         "gate": gr.get("gate") or "PENDING",
         "time": as_utc_iso(job.created_at),
         "job_id": job.id,
+        "block_reason": gr.get("block_reason"),
         "block_reason_label": gr.get("block_reason_label"),
     }

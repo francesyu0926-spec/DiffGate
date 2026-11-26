@@ -28,6 +28,7 @@ class Repository(Base):
     ast_method_count: Mapped[int] = mapped_column(Integer, default=0)
     ast_api_count: Mapped[int] = mapped_column(Integer, default=0)
     last_indexed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    gate_path_rules: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -48,6 +49,7 @@ class AnalysisJob(Base):
     changed_symbols: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     gate_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    job_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

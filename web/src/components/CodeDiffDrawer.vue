@@ -2,34 +2,54 @@
 import { computed, ref, watch } from 'vue'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
+import typescript from 'highlight.js/lib/languages/typescript'
+import javascript from 'highlight.js/lib/languages/javascript'
 import { fetchJobCodeDiff } from '@/api/client'
 import type { CodeDiffLine, CodeDiffView, GraphNodeType } from '@/api/types'
 import 'highlight.js/styles/atom-one-dark.css'
 
 hljs.registerLanguage('python', python)
+hljs.registerLanguage('typescript', typescript)
+hljs.registerLanguage('javascript', javascript)
 
-const props = defineProps<{
-  jobId: string
-  open: boolean
-  title?: string
-  file?: string
-  startLine?: number
-  endLine?: number
-  nodeType?: GraphNodeType
-  highlight?: string
-  impactPath?: string
-  repo?: string
-  headSha?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    jobId: string
+    open: boolean
+    title?: string
+    file?: string
+    startLine?: number
+    endLine?: number
+    nodeType?: GraphNodeType
+    highlight?: string
+    impactPath?: string
+    repo?: string
+    headSha?: string
+    showBack?: boolean
+    backLabel?: string
+  }>(),
+  {
+    showBack: false,
+    backLabel: '返回未解析列表',
+  },
+)
 
 const roleBadge = computed(() => {
   const t = props.nodeType
   if (t === 'api') return { label: '受影响接口', class: 'cdd-role--api' }
   if (t === 'changed') return { label: '直接变更函数', class: 'cdd-role--changed' }
+  if (t === 'frontend') return { label: '前端调用方', class: 'cdd-role--frontend' }
   return { label: '上游方法', class: 'cdd-role--symbol' }
 })
 
-const emit = defineEmits<{ 'update:open': [boolean] }>()
+const headFileName = computed(() => {
+  if (props.title?.trim()) return props.title.trim()
+  const f = props.file?.replace(/\\/g, '/') ?? ''
+  const parts = f.split('/')
+  return parts[parts.length - 1] || '代码详情'
+})
+
+const emit = defineEmits<{ 'update:open': [boolean]; back: [] }>()
 
 const loading = ref(false)
 const view = ref<CodeDiffView | null>(null)
@@ -67,6 +87,10 @@ const githubCompareUrl = computed(() => {
 
 function close() {
   emit('update:open', false)
+}
+
+function goBack() {
+  emit('back')
 }
 
 async function load() {
@@ -108,10 +132,25 @@ function isRiskLine(line: CodeDiffLine) {
   return view.value.highlight_lines.includes(line.line_no)
 }
 
+function isFocusLine(line: CodeDiffLine) {
+  const ln = line.line_no
+  if (!ln || !props.startLine) return false
+  return props.nodeType === 'frontend' && ln === props.startLine
+}
+
+function langForFile(file?: string) {
+  const f = (file || '').toLowerCase()
+  if (f.endsWith('.py')) return 'python'
+  if (f.endsWith('.ts') || f.endsWith('.tsx')) return 'typescript'
+  if (f.endsWith('.js') || f.endsWith('.jsx') || f.endsWith('.vue')) return 'javascript'
+  return 'python'
+}
+
 function highlightedCode(text: string) {
   const raw = text || ' '
+  const lang = langForFile(view.value?.file || props.file)
   try {
-    return hljs.highlight(raw, { language: 'python' }).value
+    return hljs.highlight(raw, { language: lang }).value
   } catch {
     return raw
       .replace(/&/g, '&amp;')
@@ -139,50 +178,54 @@ watch(
   <el-drawer
     :model-value="open"
     direction="rtl"
-    size="620px"
+    size="min(94vw, 600px)"
     class="code-diff-drawer"
     modal-class="code-diff-drawer-overlay"
     :with-header="false"
     :modal="true"
-    :lock-scroll="false"
+    :lock-scroll="true"
     append-to-body
     @update:model-value="emit('update:open', $event)"
   >
     <div class="cdd-shell">
+      <div class="cdd-top">
       <header class="cdd-head">
-        <div class="cdd-head__main">
-          <div class="cdd-head__title-row">
-            <p class="cdd-head__title">{{ title || pathRangeLine || '代码详情' }}</p>
-            <span class="cdd-role-badge" :class="roleBadge.class">{{ roleBadge.label }}</span>
-            <span v-if="view?.source_label" class="cdd-source-badge">{{ view.source_label }}</span>
-          </div>
-          <p v-if="impactPath" class="cdd-impact-path">{{ impactPath }}</p>
-          <p v-if="pathRangeLine" class="cdd-head__sub mono">{{ pathRangeLine }}</p>
-        </div>
-        <div class="cdd-head__actions">
-          <button type="button" class="cdd-action" @click="copyAll">复制代码</button>
-          <a
-            v-if="githubCompareUrl"
-            class="cdd-action"
-            :href="githubCompareUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            在 GitHub 查看
-          </a>
-          <button
-            type="button"
-            class="cdd-close"
-            aria-label="关闭"
-            title="关闭"
-            @click="close"
-          >
-            <span class="mdi mdi-close" aria-hidden="true" />
+        <div class="cdd-head__nav">
+          <button v-if="showBack" type="button" class="cdd-back-text" @click="goBack">
+            <span class="mdi mdi-chevron-left" aria-hidden="true" />
+            {{ backLabel }}
           </button>
+          <span v-else class="cdd-head__nav-spacer" />
+          <div class="cdd-head__icon-actions">
+            <button type="button" class="cdd-icon-btn" title="复制代码" aria-label="复制代码" @click="copyAll">
+              <span class="mdi mdi-content-copy" aria-hidden="true" />
+            </button>
+            <a
+              v-if="githubCompareUrl"
+              class="cdd-icon-btn"
+              :href="githubCompareUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="在 GitHub 查看"
+              aria-label="在 GitHub 查看"
+            >
+              <span class="mdi mdi-github" aria-hidden="true" />
+            </a>
+            <button type="button" class="cdd-icon-btn" title="关闭" aria-label="关闭" @click="close">
+              <span class="mdi mdi-close" aria-hidden="true" />
+            </button>
+          </div>
         </div>
+        <div class="cdd-head__title-row">
+          <h2 class="cdd-head__title">{{ headFileName }}</h2>
+          <span class="cdd-role-badge" :class="roleBadge.class">{{ roleBadge.label }}</span>
+          <span v-if="view?.source_label" class="cdd-source-badge">{{ view.source_label }}</span>
+        </div>
+        <p v-if="impactPath" class="cdd-impact-path">{{ impactPath }}</p>
+        <p v-if="pathRangeLine" class="cdd-head__sub mono">{{ pathRangeLine }}</p>
       </header>
-
       <p v-if="view?.hint" class="cdd-hint">{{ view.hint }}</p>
+      </div>
 
       <div v-loading="loading" class="cdd-body">
         <p v-if="error" class="cdd-error">{{ error }}</p>
@@ -194,13 +237,17 @@ watch(
             :class="{
               'cdd-line--add': line.kind === 'add',
               'cdd-line--del': line.kind === 'del',
-              'cdd-line--risk': isRiskLine(line),
+              'cdd-line--focus': isFocusLine(line),
+              'cdd-line--risk': isRiskLine(line) && !isFocusLine(line),
             }"
           >
             <span class="cdd-gutter">{{ gutterMark(line) }}</span>
-            <span class="cdd-ln">{{ line.line_no ?? ' ' }}</span>
+            <span class="cdd-ln" :class="{ 'cdd-ln--focus': isFocusLine(line) }">
+              {{ line.line_no ?? ' ' }}
+            </span>
             <span class="cdd-code hljs" v-html="highlightedCode(line.text)" />
-            <span v-if="isRiskLine(line)" class="cdd-risk-tag">← 风险调用点</span>
+            <span v-if="isFocusLine(line)" class="cdd-focus-tag">← 接口调用行</span>
+            <span v-else-if="isRiskLine(line)" class="cdd-risk-tag">← 风险调用点</span>
           </code></pre>
         </div>
         <div v-else-if="!loading" class="cdd-empty-wrap">
@@ -228,12 +275,13 @@ watch(
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 100vh;
+  max-height: 100vh;
+  min-height: 0;
   padding: 0 !important;
   margin: 0;
   background: #000000 !important;
   color: #e8eaed;
-  overflow: hidden;
+  overflow: hidden !important;
 }
 .code-diff-drawer :deep(.el-loading-mask) {
   background-color: rgba(0, 0, 0, 0.65);
@@ -242,31 +290,102 @@ watch(
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
-  min-height: 100vh;
+  min-height: 0;
   height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  background: #000000;
+}
+.cdd-top {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  z-index: 2;
   background: #000000;
 }
 .cdd-head {
   display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 10px;
   flex-shrink: 0;
-  padding: 16px 18px;
+  padding: 14px 16px 12px;
   border-bottom: 1px solid #1f1f1f;
   background: #000000;
 }
+.cdd-head__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+}
+.cdd-head__nav-spacer {
+  flex: 1;
+}
+.cdd-back-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 4px 6px 4px 2px;
+  border: none;
+  background: transparent;
+  color: #fdba74;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cdd-back-text:hover {
+  color: #fed7aa;
+}
+.cdd-back-text .mdi {
+  font-size: 20px;
+  line-height: 1;
+}
+.cdd-head__icon-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.cdd-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #3c4043;
+  border-radius: 8px;
+  background: #252930;
+  color: #c4c7c5;
+  text-decoration: none;
+  cursor: pointer;
+}
+.cdd-icon-btn:hover {
+  border-color: #5f6368;
+  color: #f1f3f5;
+}
+.cdd-icon-btn .mdi {
+  font-size: 18px;
+  line-height: 1;
+}
 .cdd-head__title-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 .cdd-head__title {
   margin: 0;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
   color: #f1f3f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
 }
 .cdd-role-badge {
   display: inline-flex;
@@ -276,6 +395,8 @@ watch(
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .cdd-role--api {
   color: #f87171;
@@ -294,6 +415,11 @@ watch(
   background: rgba(138, 180, 248, 0.12);
   border: 1px solid rgba(138, 180, 248, 0.32);
 }
+.cdd-role--frontend {
+  color: #81c995;
+  background: rgba(129, 201, 149, 0.12);
+  border: 1px solid rgba(129, 201, 149, 0.35);
+}
 .cdd-impact-path {
   margin: 6px 0 0;
   font-size: 12px;
@@ -310,17 +436,13 @@ watch(
   color: rgba(255, 255, 255, 0.72);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .cdd-head__sub {
   margin: 6px 0 0;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.52);
-}
-.cdd-head__actions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 8px;
 }
 .cdd-action {
   border: 1px solid #3c4043;
@@ -335,27 +457,6 @@ watch(
 .cdd-action:hover {
   border-color: #5f6368;
   color: #f1f3f5;
-}
-.cdd-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid #3c4043;
-  border-radius: 50%;
-  background: #252930;
-  color: #e8eaed;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.cdd-close:hover {
-  border-color: #8ab4f8;
-  color: #fff;
-}
-.cdd-close .mdi {
-  font-size: 18px;
-  line-height: 1;
 }
 .cdd-hint {
   margin: 0;
@@ -375,6 +476,10 @@ watch(
   background: #000000;
   overflow: hidden;
 }
+.cdd-body :deep(.el-loading-mask) {
+  border-radius: 10px;
+  margin: 0 14px 16px;
+}
 .cdd-code-panel {
   flex: 1 1 auto;
   margin: 0 14px 16px;
@@ -383,39 +488,31 @@ watch(
   background: #000000;
   overflow-x: auto;
   overflow-y: auto;
-  min-height: 200px;
+  min-height: 0;
+  max-height: 100%;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: #2c313a transparent;
-}
-.cdd-code-panel::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.cdd-code-panel::-webkit-scrollbar-track {
-  background: transparent;
-}
-.cdd-code-panel::-webkit-scrollbar-thumb {
-  background: #2c313a;
-  border-radius: 6px;
-}
-.cdd-code-panel::-webkit-scrollbar-thumb:hover {
-  background: #434a56;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
 .cdd-pre {
   margin: 0;
-  padding: 10px 0;
+  padding: 4px 0 8px;
   font-family: 'Roboto Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 20px;
   color: #e8eaed;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
 }
 .cdd-line {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0;
-  padding: 0 10px 0 0;
-  white-space: pre;
-  min-height: 1.55em;
+  padding: 2px 12px;
+  white-space: nowrap;
+  min-height: 20px;
+  line-height: 20px;
 }
 .cdd-gutter {
   flex: 0 0 1.1em;
@@ -442,28 +539,17 @@ watch(
   background: rgba(0, 0, 0, 0.22);
 }
 .cdd-code {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  overflow-x: visible;
+  word-break: normal;
   background: transparent !important;
   padding: 0;
 }
 .cdd-code :deep(.hljs) {
   background: transparent;
   padding: 0;
-}
-.cdd-risk-tag {
-  flex: 0 0 auto;
-  margin-left: 10px;
-  padding: 1px 8px;
-  border-radius: 6px;
-  font-size: 10px;
-  font-weight: 600;
-  color: #e3b341;
-  background: rgba(210, 153, 34, 0.12);
-  border: 1px solid rgba(210, 153, 34, 0.28);
-  white-space: nowrap;
 }
 .cdd-line--add {
   background: rgba(46, 160, 67, 0.18);
@@ -483,6 +569,47 @@ watch(
 }
 .cdd-line--risk .cdd-ln {
   background: rgba(210, 153, 34, 0.1);
+}
+.cdd-line--focus {
+  background: rgba(251, 191, 36, 0.14);
+  box-shadow: inset 3px 0 0 #fbbf24;
+}
+.cdd-ln--focus {
+  position: relative;
+  font-weight: 600;
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.12) !important;
+}
+.cdd-ln--focus::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #fbbf24;
+  vertical-align: middle;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.65);
+}
+.cdd-focus-tag,
+.cdd-risk-tag {
+  flex: 0 0 auto;
+  margin-left: 12px;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cdd-focus-tag {
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.28);
+}
+.cdd-risk-tag {
+  color: #e3b341;
+  background: rgba(210, 153, 34, 0.12);
+  border: 1px solid rgba(210, 153, 34, 0.28);
 }
 .cdd-empty-wrap {
   padding: 16px 18px;
@@ -505,15 +632,30 @@ watch(
 
 <style>
 .code-diff-drawer-overlay {
-  background-color: rgba(0, 0, 0, 0.42) !important;
+  background-color: rgba(0, 0, 0, 0.52) !important;
+  backdrop-filter: blur(2px);
 }
 .el-drawer.code-diff-drawer {
   position: fixed !important;
   top: 0;
   right: 0;
+  display: flex !important;
+  flex-direction: column !important;
   height: 100vh !important;
+  max-height: 100vh !important;
   z-index: 3000;
   background: #000000 !important;
   box-shadow: -16px 0 40px rgba(0, 0, 0, 0.55);
+  overflow: hidden !important;
+}
+.el-drawer.code-diff-drawer .el-drawer__body {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  height: auto !important;
+  overflow: hidden !important;
+  padding: 0 !important;
 }
 </style>

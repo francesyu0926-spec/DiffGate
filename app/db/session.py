@@ -31,10 +31,15 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
-    from app.db.migrate_sqlite import ensure_analysis_job_columns, ensure_repository_columns
+    from app.db.migrate_sqlite import (
+        ensure_analysis_job_columns,
+        ensure_analysis_job_extra_columns,
+        ensure_repository_columns,
+    )
 
     ensure_repository_columns()
     ensure_analysis_job_columns()
+    ensure_analysis_job_extra_columns()
 
 
 def get_db():

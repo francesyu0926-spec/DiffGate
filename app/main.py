@@ -16,6 +16,9 @@ async def lifespan(_app: FastAPI):
     Path(settings.local_data_dir).mkdir(parents=True, exist_ok=True)
     Path(settings.repo_clone_root).mkdir(parents=True, exist_ok=True)
     init_db()
+    from app.services.job_recovery import recover_stuck_jobs
+
+    recover_stuck_jobs()
     yield
 
 

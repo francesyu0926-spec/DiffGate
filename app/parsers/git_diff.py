@@ -22,7 +22,10 @@ def summarize_diff(repo_path: str | Path, base_sha: str, head_sha: str) -> dict:
         path = diff_item.b_path or diff_item.a_path or ""
         if not path:
             continue
-        if path.endswith(".py"):
+        low = path.lower()
+        if low.endswith(".py"):
+            python_files += 1
+        elif low.endswith((".vue", ".ts", ".tsx", ".js", ".jsx")):
             python_files += 1
         else:
             other_files += 1
@@ -46,7 +49,9 @@ def get_changed_line_ranges(repo_path: str | Path, base_sha: str, head_sha: str)
             path = diff_item.a_path or ""
         else:
             path = diff_item.b_path or diff_item.a_path or ""
-        if not path or not path.endswith(".py"):
+        if not path:
+            continue
+        if not path.endswith((".py", ".vue", ".ts", ".tsx", ".js", ".jsx")):
             continue
 
         patch = diff_item.diff.decode("utf-8", errors="replace") if diff_item.diff else ""

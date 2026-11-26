@@ -59,6 +59,31 @@ export function humanizeRepoIndexError(raw: string): string {
   return `索引失败：${brief}`
 }
 
+/** 任务详情失败横幅：worktree 纯路径、Git 认证等 → 可读说明 */
+export function humanizeJobError(raw: string | null | undefined): string {
+  if (!raw?.trim()) return '分析失败，请重试。'
+  const body = raw.trim()
+  const lower = body.toLowerCase()
+  if (
+    /^[a-z]:\\.*worktrees\\[0-9a-f-]{8,}/i.test(body) &&
+    !body.includes('请') &&
+    body.length < 200
+  ) {
+    return (
+      '分析沙箱 worktree 未成功挂载（仅记录了磁盘路径）。' +
+      '请在本页点击「重新分析」，并在仓库管理确认 SSH/HTTPS 凭据与 AST 索引。'
+    )
+  }
+  if (lower.includes('permission denied') || lower.includes('publickey')) {
+    return '分析失败：Git SSH 认证被拒绝。请在「仓库管理」配置私钥或 HTTPS Token 后重新分析。'
+  }
+  if (lower.includes('invalid reference') || body.includes('缺少提交')) {
+    return '分析失败：本地克隆不包含该次 Push 的提交。请配置凭据后重试，或对该仓库重新克隆/索引。'
+  }
+  if (body.length > 320) return `${body.slice(0, 317)}…`
+  return body
+}
+
 function normalizeApiDetail(detail: string): string {
   const trimmed = detail.trim()
   if (!trimmed) return trimmed
@@ -103,6 +128,16 @@ export async function fetchJob(jobId: string) {
 
 export async function fetchJobGraph(jobId: string) {
   const { data } = await http.get<JobGraph>(`/jobs/${jobId}/graph`)
+  return data
+}
+
+export async function refreshJobFullstack(jobId: string) {
+  const { data } = await http.post<{ ok: boolean }>(`/jobs/${jobId}/refresh-fullstack`)
+  return data
+}
+
+export async function retryJob(jobId: string) {
+  const { data } = await http.post<{ ok: boolean; job_id: string }>(`/jobs/${jobId}/retry`)
   return data
 }
 
@@ -152,11 +187,11 @@ export async function fetchRepoOverview() {
 }
 
 export async function reindexRepository(id: string) {
-  const { data } = await http.post<{ ok: boolean; repository: RepositoryItem }>(
-    `/repositories/${id}/reindex`,
-    null,
-    { timeout: 120000 },
-  )
+  const { data } = await http.post<{
+    ok: boolean
+    repository: RepositoryItem
+    stats?: { method_count: number; api_count: number; scan_root?: string; scan_root_auto_fixed?: boolean }
+  }>(`/repositories/${id}/reindex`, null, { timeout: 120000 })
   return data
 }
 
@@ -220,7 +255,14 @@ export interface DashboardOverview {
     gate: string
     time: string | null
     job_id: string | null
+    block_reason?: string | null
     block_reason_label?: string | null
+  }[]
+  code_hotspots?: {
+    path: string
+    change_hits: number
+    block_hits: number
+    score: number
   }[]
 }
 

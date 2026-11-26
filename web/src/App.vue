@@ -119,11 +119,9 @@ onUnmounted(() => {
           </v-avatar>
           <div class="d-none d-sm-flex align-center brand-title-row">
             <span class="text-subtitle-1 font-weight-bold brand-name">DiffGate</span>
-            <v-chip size="x-small" variant="tonal" class="version-badge" label>v2.0</v-chip>
+            <span class="version-text">v2.0</span>
           </div>
         </div>
-
-        <v-divider vertical class="brand-divider d-none d-md-flex" />
 
         <nav class="d-none d-md-flex nav-cluster" aria-label="主导航">
           <v-btn
@@ -132,10 +130,10 @@ onUnmounted(() => {
             :to="item.path"
             :prepend-icon="item.icon"
             variant="text"
-            rounded="pill"
+            rounded="0"
             :class="['nav-tab', isActive(item.path) && 'nav-tab--active']"
             size="small"
-            height="40"
+            height="44"
           >
             {{ item.label }}
           </v-btn>
@@ -216,10 +214,10 @@ onUnmounted(() => {
             </v-card>
           </v-menu>
           <v-btn
-            class="text-none cta-new-analysis"
+            class="text-none cta-new-analysis cta-new-analysis--ghost"
             color="primary"
             size="small"
-            variant="flat"
+            variant="outlined"
             rounded="pill"
             prepend-icon="mdi-plus"
             @click="newAnalysisOpen = true"
@@ -264,13 +262,18 @@ onUnmounted(() => {
 .brand-name {
   line-height: 1.2;
 }
-.version-badge {
-  opacity: 0.72;
-  font-size: 0.6875rem !important;
+.version-text {
+  font-size: 0.6875rem;
   font-weight: 500;
-  letter-spacing: 0.02em;
-  height: 20px !important;
-  padding-inline: 6px !important;
+  letter-spacing: 0.04em;
+  color: #777777;
+  margin-inline-start: 2px;
+}
+.brand-mark {
+  align-self: center;
+}
+.brand-title-row {
+  align-items: baseline;
 }
 .app-bar :deep(.v-toolbar__content) {
   width: 100%;
@@ -305,11 +308,8 @@ onUnmounted(() => {
   opacity: 1 !important;
   font-weight: 600;
 }
-.brand-divider {
-  align-self: center;
-  height: 28px;
-  margin-inline: 20px;
-  opacity: 0.5;
+.nav-tab {
+  position: relative;
 }
 .status-group {
   flex-shrink: 0;
@@ -376,8 +376,8 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .status-dot--on {
-  background-color: #81c995;
-  box-shadow: 0 0 0 3px rgba(129, 201, 149, 0.22);
+  background-color: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
   animation: status-breathe 2.4s ease-in-out infinite;
 }
 .status-dot--off {
@@ -385,9 +385,20 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(242, 139, 130, 0.2);
   animation: status-breathe-warn 1.8s ease-in-out infinite;
 }
-.cta-new-analysis {
+.cta-new-analysis--ghost {
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(26, 115, 232, 0.35);
+  border-color: rgba(138, 180, 248, 0.55) !important;
+  color: #8ab4f8 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.cta-new-analysis--ghost:hover {
+  background: rgba(37, 99, 235, 0.22) !important;
+  border-color: rgba(138, 180, 248, 0.85) !important;
+  color: #d2e3fc !important;
+}
+.help-btn {
+  margin-inline-start: 4px;
 }
 .cta-new-analysis :deep(.v-btn__prepend .v-icon) {
   font-size: 18px;
@@ -431,23 +442,34 @@ onUnmounted(() => {
 .v-theme--darkMonochrome .nav-tab {
   color: #b0b4bb !important;
 }
+.v-theme--darkMonochrome .nav-tab {
+  color: #777777 !important;
+}
+.v-theme--darkMonochrome .nav-tab:hover {
+  color: #ffffff !important;
+}
 .v-theme--darkMonochrome .nav-tab--active {
-  color: #e8eaed !important;
-  background: rgba(138, 180, 248, 0.16) !important;
+  color: #ffffff !important;
+  background: transparent !important;
 }
 .v-theme--darkMonochrome .nav-tab--active .v-icon {
   color: #8ab4f8 !important;
 }
+.v-theme--darkMonochrome .nav-tab--active::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: #8ab4f8;
+  pointer-events: none;
+}
 .v-theme--darkMonochrome .app-bar--md3-dark {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: #151515 !important;
+  border-bottom: 1px solid #2a2a2a !important;
   box-shadow: none !important;
-}
-.v-theme--darkMonochrome .brand-divider {
-  border-color: rgba(255, 255, 255, 0.1);
-  opacity: 1;
-}
-.v-theme--darkMonochrome .version-badge {
-  --v-chip-height: 20px;
 }
 .engine-status-menu {
   border: 1px solid rgba(255, 255, 255, 0.1) !important;

@@ -23,27 +23,53 @@ const statusItems = [
   { title: '失败', value: 'failed' as const },
 ]
 
+function formatDuration(seconds: number) {
+  const sec = Math.max(0, Math.round(seconds))
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const r = sec % 60
+  return `${m}m ${r}s`
+}
+
 const overviewCards = computed(() => {
   const s = stats.value
   const convergenceSub =
     s && !s.ever_hit_api && s.total > 0
       ? '暂无命中 HTTP 接口的变更记录'
       : `平均从 ${s?.avg_baseline_apis ?? 0} 个接口收敛至 ${s?.avg_impacted_apis ?? 0} 个精准接口`
+  const convergencePct = s?.api_convergence_pct ?? 0
+  const convergenceWarn = convergencePct > 0 && convergencePct < 15
   return [
     {
       title: '累计 Diff 分析任务',
       value: `${s?.total ?? 0} 次`,
-      sub: `平均图谱追溯耗时 ${s?.avg_seconds ?? 0}s`,
+      badge: s?.avg_seconds ? formatDuration(s.avg_seconds) : undefined,
+      sub: s?.avg_seconds ? `平均图谱追溯耗时 ${formatDuration(s.avg_seconds)}` : '暂无耗时样本',
+      accent: '#8AB4F8',
+      icon: 'mdi-chart-bar',
+      iconBg: 'rgba(138, 180, 248, 0.15)',
+      iconColor: '#8AB4F8',
+      valueColor: '#E8EAED',
     },
     {
       title: '平均每次影响 API 收敛率',
-      value: `${s?.api_convergence_pct ?? 0}%`,
+      value: `${convergencePct}%`,
       sub: convergenceSub,
+      accent: convergenceWarn ? '#FDD663' : '#8AB4F8',
+      icon: 'mdi-target',
+      iconBg: convergenceWarn ? 'rgba(253, 214, 99, 0.15)' : 'rgba(138, 180, 248, 0.15)',
+      iconColor: convergenceWarn ? '#FDD663' : '#8AB4F8',
+      valueColor: convergenceWarn ? '#FB923C' : '#60A5FA',
     },
     {
       title: '关联精准回归触发率',
       value: `${s?.regression_trigger_pct ?? 0}%`,
       sub: '自动推送受影响 API 列表至测试套件',
+      accent: '#81C995',
+      icon: 'mdi-rocket-launch-outline',
+      iconBg: 'rgba(52, 168, 83, 0.15)',
+      iconColor: '#81C995',
+      valueColor: '#81C995',
     },
   ]
 })
@@ -54,6 +80,8 @@ function statusLabel(status: JobStatus) {
     running: '分析中',
     pending: '排队中',
     failed: '失败',
+    debouncing: '合并推送',
+    superseded: '已取代',
   }
   return map[status] ?? status
 }
@@ -62,6 +90,8 @@ function statusChipClass(status: JobStatus) {
   if (status === 'completed') return 'status-chip--done'
   if (status === 'failed') return 'status-chip--fail'
   if (status === 'running') return 'status-chip--run'
+  if (status === 'superseded') return 'status-chip--muted'
+  if (status === 'debouncing') return 'status-chip--debounce'
   return 'status-chip--wait'
 }
 
@@ -69,11 +99,9 @@ function formatTime(iso: string | null) {
   return formatLocalDateTime(iso)
 }
 
-function jobCommitLine(job: JobListItem) {
-  const parts = [`Commit: ${job.head_sha}`, formatTime(job.created_at)]
-  if (job.commit_message) {
-    parts.push(job.commit_message)
-  }
+function jobCommitTitle(job: JobListItem) {
+  const parts = [job.head_sha, formatTime(job.created_at)]
+  if (job.commit_message) parts.push(job.commit_message)
   return parts.join(' · ')
 }
 
@@ -115,8 +143,8 @@ onMounted(load)
     <div class="analysis-grid">
     <div class="analysis-hero d-flex flex-wrap align-start justify-space-between gap-4 mb-4">
       <div>
-        <h2 class="text-h5 font-weight-medium mb-1">变更影响分析</h2>
-        <p class="text-body-2 text-medium-emphasis mb-0 analysis-sub">
+        <h2 class="analysis-page-title mb-1">变更影响分析</h2>
+        <p class="mb-0 analysis-sub">
           基于 Git Diff 与 AST 静态调用链图谱，精确追溯代码改动影响的顶层 API 接口。
         </p>
       </div>
@@ -143,6 +171,7 @@ onMounted(load)
         </div>
         <v-btn
           class="analysis-refresh"
+          :class="{ 'analysis-refresh--spin': loading }"
           variant="text"
           rounded="lg"
           :loading="loading"
@@ -154,21 +183,26 @@ onMounted(load)
       </div>
     </div>
 
-    <div class="analysis-kpi-row mb-4">
-      <v-card
-        v-for="card in overviewCards"
-        :key="card.title"
-        class="overview-card flex-grow-1"
-        rounded="xl"
-        :border="false"
-      >
-        <v-card-text class="overview-card__inner">
-          <div class="text-body-2 text-medium-emphasis">{{ card.title }}</div>
-          <div class="overview-value mt-2">{{ card.value }}</div>
-          <div class="text-caption text-medium-emphasis mt-1">{{ card.sub }}</div>
-        </v-card-text>
-      </v-card>
-    </div>
+    <v-row class="dashboard-grid dashboard-stack-gap kpi-row mb-4">
+      <v-col v-for="card in overviewCards" :key="card.title" cols="12" md="4">
+        <v-card class="h-100 kpi-card m3-surface-card m3-elevated" rounded="xl" :border="false">
+          <span class="kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
+          <v-card-text class="kpi-card-inner">
+            <div class="d-flex align-start justify-space-between gap-2 mb-3">
+              <div class="text-body-2 text-medium-emphasis kpi-title">{{ card.title }}</div>
+              <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }">
+                <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
+              </v-avatar>
+            </div>
+            <div class="kpi-metric-row">
+              <div class="kpi-metric" :style="{ color: card.valueColor }">{{ card.value }}</div>
+              <span v-if="card.badge" class="kpi-inline-badge mono">{{ card.badge }}</span>
+            </div>
+            <p class="text-caption text-medium-emphasis mt-3 mb-0">{{ card.sub }}</p>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
 
     <v-progress-linear v-if="loading && jobs.length === 0" indeterminate color="primary" class="mb-2 rounded" />
 
@@ -203,37 +237,41 @@ onMounted(load)
       >
         <div class="job-col-repo min-width-0">
           <div class="d-flex align-center flex-wrap ga-2 mb-1">
-            <span class="repo-name text-body-2 font-weight-medium">{{ job.repo }}</span>
-            <v-chip size="x-small" variant="flat" rounded="pill" class="branch-chip">{{ job.ref_branch }}</v-chip>
+            <span class="repo-name text-body-2">{{ job.repo }}</span>
+            <v-chip size="x-small" variant="outlined" rounded="lg" class="branch-chip">{{ job.ref_branch }}</v-chip>
           </div>
-          <div
-            class="text-caption text-medium-emphasis mono job-commit-line text-truncate"
-            :title="jobCommitLine(job)"
-          >
-            {{ jobCommitLine(job) }}
+          <div class="job-commit-meta text-caption text-truncate" :title="jobCommitTitle(job)">
+            <span class="job-commit-label">Commit</span>
+            <span class="job-commit-sha mono">{{ job.head_sha }}</span>
+            <span class="job-commit-sep" aria-hidden="true">·</span>
+            <span class="job-commit-time">{{ formatTime(job.created_at) }}</span>
+            <template v-if="job.commit_message">
+              <span class="job-commit-sep" aria-hidden="true">·</span>
+              <span class="job-commit-msg text-truncate">{{ job.commit_message }}</span>
+            </template>
           </div>
         </div>
 
         <div class="job-col-trigger d-none d-md-flex">
-          <v-chip size="x-small" variant="flat" rounded="pill" class="trigger-chip">{{ job.trigger_label }}</v-chip>
+          <v-chip size="x-small" variant="outlined" rounded="lg" class="trigger-chip">{{ job.trigger_label }}</v-chip>
         </div>
 
         <div class="job-col-impact">
           <div class="impact-chain">
-            <v-chip size="small" variant="flat" rounded="pill" class="impact-chip">
+            <v-chip size="small" variant="outlined" rounded="lg" class="impact-chip">
               改 <span class="impact-num">{{ job.changed_files }}</span> 文件
             </v-chip>
-            <v-icon icon="mdi-chevron-right" size="14" class="impact-arrow" />
-            <v-chip size="small" variant="flat" rounded="pill" class="impact-chip">
+            <span class="impact-arrow" aria-hidden="true">›</span>
+            <v-chip size="small" variant="outlined" rounded="lg" class="impact-chip">
               命中 <span class="impact-num">{{ job.method_count }}</span> 方法
             </v-chip>
-            <v-icon icon="mdi-chevron-right" size="14" class="impact-arrow" />
+            <span class="impact-arrow" aria-hidden="true">›</span>
             <v-chip
               size="small"
-              variant="flat"
-              rounded="pill"
+              variant="outlined"
+              rounded="lg"
               class="impact-chip"
-              :class="{ 'impact-chip--accent': job.api_count > 0 }"
+              :class="job.api_count > 0 ? 'impact-chip--accent' : 'impact-chip--zero'"
             >
               影响 <span class="impact-num">{{ job.api_count }}</span> API
             </v-chip>
@@ -241,17 +279,16 @@ onMounted(load)
         </div>
 
         <div class="job-col-actions d-flex align-center justify-end ga-2" @click.stop>
-          <v-chip size="x-small" variant="flat" rounded="pill" class="status-chip" :class="statusChipClass(job.status)">
+          <v-chip
+            size="x-small"
+            variant="flat"
+            rounded="lg"
+            class="status-chip"
+            :class="statusChipClass(job.status)"
+          >
             {{ statusLabel(job.status) }}
           </v-chip>
-          <v-btn
-            size="small"
-            variant="outlined"
-            color="default"
-            rounded="pill"
-            class="cta-graph text-none"
-            @click="openJob(job)"
-          >
+          <v-btn size="small" variant="text" rounded="lg" class="cta-graph text-none" @click="openJob(job)">
             查看调用链图谱
           </v-btn>
         </div>
@@ -266,11 +303,16 @@ onMounted(load)
   width: 100%;
   color: rgba(255, 255, 255, 0.87);
 }
-.analysis-hero .text-h5 {
-  color: rgba(255, 255, 255, 0.87);
+.analysis-page-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.01em;
 }
 .analysis-hero .analysis-sub {
-  color: rgba(255, 255, 255, 0.45) !important;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #888888 !important;
 }
 .analysis-grid {
   width: 100%;
@@ -313,10 +355,10 @@ onMounted(load)
 .analysis-filter-status :deep(.v-field) {
   min-height: 40px;
   height: 40px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
+  border: none;
+  border-radius: 6px;
   font-size: 13px;
-  background-color: #2a2a2a !important;
+  background-color: #1f1f1f !important;
   box-shadow: none;
 }
 .analysis-filter-select :deep(.v-field__append-inner),
@@ -341,75 +383,89 @@ onMounted(load)
   min-width: 40px !important;
   flex-shrink: 0;
   padding: 8px !important;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: #2a2a2a !important;
-  color: rgba(255, 255, 255, 0.88) !important;
+  border: none;
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.72) !important;
   border-radius: 8px !important;
+  transition: background 0.2s ease, transform 0.45s ease;
 }
 .analysis-refresh:hover {
-  background: #35393f !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #ffffff !important;
+}
+.analysis-refresh--spin :deep(.v-icon) {
+  animation: analysis-refresh-spin 0.65s linear infinite;
+}
+@keyframes analysis-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .cta-graph {
   font-weight: 500;
   font-size: 13px;
   letter-spacing: 0;
-  color: rgba(255, 255, 255, 0.87) !important;
-  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: rgba(255, 255, 255, 0.62) !important;
+  min-width: 0;
+  padding-inline: 10px !important;
+  border: 1px solid transparent !important;
   background: transparent !important;
-  padding-inline: 14px !important;
   box-shadow: none !important;
 }
 .cta-graph:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(255, 255, 255, 0.28) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
 }
 .cta-graph :deep(.v-btn__overlay) {
   opacity: 0 !important;
 }
-.job-commit-line {
+.job-commit-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 6px;
   max-width: 100%;
-  color: rgba(255, 255, 255, 0.45) !important;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.42);
+}
+.job-commit-label {
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.job-commit-sha {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+}
+.job-commit-time {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.42);
+}
+.job-commit-sep {
+  color: rgba(255, 255, 255, 0.22);
+  user-select: none;
+}
+.job-commit-msg {
+  flex: 1 1 120px;
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
 }
 .impact-chip :deep(.v-chip__content) {
   gap: 4px;
   letter-spacing: 0.02em;
 }
-.analysis-kpi-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  width: 100%;
-}
-.analysis-kpi-row .overview-card {
-  flex: 1 1 calc(33.333% - 16px);
-  min-width: min(100%, 220px);
-}
-.overview-card__inner {
-  padding: 20px 22px !important;
-}
-.overview-card {
-  background: #1c1f24 !important;
-  border: 1px solid rgba(255, 255, 255, 0.05) !important;
-  box-shadow: none !important;
+.dashboard-stack-gap {
+  margin-bottom: 0 !important;
 }
 .analysis-panel {
   width: 100%;
 }
 .job-list {
   gap: 12px;
-}
-.overview-value {
-  font-size: 28px;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-  color: rgba(255, 255, 255, 0.87);
-  font-variant-numeric: tabular-nums;
-}
-.overview-card .text-caption {
-  color: rgba(255, 255, 255, 0.45) !important;
-}
-.overview-card .text-body-2.text-medium-emphasis {
-  color: rgba(255, 255, 255, 0.6) !important;
+  padding-block: 2px;
 }
 .empty-panel {
   text-align: center;
@@ -440,11 +496,11 @@ onMounted(load)
 .job-row {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1.2fr) auto;
-  gap: 12px 20px;
+  gap: 10px 18px;
   align-items: center;
-  padding: 20px 24px;
+  padding: 14px 18px;
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 16px;
+  border-radius: 12px;
   background: #1c1f24;
   cursor: pointer;
   transition:
@@ -456,55 +512,100 @@ onMounted(load)
   border-color: rgba(255, 255, 255, 0.08);
 }
 .repo-name {
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.95);
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 .impact-chain {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px 10px;
 }
 .impact-num {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.72);
 }
 .branch-chip,
-.trigger-chip,
+.trigger-chip {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  font-size: 11px;
+  font-weight: 500;
+  height: 22px !important;
+  padding-inline: 8px !important;
+}
+.trigger-chip {
+  color: rgba(255, 255, 255, 0.38) !important;
+  border-color: rgba(255, 255, 255, 0.07) !important;
+}
 .impact-chip {
-  background: rgba(255, 255, 255, 0.06) !important;
-  color: rgba(255, 255, 255, 0.6) !important;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03) !important;
+  color: rgba(255, 255, 255, 0.52) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
   font-size: 12px;
+  font-weight: 400;
+  height: 28px !important;
+  box-shadow: none !important;
+}
+.impact-chip :deep(.v-chip__underlay),
+.branch-chip :deep(.v-chip__underlay),
+.trigger-chip :deep(.v-chip__underlay) {
+  opacity: 0 !important;
 }
 .impact-chip--accent {
   color: #8ab4f8 !important;
-  border-color: rgba(138, 180, 248, 0.22);
-  background: rgba(138, 180, 248, 0.1) !important;
+  border-color: rgba(138, 180, 248, 0.35) !important;
+  background: rgba(138, 180, 248, 0.08) !important;
 }
 .impact-chip--accent .impact-num {
   color: #8ab4f8;
 }
+.impact-chip--zero {
+  color: rgba(255, 255, 255, 0.36) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  background: transparent !important;
+}
+.impact-chip--zero .impact-num {
+  color: rgba(255, 255, 255, 0.4);
+}
 .impact-arrow {
-  color: #5f6368;
-  opacity: 0.75;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.2);
+  font-weight: 300;
   flex-shrink: 0;
+  user-select: none;
+}
+.status-chip {
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 .status-chip--done {
-  background: rgba(52, 168, 83, 0.12) !important;
-  color: rgba(129, 201, 149, 0.92) !important;
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #34d399 !important;
 }
 .status-chip--fail {
-  background: rgba(234, 67, 53, 0.16) !important;
-  color: #f28b82 !important;
+  background: rgba(239, 68, 68, 0.14) !important;
+  color: #f87171 !important;
 }
 .status-chip--run {
-  background: rgba(138, 180, 248, 0.14) !important;
-  color: #8ab4f8 !important;
+  background: rgba(138, 180, 248, 0.12) !important;
+  color: #93c5fd !important;
 }
 .status-chip--wait {
-  background: rgba(142, 146, 153, 0.16) !important;
-  color: #8e9299 !important;
+  background: rgba(142, 146, 153, 0.12) !important;
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+.status-chip--debounce {
+  background: rgba(251, 191, 36, 0.1) !important;
+  color: #fbbf24 !important;
+}
+.status-chip--muted {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: rgba(255, 255, 255, 0.35) !important;
 }
 @media (max-width: 959px) {
   .job-row {

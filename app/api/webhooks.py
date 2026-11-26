@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.db.models import AnalysisJob
 from app.db.session import get_db
 from app.services.repo_registry import ensure_registered
-from app.services.analysis_runner import schedule_analyze_merge
+from app.services.webhook_debounce import register_debounced_analysis
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -41,6 +41,7 @@ def _enqueue_job(
     base_sha: str,
     head_sha: str,
     ref: str,
+    job_metadata: dict | None = None,
 ) -> tuple[str, str | None]:
     job_id = str(uuid.uuid4())
     job = AnalysisJob(
@@ -51,18 +52,15 @@ def _enqueue_job(
         base_sha=base_sha,
         head_sha=head_sha,
         status="pending",
+        job_metadata=job_metadata,
     )
     db.add(job)
     db.commit()
-    meta = schedule_analyze_merge(
+    meta = register_debounced_analysis(
+        db=db,
         background_tasks=background_tasks,
-        job_id=job_id,
-        provider=provider,
-        repo_full_name=repo_full_name,
+        job=job,
         clone_url=clone_url,
-        base_sha=base_sha,
-        head_sha=head_sha,
-        ref=ref,
     )
     return job_id, meta.get("task_id")
 
@@ -107,7 +105,15 @@ async def github_webhook(
         ref = pr["head"]["ref"]
         clone_url = repo["clone_url"]
         full_name = repo["full_name"]
+        job_metadata = {
+            "pr_number": pr.get("number"),
+            "pr_url": pr.get("html_url"),
+            "committer": (pr.get("user") or {}).get("login"),
+        }
     else:
+        job_metadata = {
+            "committer": ((payload.get("pusher") or {}).get("name")),
+        }
         ref = payload.get("ref", "")
         if not ref.startswith("refs/heads/"):
             return {"ok": True, "ignored": ref}
@@ -125,7 +131,15 @@ async def github_webhook(
     if ensure_registered(db, provider="github", full_name=full_name, clone_url=clone_url, default_branch=ref_branch) is None:
         return {"ok": True, "ignored": "repository disabled or webhook off"}
     job_id, task_id = _enqueue_job(
-        db, background_tasks, "github", full_name, clone_url, base_sha, head_sha, ref
+        db,
+        background_tasks,
+        "github",
+        full_name,
+        clone_url,
+        base_sha,
+        head_sha,
+        ref,
+        job_metadata=job_metadata,
     )
     out: dict[str, Any] = {"ok": True, "job_id": job_id}
     if task_id:
@@ -177,11 +191,26 @@ async def gitlab_webhook(
     else:
         return {"ok": True, "ignored": kind}
 
+    job_metadata: dict | None = None
+    if kind == "merge_request":
+        job_metadata = {
+            "pr_number": payload.get("object_attributes", {}).get("iid"),
+            "committer": payload.get("user", {}).get("username"),
+        }
+
     ref_branch = ref.replace("refs/heads/", "") if ref.startswith("refs/heads/") else ref
     if ensure_registered(db, provider="gitlab", full_name=full_name, clone_url=clone_url, default_branch=ref_branch) is None:
         return {"ok": True, "ignored": "repository disabled or webhook off"}
     job_id, task_id = _enqueue_job(
-        db, background_tasks, "gitlab", full_name, clone_url, base_sha, head_sha, ref
+        db,
+        background_tasks,
+        "gitlab",
+        full_name,
+        clone_url,
+        base_sha,
+        head_sha,
+        ref,
+        job_metadata=job_metadata,
     )
     out: dict[str, Any] = {"ok": True, "job_id": job_id}
     if task_id:

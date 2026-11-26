@@ -32,6 +32,7 @@ class GateReportIn(BaseModel):
     incremental_coverage_pct: float = Field(..., ge=0, le=100)
     tests_passed: bool = True
     coverage_probes: list[CoverageProbeLine] | None = None
+    branch_coverage_pct: float | None = Field(default=None, ge=0, le=100)
 
 
 class RepositoryCreate(BaseModel):
@@ -48,6 +49,7 @@ class RepositoryCreate(BaseModel):
     ssh_private_key: str | None = Field(default=None, max_length=16384)
     scan_root: str = Field(default=".", max_length=255)
     test_suite_id: str | None = Field(default=None, max_length=128)
+    gate_path_rules: list[dict] | None = None
 
 
 class RepositoryUpdate(BaseModel):
@@ -64,6 +66,7 @@ class RepositoryUpdate(BaseModel):
     ssh_private_key: str | None = Field(default=None, max_length=16384)
     scan_root: str | None = Field(default=None, max_length=255)
     test_suite_id: str | None = Field(default=None, max_length=128)
+    gate_path_rules: list[dict] | None = None
 
 
 class RepositoryOut(BaseModel):
@@ -79,6 +82,7 @@ class RepositoryOut(BaseModel):
     auth_method: str
     scan_root: str
     test_suite_id: str | None
+    gate_path_rules: list[dict] | None = None
     token_configured: bool = False
     ssh_configured: bool = False
     ast_method_count: int

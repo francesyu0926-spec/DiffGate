@@ -873,34 +873,6 @@ watch(
 .dashboard-stack-gap {
   margin-bottom: 24px !important;
 }
-.kpi-card {
-  position: relative;
-  overflow: hidden;
-}
-.kpi-accent {
-  position: absolute;
-  left: 0;
-  top: 12px;
-  bottom: 12px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-}
-.kpi-card-inner {
-  padding: 20px 20px 22px 22px !important;
-}
-.kpi-title {
-  opacity: 0.72;
-}
-.kpi-metric {
-  font-family: var(--diffgate-kpi);
-  font-size: 1.75rem;
-  font-weight: 500;
-  line-height: 1.15;
-  font-variant-numeric: tabular-nums;
-}
-.kpi-metric--gate {
-  font-size: 1.35rem;
-}
 .m3-surface-card {
   background-color: rgb(var(--v-theme-surface)) !important;
   border: 1px solid rgb(var(--v-theme-outline));

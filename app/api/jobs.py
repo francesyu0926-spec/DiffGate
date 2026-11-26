@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -7,7 +7,9 @@ from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
 from app.config import get_settings
 from app.graph.stores import load_job_graph
+from app.graph.viz import sanitize_graph_paths
 from app.services.code_snippet import job_code_view
+from app.services.analysis_runner import schedule_analyze_merge
 from app.services.quality_gate import apply_gate_result
 from app.utils.time_format import as_utc_iso
 
@@ -137,7 +139,7 @@ def get_job_graph(job_id: str, db: Session = Depends(get_db)) -> dict:
     graph = load_job_graph(job_id)
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not available for this job")
-    return graph
+    return sanitize_graph_paths(graph)
 
 
 @router.get("/{job_id}/code-diff")
@@ -147,7 +149,7 @@ def get_job_code_diff(
     file: str = Query(..., min_length=1),
     start_line: int = Query(..., ge=1),
     end_line: int = Query(..., ge=1),
-    node_type: str = Query("symbol", pattern="^(api|changed|symbol)$"),
+    node_type: str = Query("symbol", pattern="^(api|changed|symbol|frontend)$"),
     highlight: str | None = Query(None, description="Comma-separated qualified names for call-site highlight"),
 ) -> dict:
     job = db.get(AnalysisJob, job_id)
@@ -199,6 +201,54 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.post("/{job_id}/retry")
+def retry_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> dict:
+    """重新投递 pending / failed 分析（修复僵尸排队）。"""
+    job = db.get(AnalysisJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status not in ("pending", "failed", "debouncing"):
+        raise HTTPException(status_code=400, detail=f"当前状态 {job.status} 不可重试")
+    repo = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
+    if not repo or not repo.clone_url:
+        raise HTTPException(status_code=400, detail="仓库未注册或缺少 clone_url")
+    job.status = "pending"
+    job.error_message = None
+    db.commit()
+    meta = schedule_analyze_merge(
+        background_tasks=background_tasks,
+        job_id=job.id,
+        provider=job.provider,
+        repo_full_name=job.repo_full_name,
+        clone_url=repo.clone_url,
+        base_sha=job.base_sha,
+        head_sha=job.head_sha,
+        ref=job.ref,
+    )
+    return {"ok": True, "job_id": job_id, **meta}
+
+
+@router.post("/{job_id}/refresh-fullstack")
+def refresh_job_fullstack(job_id: str, db: Session = Depends(get_db)) -> dict:
+    """补算全栈 / 拓扑前端层（已存在作业无需重跑分析）。"""
+    job = db.get(AnalysisJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="仅已完成的作业可补算全栈追溯")
+    from app.services.fullstack_refresh import refresh_job_fullstack as _refresh
+
+    try:
+        result = _refresh(db, job)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True, "job_id": job_id, **result}
+
+
 @router.post("/{job_id}/gate-report")
 def report_job_gate(job_id: str, body: GateReportIn, db: Session = Depends(get_db)) -> dict:
     """CI / 精准回归调度中心回传覆盖率与用例结果。"""
@@ -215,6 +265,10 @@ def report_job_gate(job_id: str, body: GateReportIn, db: Session = Depends(get_d
         incremental_coverage_pct=body.incremental_coverage_pct,
         tests_passed=body.tests_passed,
         coverage_probes=probes,
+        branch_coverage_pct=body.branch_coverage_pct,
     )
     db.commit()
+    from app.services.platform_notify import notify_platform
+
+    notify_platform(job, repo)
     return {"ok": True, "job_id": job_id, "gate_result": gate}

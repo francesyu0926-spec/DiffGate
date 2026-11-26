@@ -128,6 +128,34 @@ def _repo_gate_stats(jobs: list[AnalysisJob]) -> list[dict]:
     ]
 
 
+def _code_hotspots(jobs: list[AnalysisJob], limit: int = 5) -> list[dict]:
+    """30 天内高频变更 / 门禁拦截文件的 Top N（规格：代码热点图）。"""
+    scores: dict[str, dict] = {}
+    for job in jobs:
+        gr = job.gate_result or {}
+        gate = str(gr.get("gate") or "").upper()
+        paths = []
+        for lr in (job.changed_symbols or {}).get("line_ranges") or []:
+            if isinstance(lr, dict) and lr.get("path"):
+                paths.append(str(lr["path"]))
+        if not paths:
+            continue
+        weight = 1.0
+        if gate == "BLOCK":
+            weight += 2.0
+        for p in set(paths):
+            norm = p.replace("\\", "/")
+            bucket = scores.setdefault(norm, {"path": norm, "change_hits": 0, "block_hits": 0, "score": 0.0})
+            bucket["change_hits"] += 1
+            bucket["score"] += weight
+            if gate == "BLOCK":
+                bucket["block_hits"] += 1
+    ranked = sorted(scores.values(), key=lambda x: x["score"], reverse=True)[:limit]
+    for row in ranked:
+        row["score"] = round(float(row["score"]), 1)
+    return ranked
+
+
 def _case_compress_pct(jobs: list[AnalysisJob]) -> int:
     gated = [j for j in jobs if (j.gate_result or {}).get("gate") in ("PASS", "BLOCK")]
     if not gated:
@@ -145,7 +173,7 @@ def dashboard_overview(
     repo: str | None = Query(None, description="仓库 full_name，空=全部"),
 ) -> dict:
     since = datetime.utcnow() - timedelta(days=days)
-    stmt = select(AnalysisJob).where(AnalysisJob.created_at >= since).order_by(AnalysisJob.created_at.desc())
+    hotspot_since = datetime.utcnow() - timedelta(days=30)
     if repo:
         stmt = stmt.where(AnalysisJob.repo_full_name == repo)
     jobs = list(db.scalars(stmt).all())

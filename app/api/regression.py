@@ -293,12 +293,14 @@ def manual_override_batch(job_id: str, body: GateOverrideIn, db: Session = Depen
     job = db.get(AnalysisJob, job_id)
     if not job:
         raise HTTPException(404, "批次不存在")
+    repo = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
     try:
         gate = apply_manual_override(
             job,
             reason_category=body.reason_category,
             reason_detail=body.reason_detail,
             actor=body.actor.strip() or "admin",
+            repo=repo,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

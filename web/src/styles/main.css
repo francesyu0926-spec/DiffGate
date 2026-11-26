@@ -34,6 +34,52 @@ body,
 }
 
 /* 与顶栏、正文同一水平栅格 */
+/* 抽屉 / 浮层内滚动条：细条、透明轨道（Element Plus + Vuetify 兼容） */
+.v-navigation-drawer__content::-webkit-scrollbar,
+.v-overlay__content *::-webkit-scrollbar,
+.el-drawer__body::-webkit-scrollbar,
+.el-drawer__body *::-webkit-scrollbar,
+.cdd-code-panel::-webkit-scrollbar,
+.fs-unresolved-drawer__list::-webkit-scrollbar {
+  width: 5px !important;
+  height: 5px !important;
+}
+
+.v-navigation-drawer__content::-webkit-scrollbar-track,
+.v-overlay__content *::-webkit-scrollbar-track,
+.el-drawer__body::-webkit-scrollbar-track,
+.el-drawer__body *::-webkit-scrollbar-track,
+.cdd-code-panel::-webkit-scrollbar-track,
+.fs-unresolved-drawer__list::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.v-navigation-drawer__content::-webkit-scrollbar-thumb,
+.v-overlay__content *::-webkit-scrollbar-thumb,
+.el-drawer__body::-webkit-scrollbar-thumb,
+.el-drawer__body *::-webkit-scrollbar-thumb,
+.cdd-code-panel::-webkit-scrollbar-thumb,
+.fs-unresolved-drawer__list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-radius: 999px !important;
+}
+
+.v-navigation-drawer__content::-webkit-scrollbar-thumb:hover,
+.v-overlay__content *::-webkit-scrollbar-thumb:hover,
+.el-drawer__body::-webkit-scrollbar-thumb:hover,
+.el-drawer__body *::-webkit-scrollbar-thumb:hover,
+.cdd-code-panel::-webkit-scrollbar-thumb:hover,
+.fs-unresolved-drawer__list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32) !important;
+}
+
+.code-diff-drawer .el-drawer__body,
+.fs-unresolved-drawer .el-drawer__body {
+  overflow: hidden !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
 .shell {
   box-sizing: border-box;
   width: 100%;

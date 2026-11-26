@@ -1,0 +1,88 @@
+/* 精准回归 / 变更影响 / 质量驾驶舱 共用 KPI 卡片（与 RegressionView 一致） */
+.kpi-card {
+  position: relative;
+  overflow: hidden;
+}
+.kpi-accent {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+}
+.kpi-card-inner {
+  padding: 20px 20px 22px 22px !important;
+}
+.kpi-title {
+  opacity: 0.72;
+}
+.kpi-metric-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.kpi-metric {
+  font-family: var(--diffgate-kpi);
+  font-size: 1.75rem;
+  font-weight: 500;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-metric--gate {
+  font-size: 1.35rem;
+}
+.kpi-inline-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #252525;
+  border: 1px solid #333333;
+  color: #aaaaaa;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-trend-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-trend-badge--up {
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  background: rgba(34, 197, 94, 0.1);
+}
+.kpi-trend-badge--down {
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+}
+.kpi-card.m3-surface-card {
+  background-color: rgb(var(--v-theme-surface)) !important;
+  border: 1px solid rgb(var(--v-theme-outline));
+}
+.kpi-card.m3-elevated,
+.m3-surface-card.m3-elevated.kpi-card {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 2px 8px rgba(0, 0, 0, 0.28);
+}
+.kpi-card--nav {
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.18s ease;
+}
+.kpi-card--nav:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.5),
+    0 6px 16px rgba(0, 0, 0, 0.32);
+}
+.kpi-card--nav:focus-visible {
+  outline: 2px solid rgba(138, 180, 248, 0.45);
+  outline-offset: 2px;
+}

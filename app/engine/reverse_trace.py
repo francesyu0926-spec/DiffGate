@@ -1,20 +1,14 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.engine.impact_types import SuspectFunction
 from app.graph.call_graph import CallGraph
 from app.graph.stores import Neo4jCallGraphStore, cache_adjacency, cache_job_graph
 from app.graph.viz import build_g6_payload
-from app.parsers.python_ast import SymbolDef, scan_python_repo
+from app.graph.symbol_cache import load_symbols, save_symbols
+from app.parsers.ast_denoise import drop_cosmetic_suspects
+from app.parsers.python_ast import SymbolDef, parse_python_file, scan_python_repo
 from app.parsers.git_diff import LineRange, get_changed_line_ranges, summarize_diff
-
-
-@dataclass
-class SuspectFunction:
-    qualified_name: str
-    file_path: str
-    start_line: int
-    end_line: int
-    changed_lines: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -69,6 +63,38 @@ class ReverseTraceEngine:
         symbols = scan_python_repo(repo_root, scan_root=scan_root)
         graph = CallGraph()
         graph.add_symbols(symbols)
+        return symbols, graph
+
+    def step1_index_incremental(
+        self,
+        repo_root: Path,
+        scan_root: str,
+        repo_key: str,
+        changed_py_paths: set[str],
+    ) -> tuple[list[SymbolDef], CallGraph]:
+        cached = load_symbols(repo_key)
+        if not cached or not changed_py_paths:
+            symbols, graph = self.step1_index(repo_root, scan_root=scan_root)
+            save_symbols(repo_key, symbols)
+            return symbols, graph
+
+        norm_changed = {p.replace("\\", "/") for p in changed_py_paths}
+        by_file: dict[str, list[SymbolDef]] = {}
+        for sym in cached:
+            if sym.file_path not in norm_changed:
+                by_file.setdefault(sym.file_path, []).append(sym)
+
+        for rel in norm_changed:
+            if not rel.endswith(".py"):
+                continue
+            by_file[rel] = parse_python_file(repo_root, rel)
+
+        symbols: list[SymbolDef] = []
+        for rows in by_file.values():
+            symbols.extend(rows)
+        graph = CallGraph()
+        graph.add_symbols(symbols)
+        save_symbols(repo_key, symbols)
         return symbols, graph
 
     @staticmethod
@@ -169,11 +195,15 @@ class ReverseTraceEngine:
     ) -> ImpactReport:
         diff_summary = summarize_diff(repo_path, base_sha, head_sha)
         line_ranges = get_changed_line_ranges(repo_path, base_sha, head_sha)
+        changed_files = {lr.path for lr in line_ranges}
 
-        symbols, graph = self.step1_index(repo_path, scan_root=scan_root)
+        symbols, graph = self.step1_index_incremental(
+            repo_path, scan_root, repo_key, changed_files
+        )
         cache_adjacency(repo_key, graph)
 
         suspects = self.step2_locate_suspects(symbols, line_ranges)
+        suspects = drop_cosmetic_suspects(repo_path, base_sha, head_sha, suspects)
         traces = self.step3_reverse_bfs(graph, suspects)
         report = self.step4_report(suspects, traces, line_ranges, graph, diff_summary)
 

@@ -1,4 +1,10 @@
-export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type JobStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'debouncing'
+  | 'superseded'
 
 export type RepoProvider = 'github' | 'gitlab' | 'local'
 export type AuthMethod = 'none' | 'token' | 'ssh'
@@ -103,6 +109,62 @@ export interface SuspectFunction {
   changed_lines: number[]
 }
 
+export interface CrossRepoConsumer {
+  consumer_repo: string
+  file: string
+  line: number
+  method: string
+  client_path: string
+  matched_api: string
+  client_kind?: string
+}
+
+export interface FullstackImpact {
+  engine?: string
+  trace_mode?: string
+  affected_routes?: {
+    route_path: string
+    route_name?: string | null
+    component_file: string
+    component_name?: string
+    component_dir?: string
+    router_file?: string
+  }[]
+  affected_pages?: FullstackImpact['affected_routes']
+  frontend_api_calls?: {
+    method: string
+    path: string
+    file: string
+    line: number
+    backend_method?: string
+    backend_path?: string
+  }[]
+  frontend_api_calls_aggregated?: {
+    file: string
+    file_name: string
+    file_dir: string
+    lines: number[]
+    backend_paths: string[]
+    backend_methods: string[]
+  }[]
+  unresolved_dynamic_calls?: { method: string; path: string; file: string; line: number }[]
+  components?: { route: string; file: string; name: string }[]
+  matched_api_calls?: {
+    method: string
+    endpoint: string
+    file: string
+    file_name: string
+    lines: number[]
+    lines_display?: string
+    first_line?: number
+  }[]
+  unresolved_calls?: { file: string; lines: number[]; lines_display?: string }[]
+  unresolved_count?: number
+  changed_frontend_files?: string[]
+  stats?: { affected_file_count?: number; route_count?: number; api_call_count?: number }
+  index_stats?: { component_files?: number; routes?: number; api_calls?: number }
+}
+
 export interface JobDetail {
   id: string
   provider: string
@@ -111,7 +173,13 @@ export interface JobDetail {
   base_sha: string
   head_sha: string
   status: JobStatus
-  affected_apis: { apis: AffectedApi[]; count: number; call_paths?: CallPath[] } | null
+  affected_apis: {
+    apis: AffectedApi[]
+    count: number
+    call_paths?: CallPath[]
+    cross_repo_consumers?: CrossRepoConsumer[]
+    cross_repo?: { scanned_repos?: string[]; match_count?: number }
+  } | null
   changed_symbols: {
     symbols: string[]
     suspects?: SuspectFunction[]
@@ -121,6 +189,7 @@ export interface JobDetail {
       other_files: number
       other_paths?: string[]
     }
+    fullstack_impact?: FullstackImpact
   } | null
   gate_result?: {
     changed_files?: number
@@ -132,7 +201,7 @@ export interface JobDetail {
   created_at: string | null
 }
 
-export type GraphNodeType = 'api' | 'changed' | 'symbol'
+export type GraphNodeType = 'api' | 'changed' | 'symbol' | 'frontend'
 
 export interface GraphNode {
   id: string

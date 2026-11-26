@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MAX_PROBE_LINES = 800
+JOB_HEADER = "X-DiffGate-Job-Id"
 
 
 @dataclass
@@ -69,6 +70,37 @@ def _default_query(path: str) -> dict[str, str]:
     if p.rstrip("/").endswith("health"):
         return {}
     return {}
+
+
+def _lines_executed(cov_data, workdir: Path, repo_dir: Path) -> set[tuple[str, int]]:
+def _branch_coverage_pct(cov_data, workdir: Path, repo_dir: Path, changed_files: set[str]) -> float | None:
+    """基于 coverage 分支弧统计变更文件的平均分支命中率。"""
+    try:
+        measured = cov_data.measured_files()
+    except Exception:
+        return None
+    total_arcs = 0
+    hit_arcs = 0
+    abs_to_repo: dict[str, str] = {}
+    for abs_path in measured:
+        try:
+            rel = Path(abs_path).resolve().relative_to(repo_dir.resolve())
+            abs_to_repo[abs_path] = _norm_repo_path(rel.as_posix())
+        except ValueError:
+            continue
+    for abs_path, repo_rel in abs_to_repo.items():
+        if changed_files and repo_rel not in changed_files:
+            continue
+        executed = set(cov_data.arcs(abs_path) or [])
+        missing = set(cov_data.missing_arc_pairs(abs_path) or [])
+        for arc in executed:
+            total_arcs += 1
+            hit_arcs += 1
+        for arc in missing:
+            total_arcs += 1
+    if total_arcs == 0:
+        return None
+    return round(hit_arcs / total_arcs * 100, 1)
 
 
 def _lines_executed(cov_data, workdir: Path, repo_dir: Path) -> set[tuple[str, int]]:
@@ -170,13 +202,13 @@ def run_coverage_probe(
         )
 
     main_py = workdir / "app" / "main.py"
-    cov = coverage.Coverage(source=[str(workdir)], branch=False)
-    cov.start()
+    cov = coverage.Coverage(source=[str(workdir)], branch=True)
     inserted = str(workdir)
     path_backup = list(sys.path)
     sys.path = [inserted]
     modules_backup = {}
     try:
+    branch_pct: float | None = None
         if not main_py.is_file():
             raise FileNotFoundError(f"FastAPI entry not found: {main_py}")
         for key in list(sys.modules):
@@ -188,14 +220,15 @@ def run_coverage_probe(
         app = probe_main.app
 
         with TestClient(app) as client:
+        stain_headers = {JOB_HEADER: job.id} if job and job.id else {}
+        with TestClient(app) as client:
             smoke_ran = True
             for iface in interfaces or [{"method": "GET", "path": "/health"}]:
                 method = str(iface.get("method") or "GET").upper()
                 path = str(iface.get("path") or "/")
                 params = _default_query(path)
                 try:
-                    resp = client.request(method, path, params=params)
-                    api_smoke_results.append(
+                    resp = client.request(method, path, params=params, headers=stain_headers)
                         {
                             "method": method,
                             "path": path,
@@ -224,14 +257,17 @@ def run_coverage_probe(
         if job:
             executed = _suspect_fallback_hits(job, changed)
     finally:
+    finally:
         cov.stop()
         try:
             cov.save()
+            data = cov.get_data()
             if not executed:
-                executed = _lines_executed(cov.get_data(), workdir, repo_dir)
+                executed = _lines_executed(data, workdir, repo_dir)
                 if job and len(executed) < max(1, len(changed) // 4):
                     executed |= _suspect_fallback_hits(job, changed)
-        except Exception as exc:
+            changed_files = {p for p, _ in changed}
+            branch_pct = _branch_coverage_pct(data, workdir, repo_dir, changed_files)
             err = err or str(exc)
         sys.path = path_backup
         for key, mod in modules_backup.items():
@@ -251,6 +287,7 @@ def run_coverage_probe(
         changed_lines=total,
         api_smoke_results=api_smoke_results,
         error=err,
+        branch_coverage_pct=branch_pct,
     )
 
 
@@ -299,6 +336,7 @@ def run_coverage_probe_for_job_id(job_id: str) -> ProbeResult | None:
             covered_changed_lines=result.covered_changed_lines,
             api_smoke_results=result.api_smoke_results or None,
         )
+            branch_coverage_pct=result.branch_coverage_pct,
         db.commit()
         return result
     except Exception:

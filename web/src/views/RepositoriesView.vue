@@ -32,6 +32,9 @@ const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
 const formRef = ref<VForm | null>(null)
 const actionLoading = ref<string | null>(null)
+/** 正在重建 AST 的仓库行（菜单关闭后仍可见） */
+const reindexingId = ref<string | null>(null)
+const submitPhase = ref<'idle' | 'saving' | 'indexing'>('idle')
 const fullNameManual = ref(false)
 const testSuiteOptions = ref<string[]>([])
 const accessToken = ref('')
@@ -115,15 +118,34 @@ const paginationNavButtons = computed(() => [
   },
 ])
 
-type SnackbarVariant = 'success' | 'error'
-const snackbar = ref<{ show: boolean; text: string; variant: SnackbarVariant }>({
+type SnackbarVariant = 'success' | 'error' | 'info'
+const snackbar = ref<{ show: boolean; text: string; variant: SnackbarVariant; loading?: boolean }>({
   show: false,
   text: '',
   variant: 'success',
+  loading: false,
 })
 
 function notify(text: string, variant: SnackbarVariant = 'success') {
-  snackbar.value = { show: true, text, variant }
+  snackbar.value = { show: true, text, variant, loading: false }
+}
+
+function notifyInProgress(text: string) {
+  snackbar.value = { show: true, text, variant: 'info', loading: true }
+}
+
+const submitButtonLabel = computed(() => {
+  if (!submitLoading.value) return editingId.value ? '保存' : '保存并初始化索引'
+  if (submitPhase.value === 'indexing') return '正在构建 AST 索引…'
+  return editingId.value ? '保存中…' : '保存中…'
+})
+
+function isRowReindexing(id: string) {
+  return reindexingId.value === id
+}
+
+function isRowAnalyzeLoading(id: string) {
+  return actionLoading.value === `${id}:analyze`
 }
 
 const repoRowMenuProps = {
@@ -213,6 +235,8 @@ const astTotals = computed(() =>
 const showRepoSearch = computed(
   () => rows.value.length > 0 || keyword.value.trim().length > 0 || (overview.value?.repo_count ?? 0) > 0,
 )
+
+const repoCountForTitle = computed(() => overview.value?.repo_count ?? rows.value.length)
 
 const kpiCards = computed(() => {
   const o = overview.value
@@ -356,6 +380,7 @@ async function submit() {
   }
   const payload = buildPayload()
   submitLoading.value = true
+  submitPhase.value = 'saving'
   try {
     if (editingId.value) {
       await updateRepository(editingId.value, payload)
@@ -364,11 +389,15 @@ async function submit() {
       notify('仓库配置已更新')
     } else {
       const created = await createRepository(payload)
+      submitPhase.value = 'indexing'
+      notifyInProgress(`正在构建 AST 索引：${created.full_name}…`)
       try {
-        await reindexRepository(created.id)
+        const res = await reindexRepository(created.id)
         dialogVisible.value = false
         await refreshAfterMutation()
-        notify('仓库已接入，AST 调用链图谱构建完成')
+        const m = res.stats?.method_count ?? res.repository.ast_method_count
+        const a = res.stats?.api_count ?? res.repository.ast_api_count
+        notify(`AST 索引完成：${m} 方法 · ${a} 接口`)
       } catch (indexErr) {
         dialogVisible.value = false
         await refreshAfterMutation()
@@ -382,6 +411,7 @@ async function submit() {
     notify('保存失败', 'error')
   } finally {
     submitLoading.value = false
+    submitPhase.value = 'idle'
   }
 }
 
@@ -416,11 +446,16 @@ async function toggleEnabled(row: RepositoryItem, enabled: boolean | null) {
 }
 
 async function onReindex(row: RepositoryItem) {
-  actionLoading.value = row.id + ':reindex'
+  const key = `${row.id}:reindex`
+  actionLoading.value = key
+  reindexingId.value = row.id
+  notifyInProgress(`正在重建 AST 索引：${row.full_name}（克隆并扫描，约需数十秒）…`)
   try {
-    await reindexRepository(row.id)
+    const res = await reindexRepository(row.id)
     await refreshAfterMutation()
-    notify('仓库已接入，AST 调用链图谱构建完成')
+    const m = res.stats?.method_count ?? res.repository.ast_method_count
+    const a = res.stats?.api_count ?? res.repository.ast_api_count
+    notify(`AST 索引完成：${m} 方法 · ${a} 接口`)
   } catch (err) {
     if (import.meta.env.DEV) console.error('reindex failed', err)
     notify(
@@ -429,6 +464,7 @@ async function onReindex(row: RepositoryItem) {
     )
   } finally {
     actionLoading.value = null
+    reindexingId.value = null
   }
 }
 
@@ -462,8 +498,11 @@ onMounted(async () => {
 
 <template>
   <div class="repo-page">
-    <div class="d-flex flex-wrap align-center justify-space-between gap-3 mb-4 repo-page-head">
-      <h2 class="text-h5 font-weight-bold repo-page-title">仓库管理</h2>
+    <header class="repo-page-head">
+      <h2 class="text-h5 font-weight-bold repo-page-title">
+        仓库管理
+        <span class="repo-page-title-count">({{ repoCountForTitle }})</span>
+      </h2>
       <div class="repo-toolbar">
         <v-text-field
           v-if="showRepoSearch"
@@ -473,17 +512,17 @@ onMounted(async () => {
           variant="solo"
           flat
           hide-details
-          rounded="pill"
+          rounded="lg"
           placeholder="搜索 group/project"
           prepend-inner-icon="mdi-magnify"
           clearable
           @keyup.enter="load"
         />
         <v-btn
-          class="cta-repo-action cta-repo-action--tonal text-none"
-          variant="tonal"
+          class="cta-repo-action cta-repo-action--primary text-none"
+          variant="flat"
           color="primary"
-          rounded="pill"
+          rounded="lg"
           height="40"
           prepend-icon="mdi-plus"
           @click="openCreate"
@@ -491,7 +530,7 @@ onMounted(async () => {
           添加仓库
         </v-btn>
       </div>
-    </div>
+    </header>
 
     <div class="repo-kpi-grid" :class="{ 'repo-kpi-grid--pulse': kpiTick > 0 }">
       <v-card
@@ -523,6 +562,13 @@ onMounted(async () => {
     </div>
 
     <v-card class="repo-table-card" rounded="xl" :border="false">
+      <v-progress-linear
+        v-if="reindexingId"
+        class="repo-table-top-progress"
+        indeterminate
+        color="primary"
+        height="2"
+      />
       <v-progress-linear v-if="loading && rows.length === 0" indeterminate color="primary" />
       <template v-if="!loading && rows.length === 0">
         <v-card-text class="repo-empty-panel">
@@ -546,10 +592,10 @@ onMounted(async () => {
             </div>
             <div class="repo-empty-module__actions">
               <v-btn
-                class="cta-repo-action cta-repo-action--tonal text-none"
-                variant="tonal"
+                class="cta-repo-action cta-repo-action--primary text-none"
+                variant="flat"
                 color="primary"
-                rounded="pill"
+                rounded="lg"
                 height="40"
                 prepend-icon="mdi-plus"
                 @click="openCreate"
@@ -619,7 +665,14 @@ onMounted(async () => {
           <span class="mono text-caption">{{ item.default_branch }}</span>
         </template>
         <template #item.ast_scale="{ item }">
-          <span class="repo-ast-scale mono">
+          <span
+            v-if="isRowReindexing(item.id)"
+            class="repo-ast-scale repo-ast-scale--loading d-inline-flex align-center ga-2"
+          >
+            <v-progress-circular indeterminate size="16" width="2" color="primary" aria-hidden="true" />
+            <span>索引中…</span>
+          </span>
+          <span v-else class="repo-ast-scale mono">
             {{ item.ast_method_count }} 方法 · {{ item.ast_api_count }} 接口
           </span>
         </template>
@@ -660,7 +713,13 @@ onMounted(async () => {
           </v-chip>
         </template>
         <template #item.last_indexed_at="{ item }">
-          <span class="repo-index-time mono" :title="item.last_indexed_at || undefined">
+          <span
+            v-if="isRowReindexing(item.id)"
+            class="repo-index-time mono repo-index-time--loading text-medium-emphasis"
+          >
+            重建中
+          </span>
+          <span v-else class="repo-index-time mono" :title="item.last_indexed_at || undefined">
             {{ formatIndexedAt(item.last_indexed_at) }}
           </span>
         </template>
@@ -682,6 +741,8 @@ onMounted(async () => {
                   variant="text"
                   size="small"
                   aria-label="仓库操作"
+                  :loading="isRowReindexing(item.id) || isRowAnalyzeLoading(item.id)"
+                  :disabled="isRowReindexing(item.id)"
                 />
               </template>
               <v-list class="repo-action-menu" density="default" nav>
@@ -689,7 +750,8 @@ onMounted(async () => {
                   class="repo-action-menu__item"
                   rounded="lg"
                   title="重建 AST 索引"
-                  :disabled="actionLoading === item.id + ':reindex'"
+                  :disabled="Boolean(reindexingId)"
+                  :loading="isRowReindexing(item.id)"
                   @click="onReindex(item)"
                 >
                   <template #prepend>
@@ -938,7 +1000,7 @@ onMounted(async () => {
             :loading="submitLoading"
             @click="submit"
           >
-            {{ editingId ? '保存' : '保存并初始化索引' }}
+            {{ submitButtonLabel }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -961,7 +1023,7 @@ onMounted(async () => {
       v-model="snackbar.show"
       location="bottom"
       position="sticky"
-      :timeout="snackbar.variant === 'error' ? 9000 : 3000"
+      :timeout="snackbar.loading ? -1 : snackbar.variant === 'error' ? 9000 : 4000"
       :rounded="snackbar.variant === 'error' ? 'lg' : 'pill'"
       elevation="6"
       :color="snackbar.variant === 'error' ? 'error' : undefined"
@@ -969,10 +1031,20 @@ onMounted(async () => {
         'feedback-snackbar',
         snackbar.variant === 'success' && 'feedback-snackbar--success',
         snackbar.variant === 'error' && 'feedback-snackbar--error',
+        snackbar.variant === 'info' && 'feedback-snackbar--info',
       ]"
     >
       <div class="d-flex align-start ga-2 px-1 feedback-snackbar__content">
+        <v-progress-circular
+          v-if="snackbar.loading"
+          indeterminate
+          size="20"
+          width="2"
+          color="primary"
+          class="feedback-snackbar__icon"
+        />
         <v-icon
+          v-else
           :icon="snackbar.variant === 'error' ? 'mdi-alert-circle-outline' : 'mdi-check-circle-outline'"
           size="small"
           class="feedback-snackbar__icon"
@@ -990,15 +1062,23 @@ onMounted(async () => {
   box-sizing: border-box;
 }
 .repo-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
   width: 100%;
   box-sizing: border-box;
-  margin-bottom: 24px !important;
+  padding: 24px 0;
+  margin-bottom: 0 !important;
+  border-bottom: 1px solid #2a2a2a;
 }
 .repo-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 24px;
   width: 100%;
+  margin-top: 24px;
   margin-bottom: 24px;
   box-sizing: border-box;
 }
@@ -1018,23 +1098,34 @@ onMounted(async () => {
     border-color 0.35s ease;
 }
 .repo-page-title {
-  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  flex: 0 1 auto;
   min-width: 0;
+  line-height: 40px;
+}
+.repo-page-title-count {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.42);
+  letter-spacing: 0.02em;
 }
 .repo-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 16px;
-  flex: 0 1 auto;
-  max-width: 100%;
+  gap: 12px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .repo-search-field {
-  flex: 0 1 280px;
-  width: 280px;
+  flex: 0 0 auto;
+  width: min(300px, 100%);
   min-width: 240px;
-  max-width: 280px;
+  max-width: 320px;
 }
 .repo-search-field :deep(.v-field) {
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -1042,7 +1133,14 @@ onMounted(async () => {
   box-shadow: none;
   font-size: 13px;
   min-height: 40px;
-  border-radius: 9999px;
+  border-radius: 8px !important;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.repo-search-field :deep(.v-field--focused) {
+  border-color: rgb(var(--v-theme-primary)) !important;
+  box-shadow: 0 0 0 3px rgba(138, 180, 248, 0.22);
 }
 .repo-search-field :deep(.v-field__input) {
   min-height: 40px;
@@ -1050,7 +1148,8 @@ onMounted(async () => {
   padding-bottom: 0;
 }
 .repo-search-field :deep(.v-field__prepend-inner .v-icon) {
-  opacity: 0.5;
+  opacity: 0.85;
+  color: rgba(255, 255, 255, 0.72);
 }
 .repo-search-field :deep(.v-field__outline) {
   opacity: 0 !important;
@@ -1059,16 +1158,19 @@ onMounted(async () => {
   letter-spacing: 0;
   flex-shrink: 0;
 }
-.cta-repo-action--tonal {
+.cta-repo-action--primary {
   font-weight: 600;
-  padding-inline: 18px !important;
+  padding-inline: 20px !important;
   letter-spacing: 0.01em;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: filter 0.18s ease;
 }
-.cta-repo-action--tonal :deep(.v-btn__underlay) {
-  background: rgba(138, 180, 248, 0.16) !important;
+.cta-repo-action--primary :deep(.v-btn__prepend .v-icon) {
+  font-size: 20px;
+  margin-inline-end: 2px;
 }
-.cta-repo-action--tonal:hover :deep(.v-btn__underlay) {
-  background: rgba(138, 180, 248, 0.24) !important;
+.cta-repo-action--primary:hover {
+  filter: brightness(1.1);
 }
 .repo-table-card {
   background-color: rgb(var(--v-theme-surface)) !important;
@@ -1408,6 +1510,25 @@ onMounted(async () => {
 .feedback-snackbar--error :deep(.v-snackbar__wrapper) {
   max-width: min(560px, 92vw);
   padding: 12px 16px !important;
+}
+.feedback-snackbar--info :deep(.v-snackbar__wrapper) {
+  background-color: #2a2f36 !important;
+  color: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(138, 180, 248, 0.35);
+  min-width: min(420px, 92vw);
+  max-width: min(560px, 92vw);
+}
+.repo-table-top-progress {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.repo-ast-scale--loading {
+  color: rgba(138, 180, 248, 0.92);
+  font-size: 13px;
+}
+.repo-index-time--loading {
+  color: rgba(138, 180, 248, 0.85) !important;
 }
 .feedback-snackbar__content {
   width: 100%;

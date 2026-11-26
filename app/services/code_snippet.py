@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from app.parsers.fullstack_normalize import clean_repo_rel_path
+
 
 def _repo_dir(repo_full_name: str, clone_root: str) -> Path:
     safe = repo_full_name.replace("/", "_")
@@ -54,7 +56,7 @@ def _file_path_candidates(
         add("/".join(parts[1:]))
     if len(parts) > 2:
         add("/".join(parts[2:]))
-    for prefix in ("backend/", "src/", "app/", "lib/"):
+    for prefix in ("frontend/", "backend/", "src/", "app/", "lib/", "web/"):
         if not fp.startswith(prefix):
             add(f"{prefix}{fp}")
     if (repo_dir / fp).is_file():
@@ -256,7 +258,7 @@ def job_code_view(
     if not repo_dir.is_dir():
         raise FileNotFoundError("分析工作区不存在，请对该仓库重新执行一次分析以拉取源码")
 
-    file_path = file_path.replace("\\", "/").lstrip("/")
+    file_path = clean_repo_rel_path(file_path.replace("\\", "/").lstrip("/"))
 
     all_file, resolved_file = _read_head_file(repo_dir, head_sha, file_path, scan_root=scan_root)
     if resolved_file:
@@ -268,7 +270,10 @@ def job_code_view(
         end_line = min(end_line, start_line + 48)
     elif node_type == "symbol":
         start_line, end_line = _expand_range(all_file, start_line, end_line, min_span=32)
-    if all_file and node_type in ("api", "symbol"):
+    elif node_type == "frontend":
+        start_line, end_line = _expand_range(all_file, start_line, end_line, min_span=20)
+        end_line = min(end_line, start_line + 60)
+    if all_file and node_type in ("api", "symbol", "frontend"):
         end_line = _clamp_source_end(all_file, start_line, end_line)
 
     if node_type == "changed":
