@@ -12,6 +12,17 @@ body,
   overflow-x: hidden;
 }
 
+html.diffgate-scroll-lock,
+html.diffgate-scroll-lock body {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+html.diffgate-scroll-lock .v-application,
+html.diffgate-scroll-lock .v-main,
+html.diffgate-scroll-lock .v-main__wrap {
+  overflow: hidden !important;
+}
+
 .diffgate-app {
   overflow-x: hidden;
 }
@@ -86,6 +97,15 @@ body,
   max-width: 1440px;
   margin-inline: auto;
   padding-inline: clamp(24px, 4vw, 32px);
+}
+
+/* 与 v-row / v-col 默认 12px 列间距外缘对齐（顶栏、列表等非栅格区块） */
+.shell .layout-bleed-x {
+  --layout-bleed: 12px;
+  box-sizing: border-box;
+  margin-inline: calc(var(--layout-bleed) * -0.5);
+  width: calc(100% + var(--layout-bleed));
+  max-width: calc(100% + var(--layout-bleed));
 }
 
 /* 顶栏与 shell-main 共用 .shell，避免 v-toolbar 默认内边距导致贴边 */

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import GateReportIn
@@ -109,6 +109,14 @@ def jobs_stats_overview(db: Session = Depends(get_db)) -> dict:
     }
 
 
+def _jobs_list_filters(stmt, repo: str | None, status: str | None):
+    if repo:
+        stmt = stmt.where(AnalysisJob.repo_full_name == repo)
+    if status:
+        stmt = stmt.where(AnalysisJob.status == status)
+    return stmt
+
+
 @router.get("")
 def list_jobs(
     db: Session = Depends(get_db),
@@ -117,15 +125,17 @@ def list_jobs(
     repo: str | None = Query(None, description="仓库 full_name"),
     status: str | None = Query(None, description="pending|running|completed|failed"),
 ) -> dict:
+    count_stmt = select(func.count(AnalysisJob.id))
+    count_stmt = _jobs_list_filters(count_stmt, repo, status)
+    total = int(db.scalar(count_stmt) or 0)
+
     stmt = select(AnalysisJob).order_by(AnalysisJob.created_at.desc())
-    if repo:
-        stmt = stmt.where(AnalysisJob.repo_full_name == repo)
-    if status:
-        stmt = stmt.where(AnalysisJob.status == status)
+    stmt = _jobs_list_filters(stmt, repo, status)
     stmt = stmt.offset(offset).limit(limit)
     rows = db.scalars(stmt).all()
     return {
         "items": [_job_list_item(j) for j in rows],
+        "total": total,
         "limit": limit,
         "offset": offset,
     }

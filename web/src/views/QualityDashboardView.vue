@@ -2,7 +2,7 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
-import { fetchDashboardOverview } from '@/api/client'
+import { fetchDashboardOverview, resolveHotspotJob } from '@/api/client'
 import { formatRelativeTime } from '@/utils/datetime'
 import RepoAutocompleteFilter from '@/components/RepoAutocompleteFilter.vue'
 
@@ -16,6 +16,11 @@ const repoFilter = ref<string | null>(null)
 
 const loading = ref(false)
 const loadError = ref(false)
+const hotspotCodeBusy = ref(false)
+const hotspotToast = ref('')
+const hotspotToastOpen = ref(false)
+const loadErrorDismissed = ref(false)
+const loadErrorVisible = computed(() => loadError.value && !loadErrorDismissed.value)
 const dashboard = ref<Awaited<ReturnType<typeof fetchDashboardOverview>> | null>(null)
 const chartsPending = ref(false)
 
@@ -302,6 +307,82 @@ function openBlockFlows() {
   scrollToRef(flowPanelEl.value, 'start')
 }
 
+function scrollToQualityFlows() {
+  scrollToRef(flowPanelEl.value, 'start')
+}
+
+const codeHotspotRows = computed(() => dashboard.value?.code_hotspots ?? [])
+
+function splitHotspotPath(path: string) {
+  const norm = path.replace(/\\/g, '/')
+  const idx = norm.lastIndexOf('/')
+  if (idx <= 0) return { dir: '', name: norm }
+  return { dir: norm.slice(0, idx + 1), name: norm.slice(idx + 1) }
+}
+
+function hotspotRiskTone(score: number): 'high' | 'mid' | 'low' {
+  if (score >= 8) return 'high'
+  if (score >= 6) return 'mid'
+  return 'low'
+}
+
+function hotspotRepoLabel(repo?: string | null) {
+  if (!repo) return '—'
+  const slash = repo.lastIndexOf('/')
+  return slash >= 0 ? repo.slice(slash + 1) : repo
+}
+
+function hotspotFileIconClass(path: string) {
+  const { name } = splitHotspotPath(path)
+  return name.toLowerCase().endsWith('.py')
+    ? 'hotspot-path__icon hotspot-path__icon--py'
+    : 'hotspot-path__icon'
+}
+
+type HotspotRow = NonNullable<
+  Awaited<ReturnType<typeof fetchDashboardOverview>>['code_hotspots']
+>[number]
+
+async function resolveHotspotJobId(row: HotspotRow) {
+  if (row.latest_job_id) {
+    return {
+      job_id: row.latest_job_id,
+      start_line: row.start_line,
+      end_line: row.end_line,
+      path: row.path,
+    }
+  }
+  try {
+    return await resolveHotspotJob(row.path, row.repo, 30)
+  } catch {
+    return await resolveHotspotJob(row.path, undefined, 30)
+  }
+}
+
+async function openHotspotCode(row: HotspotRow) {
+  if (hotspotCodeBusy.value) return
+  hotspotCodeBusy.value = true
+  hotspotToastOpen.value = false
+  try {
+    const resolved = await resolveHotspotJobId(row)
+    const file = resolved.path ?? row.path
+    const query: Record<string, string> = { file }
+    const startLine = resolved.start_line ?? row.start_line
+    const endLine = resolved.end_line ?? row.end_line
+    if (startLine != null && startLine > 0) {
+      query.start = String(startLine)
+      query.end = String(endLine ?? startLine)
+    }
+    await router.push({ name: 'job-detail', params: { id: resolved.job_id }, query })
+  } catch {
+    hotspotToast.value =
+      '未找到包含该文件的分析任务。请重启 API 后刷新页面，或到变更影响中打开对应任务查看代码'
+    hotspotToastOpen.value = true
+  } finally {
+    hotspotCodeBusy.value = false
+  }
+}
+
 function clearFlowGateFilter() {
   flowGateFilter.value = null
 }
@@ -346,9 +427,14 @@ function resizeCharts() {
   })
 }
 
+function dismissLoadError() {
+  loadErrorDismissed.value = true
+}
+
 async function load() {
   loading.value = true
   loadError.value = false
+  loadErrorDismissed.value = false
   chartsPending.value = false
   try {
     dashboard.value = await fetchDashboardOverview(days.value, repoFilter.value || undefined)
@@ -399,9 +485,36 @@ const trendSparseCaption = computed(() => {
     return lines > 0 || cov != null ? n + 1 : n
   }, 0)
   const quiet = trend.labels.length - active
-  if (quiet > 0 && active > 0) return `过去 ${quiet} 天无代码变更 · 已聚焦最近有数据的时段`
+  if (quiet > 0 && active > 0) return `过去 ${quiet} 天无代码变更 · 已聚焦有数据时段`
   return ''
 })
+
+const interceptBlockTotal = computed(() => {
+  const rows = interceptMultiReason.value
+  if (!rows?.length) return 0
+  return rows.reduce((sum, r) => sum + r.value, 0)
+})
+
+function compactTrendIfSparse(trend: {
+  labels: string[]
+  changed_lines: number[]
+  coverage: (number | null)[]
+  threshold: number
+}) {
+  const activeIdx = trend.labels
+    .map((_, i) => i)
+    .filter((i) => (trend.changed_lines[i] ?? 0) > 0 || trend.coverage[i] != null)
+  if (activeIdx.length === 0 || activeIdx.length === trend.labels.length) {
+    return { ...trend, wasCompacted: false }
+  }
+  return {
+    labels: activeIdx.map((i) => trend.labels[i]!),
+    changed_lines: activeIdx.map((i) => trend.changed_lines[i] ?? 0),
+    coverage: activeIdx.map((i) => trend.coverage[i] ?? null),
+    threshold: trend.threshold,
+    wasCompacted: true,
+  }
+}
 
 function trendFocusPercent(
   labels: string[],
@@ -464,7 +577,8 @@ const trendEmptyCta = computed(() => {
 
 function renderCharts() {
   if (!dashboard.value) return
-  const trend = dashboard.value.trend
+  const trendRaw = dashboard.value.trend
+  const trend = compactTrendIfSparse(trendRaw)
   const threshold = trend.threshold
 
   const trendActive = trendHasActivity(trend)
@@ -472,7 +586,9 @@ function renderCharts() {
   const linesYMax = peakLines <= 500 ? 500 : Math.ceil(peakLines / 200) * 200
   const hasCoverageSeries = trend.coverage.some((c) => c != null)
   const coverageSeriesData = trend.coverage.map((c) => (c == null ? null : c))
-  const focusZoom = trendFocusPercent(trend.labels, trend.changed_lines, trend.coverage)
+  const focusZoom = trend.wasCompacted
+    ? null
+    : trendFocusPercent(trend.labels, trend.changed_lines, trend.coverage)
   const splitLine = { show: true, lineStyle: { type: 'dashed' as const, color: CHART.grid } }
   const trendTooltip = {
     trigger: 'axis' as const,
@@ -601,8 +717,19 @@ function renderCharts() {
                   xAxisIndex: 0,
                   yAxisIndex: 0,
                   data: trend.changed_lines,
-                  itemStyle: { color: trendActive ? CHART.bar : 'rgba(37, 41, 48, 0.45)' },
-                  barMaxWidth: 28,
+                  itemStyle: { color: trendActive ? 'rgba(255, 255, 255, 0.24)' : 'rgba(37, 41, 48, 0.45)' },
+                  barMaxWidth: 32,
+                  label: {
+                    show: true,
+                    position: 'top',
+                    color: '#8e9299',
+                    fontSize: 10,
+                    formatter: (p: { value?: number }) => {
+                      const v = Number(p.value ?? 0)
+                      return v > 0 ? String(v) : ''
+                    },
+                  },
+                  emphasis: { itemStyle: { color: 'rgba(255, 255, 255, 0.34)' } },
                 },
                 {
                   name: '增量覆盖率',
@@ -614,7 +741,8 @@ function renderCharts() {
                   showSymbol: true,
                   symbol: 'circle',
                   symbolSize: 8,
-                  lineStyle: { width: 2, color: trendActive ? CHART.line : 'rgba(138, 180, 248, 0.35)' },
+                  lineStyle: { width: 2.5, color: trendActive ? CHART.line : 'rgba(138, 180, 248, 0.35)' },
+                  z: 3,
                   data: coverageSeriesData,
                   emphasis: {
                     scale: true,
@@ -634,15 +762,18 @@ function renderCharts() {
                   markLine: {
                     silent: true,
                     symbol: 'none',
-                    lineStyle: { color: 'rgba(242, 139, 130, 0.65)', type: 'dashed', width: 1 },
+                    lineStyle: { color: '#fb923c', type: 'dashed', width: 2 },
                     label: {
                       show: true,
                       formatter: `基线 ${threshold}%`,
                       position: 'insideEndTop',
-                      color: 'rgba(242, 139, 130, 0.88)',
-                      fontSize: 10,
-                      distance: 8,
+                      color: '#fb923c',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      distance: 6,
                       padding: [0, 0, 0, 6],
+                      backgroundColor: 'rgba(251, 146, 60, 0.12)',
+                      borderRadius: 4,
                     },
                     data: [{ yAxis: threshold }],
                   },
@@ -670,8 +801,18 @@ function renderCharts() {
                   name: '变更行数',
                   type: 'bar',
                   data: trend.changed_lines,
-                  itemStyle: { color: trendActive ? CHART.bar : 'rgba(37, 41, 48, 0.45)' },
-                  barMaxWidth: 28,
+                  itemStyle: { color: trendActive ? 'rgba(255, 255, 255, 0.24)' : 'rgba(37, 41, 48, 0.45)' },
+                  barMaxWidth: 32,
+                  label: {
+                    show: true,
+                    position: 'top',
+                    color: '#8e9299',
+                    fontSize: 10,
+                    formatter: (p: { value?: number }) => {
+                      const v = Number(p.value ?? 0)
+                      return v > 0 ? String(v) : ''
+                    },
+                  },
                 },
               ],
             },
@@ -724,7 +865,7 @@ watch([days, repoFilter], load)
 
 <template>
   <div class="dashboard-page">
-    <div class="dashboard-hero d-flex flex-wrap align-start justify-space-between gap-4 mb-4">
+    <div class="dashboard-hero d-flex flex-wrap align-start justify-space-between gap-4">
       <div>
         <h2 class="text-h5 text-md-h4 font-weight-bold dashboard-head mb-2">质量驾驶舱</h2>
         <p class="text-body-2 dashboard-hero-sub mb-0">
@@ -769,18 +910,32 @@ watch([days, repoFilter], load)
       aria-hidden="true"
     />
 
-    <v-alert
-      v-if="loadError"
-      type="warning"
-      variant="tonal"
-      density="comfortable"
-      class="mb-4"
-      rounded="lg"
-      prominent
-    >
-      无法加载驾驶舱数据。请确认已运行 <code class="mono">run_api.ps1</code>，且前端代理能访问
-      <code class="mono">/api/v1</code>。
-    </v-alert>
+    <div v-if="loadErrorVisible" class="dashboard-load-error" role="alert">
+      <span class="mdi mdi-alert-circle-outline dashboard-load-error__icon" aria-hidden="true" />
+      <p class="dashboard-load-error__text">
+        无法加载驾驶舱数据。请确认已运行
+        <code class="dashboard-load-error__code mono">run_api.ps1</code>，且前端代理能访问
+        <code class="dashboard-load-error__code mono">/api/v1</code>。
+      </p>
+      <div class="dashboard-load-error__actions">
+        <button
+          type="button"
+          class="dashboard-load-error__retry"
+          :disabled="loading"
+          @click="onManualRefresh"
+        >
+          重新加载
+        </button>
+        <button
+          type="button"
+          class="dashboard-load-error__close"
+          aria-label="关闭提示"
+          @click="dismissLoadError"
+        >
+          <span class="mdi mdi-close" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
 
     <div class="load-section load-section--kpi" :aria-busy="loading">
       <v-overlay
@@ -838,24 +993,29 @@ watch([days, repoFilter], load)
     <v-row class="dashboard-grid dashboard-stack-gap chart-row" align="stretch">
       <v-col cols="12" lg="8" class="chart-col-trend">
         <v-card
-          class="h-100 chart-card-equal m3-surface-card m3-elevated"
+          class="h-100 chart-card-equal chart-panel-card m3-surface-card m3-elevated"
           rounded="xl"
           :border="false"
         >
           <v-card-title class="chart-card-title chart-card-title--split">
             <span class="text-subtitle-1 font-weight-medium chart-card-heading">增量代码覆盖率 vs 门禁通过趋势</span>
-            <div class="trend-legend" aria-hidden="true">
-              <span class="trend-legend-item">
-                <span class="trend-legend-swatch trend-legend-swatch--bar" />
-                变更行数
+            <div class="chart-card-title__trailing">
+              <span v-if="trendSparseCaption" class="trend-sparse-badge" role="status">
+                <span class="mdi mdi-information-outline trend-sparse-badge__icon" aria-hidden="true" />
+                {{ trendSparseCaption }}
               </span>
-              <span class="trend-legend-item">
-                <span class="trend-legend-swatch trend-legend-swatch--line" />
-                增量覆盖率
-              </span>
+              <div class="trend-legend" aria-hidden="true">
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch--bar" />
+                  变更行数
+                </span>
+                <span class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch--line" />
+                  增量覆盖率
+                </span>
+              </div>
             </div>
           </v-card-title>
-          <p v-if="trendSparseCaption" class="trend-sparse-caption px-6 mb-0">{{ trendSparseCaption }}</p>
           <v-card-text class="chart-card-body chart-card-body--load">
             <v-skeleton-loader
               v-if="pageBooting"
@@ -913,7 +1073,7 @@ watch([days, repoFilter], load)
       <v-col cols="12" lg="4" class="chart-col-donut">
         <v-card
           ref="interceptPanelEl"
-          class="h-100 chart-card-equal m3-surface-card m3-elevated chart-card-donut"
+          class="h-100 chart-card-equal chart-panel-card m3-surface-card m3-elevated chart-card-donut"
           rounded="xl"
           :border="false"
         >
@@ -979,36 +1139,37 @@ watch([days, repoFilter], load)
                 </button>
               </template>
               <template v-else-if="interceptMultiReason">
-                <div class="intercept-bar-list" role="list">
-                  <div
-                    v-for="row in interceptMultiReason"
-                    :key="row.name"
-                    class="intercept-bar-row"
-                    role="listitem"
-                  >
-                    <div class="intercept-bar-head">
-                      <span class="intercept-bar-name">{{ row.name }}</span>
-                      <span class="intercept-bar-stat mono">
-                        {{ row.value }} 次 · <span class="intercept-bar-pct">{{ row.pct }}%</span>
-                      </span>
-                    </div>
-                    <div class="intercept-bar-track" aria-hidden="true">
-                      <div
-                        class="intercept-bar-fill"
-                        :style="{ width: `${row.pct}%`, backgroundColor: row.color }"
-                      />
+                <div class="intercept-bar-panel">
+                  <div class="intercept-bar-list" role="list">
+                    <div
+                      v-for="row in interceptMultiReason"
+                      :key="row.name"
+                      class="intercept-bar-row"
+                      role="listitem"
+                    >
+                      <div class="intercept-bar-head">
+                        <span class="intercept-bar-name">{{ row.name }}</span>
+                        <span class="intercept-bar-stat mono">
+                          {{ row.value }} 次 · <span class="intercept-bar-pct">{{ row.pct }}%</span>
+                        </span>
+                      </div>
+                      <div class="intercept-bar-track" aria-hidden="true">
+                        <div
+                          class="intercept-bar-fill"
+                          :style="{ width: `${row.pct}%`, backgroundColor: row.color }"
+                        />
+                      </div>
                     </div>
                   </div>
-                  <v-btn
-                    variant="text"
-                    size="small"
-                    color="primary"
-                    class="text-none intercept-bar-cta mt-2"
-                    append-icon="mdi-chevron-right"
-                    @click="openBlockFlows"
-                  >
-                    查看已拦截记录
-                  </v-btn>
+                  <p v-if="interceptBlockTotal > 0" class="intercept-bar-summary">
+                    合计拦截 {{ interceptBlockTotal }} 次
+                  </p>
+                  <div class="intercept-bar-footer">
+                    <button type="button" class="intercept-bar-cta-ghost" @click="openBlockFlows">
+                      查看已拦截记录
+                      <span class="mdi mdi-chevron-right" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               </template>
             </div>
@@ -1017,28 +1178,82 @@ watch([days, repoFilter], load)
       </v-col>
     </v-row>
 
-    <v-row v-if="(dashboard?.code_hotspots?.length ?? 0) > 0" class="dashboard-grid dashboard-stack-gap">
+    <v-row v-if="codeHotspotRows.length > 0" class="dashboard-grid dashboard-stack-gap">
       <v-col cols="12">
-        <v-card class="m3-surface-card m3-elevated" rounded="xl" :border="false">
-          <v-card-title class="text-subtitle-1 font-weight-medium py-4">
-            高风险代码热点（近 30 天 Top 5）
+        <v-card class="hotspot-panel" rounded="lg" :border="false">
+          <v-card-title class="hotspot-panel__head">
+            <div class="hotspot-panel__title">
+              <v-icon icon="mdi-fire" class="hotspot-panel__title-icon" size="20" aria-hidden="true" />
+              <span class="hotspot-panel__title-text">高风险代码热点（近 30 天 Top 5）</span>
+            </div>
+            <v-btn
+              variant="text"
+              size="small"
+              color="primary"
+              class="text-none hotspot-panel__cta"
+              append-icon="mdi-chevron-right"
+              @click="scrollToQualityFlows"
+            >
+              查看全部记录
+            </v-btn>
           </v-card-title>
-          <v-card-text class="pt-0 pb-4">
+          <v-card-text class="hotspot-panel__body">
             <v-table density="compact" class="hotspot-table">
               <thead>
                 <tr>
-                  <th>路径</th>
-                  <th class="text-end">变更命中</th>
-                  <th class="text-end">拦截次数</th>
-                  <th class="text-end">风险分</th>
+                  <th class="hotspot-th hotspot-th--repo">项目 / 仓库</th>
+                  <th class="hotspot-th hotspot-th--path">路径</th>
+                  <th class="hotspot-th hotspot-th--num">变更命中</th>
+                  <th class="hotspot-th hotspot-th--num">拦截次数</th>
+                  <th class="hotspot-th hotspot-th--score">风险分</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in dashboard?.code_hotspots" :key="row.path">
-                  <td class="mono text-body-2">{{ row.path }}</td>
-                  <td class="text-end">{{ row.change_hits }}</td>
-                  <td class="text-end">{{ row.block_hits }}</td>
-                  <td class="text-end font-weight-medium">{{ row.score }}</td>
+                <tr
+                  v-for="(row, rowIdx) in codeHotspotRows"
+                  :key="row.path"
+                  :class="{ 'hotspot-row--top': rowIdx === 0 }"
+                >
+                  <td class="hotspot-td hotspot-td--repo">
+                    <span class="hotspot-repo-chip" :title="row.repo ?? undefined">{{
+                      hotspotRepoLabel(row.repo)
+                    }}</span>
+                  </td>
+                  <td class="hotspot-td hotspot-td--path">
+                    <div class="hotspot-path-row">
+                      <button type="button" class="hotspot-path hotspot-path--btn" @click="openHotspotCode(row)">
+                        <v-icon
+                          icon="mdi-file-code-outline"
+                          :class="hotspotFileIconClass(row.path)"
+                          size="16"
+                          aria-hidden="true"
+                        />
+                        <span class="hotspot-path__text">
+                          <span v-if="splitHotspotPath(row.path).dir" class="hotspot-path__dir mono">{{
+                            splitHotspotPath(row.path).dir
+                          }}</span>
+                          <span class="hotspot-path__name">{{ splitHotspotPath(row.path).name }}</span>
+                        </span>
+                      </button>
+                      <button type="button" class="hotspot-view-code" @click.stop="openHotspotCode(row)">
+                        ↗ 查看代码
+                      </button>
+                    </div>
+                  </td>
+                  <td class="hotspot-td hotspot-td--num">
+                    <span class="hotspot-num mono">{{ row.change_hits }}</span>
+                  </td>
+                  <td class="hotspot-td hotspot-td--num">
+                    <span class="hotspot-num mono">{{ row.block_hits }}</span>
+                  </td>
+                  <td class="hotspot-td hotspot-td--num hotspot-td--score">
+                    <span
+                      class="hotspot-risk-badge mono"
+                      :class="`hotspot-risk-badge--${hotspotRiskTone(row.score)}`"
+                    >
+                      {{ row.score }}
+                    </span>
+                  </td>
                 </tr>
               </tbody>
             </v-table>
@@ -1289,6 +1504,10 @@ watch([days, repoFilter], load)
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-snackbar v-model="hotspotToastOpen" :timeout="4200" location="bottom" color="#2a2a2a">
+      {{ hotspotToast }}
+    </v-snackbar>
   </div>
 </template>
 
@@ -1306,14 +1525,117 @@ watch([days, repoFilter], load)
 }
 .dashboard-hero {
   width: 100%;
+  margin-bottom: 16px;
+}
+.dashboard-load-error {
+  display: flex;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 0;
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  box-sizing: border-box;
+}
+.dashboard-load-error__icon {
+  font-size: 22px;
+  line-height: 1;
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+.dashboard-load-error__text {
+  flex: 1 1 auto;
+  margin: 0;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #fde68a;
+}
+.dashboard-load-error__code {
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.14);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.dashboard-load-error__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+}
+.dashboard-load-error__retry {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.dashboard-load-error__retry:hover:not(:disabled) {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+.dashboard-load-error__retry:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.dashboard-load-error__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  color: rgba(253, 230, 138, 0.85);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.dashboard-load-error__close:hover {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.15);
+}
+.dashboard-load-error__close .mdi {
+  font-size: 20px;
+}
+@media (max-width: 720px) {
+  .dashboard-load-error {
+    flex-wrap: wrap;
+  }
+  .dashboard-load-error__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 .chart-card-title {
   padding: 16px 24px 8px !important;
 }
+.chart-panel-card {
+  border: 1px solid #2a2a2a !important;
+  box-shadow: none !important;
+}
 .chart-card-title--split {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px 16px;
 }
@@ -1321,38 +1643,57 @@ watch([days, repoFilter], load)
   line-height: 1.35;
   min-width: 0;
 }
+.chart-card-title__trailing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  margin-inline-start: auto;
+  max-width: min(100%, 520px);
+}
+.trend-sparse-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.trend-sparse-badge__icon {
+  font-size: 14px;
+  opacity: 0.9;
+}
 .trend-legend {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px 16px;
-  margin-inline-start: auto;
 }
 .trend-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: 12px;
-  color: #8e9299;
+  color: #9aa0a8;
   white-space: nowrap;
 }
 .trend-legend-swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
   flex-shrink: 0;
 }
 .trend-legend-swatch--bar {
-  background: rgba(255, 255, 255, 0.38);
-  height: 8px;
-  width: 14px;
-  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.42);
 }
 .trend-legend-swatch--line {
   background: #8ab4f8;
-  border-radius: 999px;
-  width: 10px;
-  height: 10px;
 }
 .chart-card-equal {
   display: flex;
@@ -1483,9 +1824,17 @@ watch([days, repoFilter], load)
   font-size: 0.8125rem;
   color: rgba(255, 255, 255, 0.5);
 }
+.intercept-bar-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 4px 4px 0;
+}
 .intercept-bar-list {
   padding: 8px 8px 4px;
-  min-height: 200px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .intercept-bar-row {
   margin-bottom: 16px;
@@ -1513,7 +1862,7 @@ watch([days, repoFilter], load)
   font-weight: 600;
 }
 .intercept-bar-track {
-  height: 6px;
+  height: 10px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
@@ -1525,22 +1874,40 @@ watch([days, repoFilter], load)
   transition: width 0.35s ease;
   opacity: 0.92;
 }
-.intercept-bar-cta {
-  margin-inline: auto;
+.intercept-bar-summary {
+  margin: 4px 8px 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.48);
+}
+.intercept-bar-footer {
   display: flex;
-  color: #8ab4f8 !important;
-  opacity: 1 !important;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: auto;
+  padding: 12px 8px 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.intercept-bar-cta-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
+  font-size: 12px;
   font-weight: 500;
+  color: #8ab4f8;
+  background: transparent;
+  border: 1px solid rgba(138, 180, 248, 0.35);
+  border-radius: 8px;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
-.intercept-bar-cta:hover {
-  text-decoration: underline;
-  color: #aecbfb !important;
-}
-.trend-sparse-caption {
-  font-size: 11px;
-  line-height: 1.45;
-  color: rgba(255, 255, 255, 0.42);
-  letter-spacing: 0.01em;
+.intercept-bar-cta-ghost:hover {
+  color: #aecbfb;
+  border-color: rgba(138, 180, 248, 0.55);
+  background: rgba(138, 180, 248, 0.08);
 }
 .flow-filter-chip {
   background: rgba(239, 68, 68, 0.12) !important;
@@ -2132,6 +2499,254 @@ watch([days, repoFilter], load)
 }
 .flow-refresh-overlay {
   min-height: 120px;
+}
+.hotspot-panel {
+  background: #151515 !important;
+  border: 1px solid #2a2a2a !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+.hotspot-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 16px 20px 12px !important;
+}
+.hotspot-panel__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.hotspot-panel__title-icon {
+  color: #fb923c;
+  flex-shrink: 0;
+}
+.hotspot-panel__title-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.01em;
+}
+.hotspot-panel__cta {
+  font-weight: 500;
+}
+.hotspot-panel__body {
+  padding: 0 16px 12px !important;
+}
+.hotspot-table {
+  background: transparent !important;
+}
+.hotspot-table :deep(table) {
+  width: 100%;
+  table-layout: fixed;
+}
+.hotspot-th {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: rgba(255, 255, 255, 0.55) !important;
+  border-bottom: 1px solid #2a2a2a !important;
+  padding: 8px 10px !important;
+  white-space: nowrap;
+}
+.hotspot-th--repo {
+  text-align: left !important;
+  width: 124px;
+  padding-left: 4px !important;
+}
+.hotspot-th--path {
+  text-align: left !important;
+  width: auto;
+  padding-left: 4px !important;
+}
+.hotspot-th--num {
+  text-align: right !important;
+  width: 80px;
+  padding-inline: 10px !important;
+}
+.hotspot-th--score {
+  text-align: center !important;
+  width: 72px;
+  padding-inline: 8px !important;
+}
+.hotspot-table :deep(tbody tr) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: #1a1a1a;
+  transition: background 0.15s ease;
+}
+.hotspot-table :deep(tbody tr:hover) {
+  background: #252525 !important;
+}
+.hotspot-table :deep(tbody tr:last-child) {
+  border-bottom: none;
+}
+.hotspot-row--top {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, rgba(239, 68, 68, 0.03) 40%, #1a1a1a 100%);
+  box-shadow: inset 3px 0 0 #ef4444;
+}
+.hotspot-row--top:hover {
+  background: #252525 !important;
+}
+.hotspot-td {
+  padding: 8px 10px !important;
+  vertical-align: middle !important;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.86);
+}
+.hotspot-td--repo {
+  text-align: left;
+  padding-left: 4px !important;
+  vertical-align: middle !important;
+}
+.hotspot-td--path {
+  text-align: left;
+  padding-left: 4px !important;
+  vertical-align: middle !important;
+}
+.hotspot-td--num {
+  text-align: right;
+  padding-inline: 10px !important;
+  vertical-align: middle !important;
+}
+.hotspot-td--score {
+  text-align: center;
+  vertical-align: middle !important;
+}
+.hotspot-repo-chip {
+  display: inline-block;
+  max-width: 112px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.hotspot-num {
+  display: inline-block;
+  width: 100%;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+}
+.hotspot-path-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+.hotspot-path--btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.hotspot-path {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.hotspot-path__icon {
+  color: rgba(255, 255, 255, 0.38);
+  flex-shrink: 0;
+}
+.hotspot-path__icon--py {
+  color: #8ab4f8;
+}
+.hotspot-path__text {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 2px;
+  min-width: 0;
+  line-height: 1.4;
+}
+.hotspot-table :deep(tbody tr:hover) .hotspot-path__name {
+  color: #c5d9fc;
+}
+.hotspot-path__dir {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.36);
+}
+.hotspot-path__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f8fafc;
+  transition: color 0.15s ease;
+}
+.hotspot-view-code {
+  flex-shrink: 0;
+  opacity: 0;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #8ab4f8;
+  background: transparent;
+  border: 1px solid rgba(138, 180, 248, 0.28);
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+.hotspot-table :deep(tbody tr:hover) .hotspot-view-code {
+  opacity: 1;
+}
+.hotspot-view-code:hover {
+  background: rgba(138, 180, 248, 0.1);
+  border-color: rgba(138, 180, 248, 0.45);
+}
+.hotspot-risk-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.hotspot-risk-badge--high {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+}
+.hotspot-risk-badge--mid {
+  color: #fed7aa;
+  background: rgba(251, 146, 60, 0.09);
+  border: 1px solid rgba(251, 146, 60, 0.26);
+}
+.hotspot-risk-badge--low {
+  color: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .flow-skeleton :deep(.v-skeleton-loader__list-item) {
   margin-bottom: 8px;

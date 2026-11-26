@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import CallGraphD3, { type GraphNodePick } from '@/components/CallGraphD3.vue'
+import ImpactChainAccordion, { type AccordionDiffPick } from '@/components/ImpactChainAccordion.vue'
 import CodeDiffDrawer from '@/components/CodeDiffDrawer.vue'
 import { fetchJob, fetchJobGraph, humanizeJobError, refreshJobFullstack, retryJob } from '@/api/client'
 import type { CallPath, JobDetail, JobGraph, SuspectFunction } from '@/api/types'
 import { cleanRepoRelativePath, splitRepoPath } from '@/utils/repoPath'
+import { forceUnlockPageScroll, syncPageScrollLock } from '@/utils/scrollLock'
 
 const props = defineProps<{ id: string }>()
+const route = useRoute()
 const router = useRouter()
 
 const job = ref<JobDetail | null>(null)
@@ -205,6 +208,27 @@ const unresolvedFlat = computed(() => {
 /** 左右双表统一可视高度（含表头），保证卡片底边对齐 */
 const fullstackTableHeight = 220
 
+function unresolvedFileName(file: string) {
+  const parts = file.replace(/\\/g, '/').split('/')
+  return parts[parts.length - 1] || file
+}
+
+function unresolvedFileDir(file: string) {
+  const normalized = file.replace(/\\/g, '/')
+  const idx = normalized.lastIndexOf('/')
+  if (idx <= 0) return normalized
+  return normalized.slice(0, idx)
+}
+
+function unresolvedExtBadge(file: string) {
+  const name = unresolvedFileName(file)
+  const m = name.match(/\.([a-z0-9]+)$/i)
+  if (!m) return 'FILE'
+  const ext = m[1]!.toUpperCase()
+  if (ext.length > 4) return ext.slice(0, 4)
+  return ext
+}
+
 function openUnresolvedDrawer() {
   unresolvedDrawerOpen.value = true
 }
@@ -234,6 +258,22 @@ const hasFullstackPanel = computed(
     aggregatedFrontendCalls.value.length > 0 ||
     crossRepoConsumers.value.length > 0,
 )
+
+const fullstackBackendTrace = computed(() => {
+  const mode = fullstackImpact.value?.trace_mode ?? ''
+  return mode === 'backend_api' || mode.includes('backend_api')
+})
+
+const fullstackComponentCount = computed(() => frontendPages.value.length)
+
+const fullstackInterfaceCount = computed(() => {
+  const paths = new Set<string>()
+  for (const row of aggregatedFrontendCalls.value) {
+    for (const p of row.backend_paths) paths.add(p)
+  }
+  if (paths.size > 0) return paths.size
+  return apis.value.length
+})
 const suspects = computed(() => job.value?.changed_symbols?.suspects ?? [])
 const symbols = computed(() => job.value?.changed_symbols?.symbols ?? [])
 
@@ -282,6 +322,7 @@ const splitPanePct = ref(45)
 const splitRef = ref<HTMLElement | null>(null)
 /** 固定表高 + 底部内边距，避免最后一行被圆角容器裁切 */
 const impactTableHeight = 392
+const suspectTableMaxHeight = 400
 
 function apiRowKey(row: { method?: string; path?: string }) {
   return `${(row.method || 'GET').toUpperCase()} ${row.path ?? ''}`
@@ -435,22 +476,35 @@ function suspectHitsApi(row: SuspectFunction) {
 type SuspectTableRow = SuspectFunction & {
   displayName: string
   locationLine: string
+  pathDir: string
+  pathFile: string
+  lineLabel: string
   hitsApi: boolean
 }
 
 const suspectTableRows = computed(() => {
   const q = suspectSearch.value.trim().toLowerCase()
-  const rows: SuspectTableRow[] = suspectRows.value.map((row) => ({
+  const rows: SuspectTableRow[] = suspectRows.value.map((row) => {
+    const { full, dir, name } = splitRepoPath(row.file !== '—' ? row.file : '')
+    const lineLabel =
+      row.start_line > 0
+        ? `L${row.start_line}${row.end_line > row.start_line ? `-${row.end_line}` : ''}`
+        : ''
+    const pathFile = name || (row.file !== '—' ? row.file : '—')
+    const pathDir = dir ? `${dir}/` : ''
+  return {
     ...row,
     displayName: shortSuspectName(row.qualified_name),
     locationLine:
-      row.file && row.file !== '—' && row.start_line
-        ? `${row.file} · L${row.start_line}-${row.end_line}`
-        : row.file && row.file !== '—'
-          ? row.file
-          : '—',
+      full && row.start_line
+        ? `${full} · L${row.start_line}-${row.end_line}`
+        : full || '—',
+    pathDir,
+    pathFile,
+    lineLabel,
     hitsApi: suspectHitsApi(row),
-  }))
+  }
+  })
   return rows.filter((row) => {
     if (suspectApiOnly.value && !row.hitsApi) return false
     if (selectedApiKey.value && !suspectRelatesToApiKey(row, selectedApiKey.value)) return false
@@ -461,6 +515,13 @@ const suspectTableRows = computed(() => {
       row.file.toLowerCase().includes(q)
     )
   })
+})
+
+const suspectTableLayoutHeight = computed(() => {
+  const n = suspectTableRows.value.length
+  if (!n) return suspectTableMaxHeight
+  const estimated = 44 + n * 58
+  return Math.min(suspectTableMaxHeight, Math.max(estimated, 168))
 })
 
 function isDirectApiChain(row: CallPath & { chain_labels?: string[] }) {
@@ -527,6 +588,18 @@ const drawerPick = ref<{
 
 watch(drawerOpen, (open) => {
   if (!open) drawerFromUnresolved.value = false
+})
+
+watch(
+  [drawerOpen, unresolvedDrawerOpen],
+  ([diffOpen, unresolvedOpen]) => {
+    syncPageScrollLock(diffOpen || unresolvedOpen)
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  forceUnlockPageScroll()
 })
 
 watch([selectedApiKey, () => suspectTableRows.value.length], () => {
@@ -629,6 +702,18 @@ function openDrawerFromSuspect(row: SuspectFunction & { displayName?: string }) 
   drawerOpen.value = true
 }
 
+function onAccordionViewDiff(pick: AccordionDiffPick) {
+  drawerFromUnresolved.value = false
+  drawerPick.value = {
+    title: pick.title,
+    file: pick.file,
+    startLine: pick.startLine,
+    endLine: pick.endLine,
+    nodeType: pick.nodeType ?? 'changed',
+  }
+  drawerOpen.value = true
+}
+
 function openDrawerFromCallPath(row: (typeof callPathRows.value)[number]) {
   const api = apis.value.find((a) => a.path === row.path && a.method === row.method)
   let file = api?.file ? cleanRepoRelativePath(api.file) : ''
@@ -680,6 +765,49 @@ const jobInProgress = computed(() => {
 
 const showAnalyzingUi = computed(() => (loading.value && !job.value) || jobInProgress.value)
 
+const impactApiTableLoading = computed(
+  () => showAnalyzingUi.value && displayedCallPathRows.value.length === 0,
+)
+const impactSuspectTableLoading = computed(
+  () => showAnalyzingUi.value && suspectTableRows.value.length === 0,
+)
+
+const impactApiEmptySettled = computed(
+  () => !impactApiTableLoading.value && displayedCallPathRows.value.length === 0,
+)
+
+const suspectEmptyMinHeightResolved = computed(() => {
+  if (impactApiEmptySettled.value) return 200
+  return suspectEmptyMinHeight.value
+})
+
+const isZeroTopLevelApiImpact = computed(
+  () =>
+    job.value?.status === 'completed' &&
+    apis.value.length === 0 &&
+    callPathRows.value.length === 0 &&
+    !selectedApiKey.value,
+)
+
+const impactApiEmptyCopy = computed(() => {
+  if (selectedApiKey.value) {
+    return {
+      title: '当前筛选下无匹配接口',
+      hint: '可点击筛选标签清除条件，查看全部顶层 API。',
+    }
+  }
+  if (isZeroTopLevelApiImpact.value) {
+    return {
+      title: '本次变更未波及顶层 API',
+      hint: '变更仅涉及底层函数，系统未检测到受影响的接口请求。',
+    }
+  }
+  return {
+    title: '暂无受影响接口',
+    hint: '分析完成后将列出顶层 API 与追溯链路',
+  }
+})
+
 const analyzingHeadline = computed(() => {
   const s = job.value?.status
   if (s === 'pending') return '排队中，等待分析引擎执行'
@@ -703,6 +831,34 @@ const commitRange = computed(() => {
   const j = job.value
   if (!j?.base_sha || !j?.head_sha) return '—'
   return `${shortSha(j.base_sha)} → ${shortSha(j.head_sha)}`
+})
+
+const commitRangeCompact = computed(() => {
+  const j = job.value
+  if (!j?.base_sha || !j?.head_sha) return '—'
+  return `${j.base_sha.slice(0, 7)} → ${j.head_sha.slice(0, 7)}`
+})
+
+const branchDisplayName = computed(() => {
+  const ref = job.value?.ref
+  if (!ref) return '—'
+  if (ref.startsWith('refs/heads/')) return ref.slice('refs/heads/'.length)
+  const slash = ref.lastIndexOf('/')
+  return slash >= 0 ? ref.slice(slash + 1) : ref
+})
+
+const metaChangedLineCount = computed(() => {
+  const fromGate = job.value?.gate_result?.changed_lines
+  if (fromGate != null && fromGate >= 0) return fromGate
+  const ranges = job.value?.changed_symbols?.line_ranges ?? []
+  let total = 0
+  for (const block of ranges) {
+    if (!block || typeof block !== 'object') continue
+    const start = Number(block.start ?? 0)
+    const end = Number(block.end ?? start)
+    if (start > 0) total += Math.max(1, end - start + 1)
+  }
+  return total
 })
 
 const isEmptyImpact = computed(() => {
@@ -731,6 +887,10 @@ const graphEmptyTitle = computed(() => {
 
 const graphEmptyDesc = computed(() => {
   if (showAnalyzingUi.value) return analyzingDetail.value
+  if (job.value?.status === 'completed' && showTopologyCompactEmpty.value) {
+    return ''
+  }
+  if (job.value?.status === 'completed') return '当前任务未生成可展示的调用链子图'
   if (!isEmptyImpact.value) return '任务完成后生成变更影响拓扑'
   const ds = job.value?.changed_symbols?.diff_summary
   if (ds && ds.python_files === 0) {
@@ -740,6 +900,15 @@ const graphEmptyDesc = computed(() => {
 })
 
 const showZeroRiskAutoPass = computed(() => isEmptyImpact.value)
+
+/** 已完成、有底层变更但无 API/调用链：拓扑区折叠为轻量提示条 */
+const showTopologyCompactEmpty = computed(() => {
+  if (showAnalyzingUi.value) return false
+  if (job.value?.status !== 'completed') return false
+  if (graphReady(graph.value)) return false
+  if (callPathRows.value.length > 0 || apis.value.length > 0) return false
+  return true
+})
 
 const jobErrorText = computed(() => humanizeJobError(job.value?.error_message))
 const retryLoading = ref(false)
@@ -759,6 +928,29 @@ async function onRetryJob() {
 
 function goRegression() {
   void router.push({ name: 'regression', query: { job: props.id } })
+}
+
+function openCodeFromRouteQuery() {
+  const rawFile = route.query.file
+  if (typeof rawFile !== 'string' || !rawFile.trim()) return
+  const file = cleanRepoRelativePath(rawFile)
+  if (!file) return
+  const startRaw = route.query.start ?? route.query.start_line
+  const endRaw = route.query.end ?? route.query.end_line
+  const start = Number(startRaw ?? 1)
+  const end = Number(endRaw ?? start)
+  const startLine = Number.isFinite(start) && start > 0 ? Math.floor(start) : 1
+  const endLine = Number.isFinite(end) && end >= startLine ? Math.floor(end) : startLine
+  const { name } = splitRepoPath(file)
+  drawerFromUnresolved.value = false
+  drawerPick.value = {
+    title: name,
+    file,
+    startLine,
+    endLine,
+    nodeType: 'changed',
+  }
+  drawerOpen.value = true
 }
 
 async function load(silent = false) {
@@ -788,6 +980,7 @@ async function load(silent = false) {
       return
     }
     reconcilePoll()
+    openCodeFromRouteQuery()
   } finally {
     if (!silent) loading.value = false
   }
@@ -810,6 +1003,13 @@ watch(
   () => {
     resetForJob()
     void load()
+  },
+)
+
+watch(
+  () => [route.query.file, route.query.start, route.query.end] as const,
+  () => {
+    if (job.value) openCodeFromRouteQuery()
   },
 )
 
@@ -851,39 +1051,47 @@ onUnmounted(clearPoll)
       </div>
     </div>
 
-    <div class="job-meta-card" :class="{ 'job-meta-card--muted': showAnalyzingUi }">
-      <div class="job-meta-grid">
-        <div class="job-meta-item">
-          <span class="job-meta-item__label">状态</span>
-          <span
-            class="job-status-badge"
-            :class="[
-              job?.status ? `job-status-badge--${job.status}` : 'job-status-badge--pending',
-              showAnalyzingUi && 'job-status-badge--live',
-            ]"
-          >
-            <span
-              v-if="job?.status === 'completed'"
-              class="mdi mdi-check job-status-badge__check"
-              aria-hidden="true"
-            />
-            {{ statusLabel }}
-          </span>
-        </div>
-        <div class="job-meta-item">
-          <span class="job-meta-item__label">影响 API</span>
-          <span class="job-meta-item__value">{{ apis.length }}</span>
-        </div>
-        <div class="job-meta-item">
-          <span class="job-meta-item__label">变更符号</span>
-          <span class="job-meta-item__value">{{ symbols.length }}</span>
-        </div>
-        <div class="job-meta-item job-meta-item--branch">
-          <span class="job-meta-item__label">分支 & 对比范围</span>
-          <span class="job-meta-item__ref">{{ job?.ref ?? '—' }}</span>
-          <span class="job-meta-item__range mono" :title="commitRange">{{ commitRange }}</span>
-        </div>
-      </div>
+    <div
+      class="job-meta-strip"
+      :class="{ 'job-meta-strip--muted': showAnalyzingUi }"
+      role="group"
+      aria-label="任务摘要"
+    >
+      <span
+        class="job-status-badge job-meta-strip__status"
+        :class="[
+          job?.status ? `job-status-badge--${job.status}` : 'job-status-badge--pending',
+          showAnalyzingUi && 'job-status-badge--live',
+        ]"
+      >
+        <span
+          v-if="job?.status === 'completed'"
+          class="mdi mdi-check job-status-badge__check"
+          aria-hidden="true"
+        />
+        {{ statusLabel }}
+      </span>
+      <span class="job-meta-strip__sep" aria-hidden="true" />
+      <span class="job-meta-strip__part">
+        <span class="job-meta-strip__label">影响 API</span>
+        <span class="job-meta-strip__colon" aria-hidden="true">：</span>
+        <span class="job-meta-strip__num mono">{{ apis.length }}</span>
+        <span class="job-meta-strip__unit">个</span>
+      </span>
+      <span class="job-meta-strip__sep" aria-hidden="true" />
+      <span class="job-meta-strip__part">
+        <span class="job-meta-strip__label">变更行号</span>
+        <span class="job-meta-strip__colon" aria-hidden="true">：</span>
+        <span class="job-meta-strip__num mono">{{ metaChangedLineCount }}</span>
+        <span class="job-meta-strip__unit">处</span>
+      </span>
+      <span class="job-meta-strip__sep" aria-hidden="true" />
+      <span class="job-meta-strip__part job-meta-strip__part--branch">
+        <span class="job-meta-strip__label">分支</span>
+        <span class="job-meta-strip__colon" aria-hidden="true">：</span>
+        <span class="job-meta-strip__branch">{{ branchDisplayName }}</span>
+        <span class="job-meta-strip__range mono" :title="commitRange">({{ commitRangeCompact }})</span>
+      </span>
     </div>
 
     <v-alert
@@ -928,14 +1136,39 @@ onUnmounted(clearPoll)
     </div>
 
     <section v-if="hasFullstackPanel" class="job-detail-block job-detail-block--fullstack">
-      <h3 class="job-section__title">全栈影响面（前端页面与接口调用）</h3>
-      <p
-        v-if="fullstackImpact?.trace_mode === 'backend_api' || fullstackImpact?.trace_mode?.includes('backend_api')"
-        class="text-caption text-medium-emphasis mb-3"
+      <header class="fs-module-head">
+        <div class="fs-module-head__main">
+          <div class="fs-module-head__title-row">
+            <span class="fs-module-head__accent" aria-hidden="true" />
+            <v-icon class="fs-module-head__glyph" icon="mdi-layers-triple-outline" size="18" aria-hidden="true" />
+            <h3 class="fs-module-head__title">全栈影响面</h3>
+          </div>
+          <p v-if="fullstackBackendTrace" class="fs-module-head__banner" role="note">
+            <span class="mdi mdi-information-outline fs-module-head__banner-icon" aria-hidden="true" />
+            <span class="fs-module-head__banner-text">
+              条件触发：本次变更仅涉及后端，通过 API 反查关联前端组件。
+            </span>
+          </p>
+          <p v-else class="fs-module-head__desc">
+            展示受影响前端组件及其对后端 API 的调用命中。
+          </p>
+        </div>
+        <p
+          v-if="fullstackComponentCount > 0 || fullstackInterfaceCount > 0"
+          class="fs-module-head__stats"
+        >
+          共匹配到
+          <strong>{{ fullstackComponentCount }}</strong>
+          个组件、
+          <strong>{{ fullstackInterfaceCount }}</strong>
+          个接口
+        </p>
+      </header>
+      <div
+        v-if="frontendPages.length || aggregatedFrontendCalls.length"
+        class="fs-module-body"
       >
-        本次 diff 未改前端文件；根据受影响后端 API 反查同仓前端组件与 fetch 调用。
-      </p>
-      <el-row v-if="frontendPages.length || aggregatedFrontendCalls.length" :gutter="16" class="fullstack-cols">
+      <el-row :gutter="16" class="fullstack-cols">
         <el-col :span="12">
           <div class="job-panel job-panel--table fullstack-panel-half">
             <div class="fs-panel-head fs-panel-head--solo">
@@ -1027,6 +1260,7 @@ onUnmounted(clearPoll)
           </div>
         </el-col>
       </el-row>
+      </div>
       <div v-if="crossRepoConsumers.length" class="job-panel job-panel--table mt-3">
         <p class="text-caption text-medium-emphasis mb-2">跨仓 HTTP Client 消费方</p>
         <el-table :data="crossRepoConsumers" size="small" max-height="160">
@@ -1039,15 +1273,35 @@ onUnmounted(clearPoll)
     </section>
 
     <section class="job-detail-block">
-      <CallGraphD3
-        :data="graph"
+      <ImpactChainAccordion
+        :job-id="props.id"
+        :call-paths="callPathRows"
+        :apis="apis"
+        :graph="graph"
+        :fullstack="fullstackImpact ?? undefined"
+        :suspects="suspects"
         :changed-ids="changedIds"
         panel-title="变更影响拓扑"
         :empty-title="graphEmptyTitle"
         :empty-desc="graphEmptyDesc"
         :processing="showAnalyzingUi"
-        @node-pick="openDrawerFromNode"
-      />
+        :compact-empty="showTopologyCompactEmpty"
+        compact-empty-text="本次变更无涉及调用链，暂无拓扑图。"
+        @view-diff="onAccordionViewDiff"
+      >
+        <template #graph>
+          <CallGraphD3
+            class="impact-accordion-graph-slot"
+            :data="graph"
+            :changed-ids="changedIds"
+            panel-title="D3 拓扑（实验）"
+            :empty-title="graphEmptyTitle"
+            :empty-desc="graphEmptyDesc"
+            :processing="showAnalyzingUi"
+            @node-pick="openDrawerFromNode"
+          />
+        </template>
+      </ImpactChainAccordion>
     </section>
 
     <section
@@ -1055,7 +1309,11 @@ onUnmounted(clearPoll)
       class="lists job-detail-tables impact-split"
       :class="{ 'job-detail-tables--waiting': showAnalyzingUi }"
     >
-      <div class="impact-split__pane" :style="{ flexBasis: `${splitPanePct}%` }">
+      <div
+        class="impact-split__pane"
+        :class="{ 'impact-split__pane--api-empty': impactApiEmptySettled }"
+        :style="{ flexBasis: `${splitPanePct}%` }"
+      >
         <div class="impact-split__head">
           <h3 class="job-section__title job-section__title--tight">受影响顶层接口</h3>
           <span v-if="selectedApiKey" class="impact-filter-chip" role="status">
@@ -1071,30 +1329,72 @@ onUnmounted(clearPoll)
             </button>
           </span>
         </div>
-        <div class="job-panel job-panel--table impact-table-panel">
+        <div
+          class="job-panel job-panel--table impact-table-panel"
+          :class="{
+            'impact-table-panel--loading': impactApiTableLoading,
+            'impact-table-panel--empty': !impactApiTableLoading && !displayedCallPathRows.length,
+          }"
+        >
+          <div
+            v-if="impactApiTableLoading"
+            class="impact-table-skeleton"
+            :style="{ minHeight: `${impactTableHeight}px` }"
+            role="status"
+            aria-live="polite"
+            aria-label="正在加载受影响接口列表"
+          >
+            <div class="impact-table-skeleton__head impact-table-cols" aria-hidden="true">
+              <span class="impact-table-skeleton__th">方法</span>
+              <span class="impact-table-skeleton__th">接口</span>
+              <span class="impact-table-skeleton__th">调用链</span>
+            </div>
+            <div class="impact-table-skeleton__body">
+              <div v-for="row in 6" :key="row" class="impact-table-skeleton__row impact-table-cols">
+                <span class="impact-table-skeleton__cell impact-table-skeleton__cell--center">
+                  <span class="impact-skel-bar impact-skel-bar--pill" />
+                </span>
+                <span class="impact-table-skeleton__cell">
+                  <span class="impact-skel-bar" />
+                </span>
+                <span class="impact-table-skeleton__cell">
+                  <span class="impact-skel-bar impact-skel-bar--mid" />
+                </span>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="impactApiEmptySettled" class="impact-api-empty-panel" role="status">
+            <div
+              class="impact-empty impact-empty--card"
+              :class="{ 'impact-empty--safe': isZeroTopLevelApiImpact }"
+            >
+              <span class="impact-empty__icon-wrap" aria-hidden="true">
+                <span
+                  class="mdi impact-empty__icon"
+                  :class="isZeroTopLevelApiImpact ? 'mdi-shield-check-outline' : 'mdi-api-off'"
+                />
+              </span>
+              <p class="impact-empty__title">{{ impactApiEmptyCopy.title }}</p>
+              <p class="impact-empty__hint">{{ impactApiEmptyCopy.hint }}</p>
+            </div>
+          </div>
           <el-table
+            v-else
             :data="displayedCallPathRows"
             size="small"
             :stripe="!selectedApiKey"
-            :height="apiTableLayoutHeight"
+            :height="apiTableLayoutHeight ?? impactTableHeight"
             class="job-click-table impact-api-table impact-table-scroll"
             :class="{ 'impact-api-table--compact': apiTableLayoutHeight == null }"
             :row-class-name="impactApiRowClass"
             @row-click="toggleApiFilter"
           >
-            <template #empty>
-              <div class="impact-empty">
-                <span class="mdi mdi-api-off impact-empty__icon" aria-hidden="true" />
-                <p class="impact-empty__title">暂无受影响接口</p>
-                <p class="impact-empty__hint">分析完成后将列出顶层 API 与追溯链路</p>
-              </div>
-            </template>
-            <el-table-column prop="method" label="方法" width="80" align="center" header-align="center">
+            <el-table-column prop="method" label="方法" width="15%" align="center" header-align="center">
               <template #default="{ row }">
                 <span class="http-pill" :class="httpPillClass(row.method)">{{ row.method }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="接口" min-width="96" header-align="left" show-overflow-tooltip>
+            <el-table-column label="接口" width="45%" header-align="left" show-overflow-tooltip>
               <template #default="{ row }">
                 <button
                   type="button"
@@ -1106,7 +1406,7 @@ onUnmounted(clearPoll)
                 </button>
               </template>
             </el-table-column>
-            <el-table-column label="调用链" min-width="96" header-align="left" show-overflow-tooltip>
+            <el-table-column label="调用链" width="40%" header-align="left" show-overflow-tooltip>
               <template #default="{ row }">
                 <el-tooltip
                   :content="callPathTooltip(row)"
@@ -1145,7 +1445,11 @@ onUnmounted(clearPoll)
         title="拖拽调整宽度"
         @pointerdown="onSplitResizerPointerDown"
       />
-      <div class="impact-split__pane impact-split__pane--right" :style="{ flexBasis: `${100 - splitPanePct}%` }">
+      <div
+        class="impact-split__pane impact-split__pane--right"
+        :class="{ 'impact-split__pane--suspect-fit': suspectTableRows.length > 0 }"
+        :style="{ flexBasis: `${100 - splitPanePct}%` }"
+      >
         <div class="impact-split__head impact-split__head--suspect">
           <h3 class="job-section__title job-section__title--tight">初始变更函数明细</h3>
         </div>
@@ -1172,14 +1476,38 @@ onUnmounted(clearPoll)
         </div>
         <div
           class="job-panel job-panel--table impact-table-panel"
-          :class="{ 'impact-table-panel--empty': !suspectTableRows.length }"
+          :class="{
+            'impact-table-panel--loading': impactSuspectTableLoading,
+            'impact-table-panel--empty': !impactSuspectTableLoading && !suspectTableRows.length,
+          }"
         >
           <div
-            v-if="!suspectTableRows.length"
-            class="impact-suspect-empty"
-            :style="{ minHeight: `${suspectEmptyMinHeight}px` }"
+            v-if="impactSuspectTableLoading"
+            class="impact-table-skeleton impact-table-skeleton--suspect"
+            :style="{ minHeight: `${impactTableHeight}px` }"
+            role="status"
+            aria-live="polite"
+            aria-label="正在加载变更函数列表"
           >
-            <span class="mdi mdi-code-brackets impact-suspect-empty__icon" aria-hidden="true" />
+            <div class="impact-table-skeleton__toolbar">
+              <span class="impact-skel-bar impact-skel-bar--search" />
+              <span class="impact-skel-bar impact-skel-bar--tag" />
+            </div>
+            <div class="impact-table-skeleton__body">
+              <div v-for="row in 5" :key="row" class="impact-table-skeleton__row impact-table-skeleton__row--wide">
+                <span class="impact-skel-bar impact-skel-bar--fn" />
+                <span class="impact-skel-bar impact-skel-bar--file" />
+              </div>
+            </div>
+          </div>
+          <div
+            v-else-if="!suspectTableRows.length"
+            class="impact-suspect-empty"
+            :style="{ minHeight: `${suspectEmptyMinHeightResolved}px` }"
+          >
+            <span class="impact-suspect-empty__icon-wrap" aria-hidden="true">
+              <span class="mdi mdi-code-brackets impact-suspect-empty__icon" />
+            </span>
             <p class="impact-suspect-empty__title">
               {{
                 selectedApiKey
@@ -1205,8 +1533,8 @@ onUnmounted(clearPoll)
             v-else
             :data="suspectTableRows"
             size="small"
-            :height="impactTableHeight"
-            class="job-click-table job-suspect-table impact-table-scroll custom-scrollbar"
+            :height="suspectTableLayoutHeight"
+            class="job-click-table job-suspect-table impact-table-scroll custom-scrollbar job-suspect-table--fit"
             :row-class-name="impactSuspectRowClass"
             @row-click="openDrawerFromSuspect"
           >
@@ -1225,14 +1553,21 @@ onUnmounted(clearPoll)
                   >
                     <div class="suspect-cell__main">
                       <span class="suspect-cell__name">{{ row.displayName }}</span>
+                    </div>
+                    <div class="suspect-cell__sub">
                       <span
                         class="suspect-impact-badge"
                         :class="row.hitsApi ? 'suspect-impact-badge--hit' : 'suspect-impact-badge--iso'"
                       >
                         {{ row.hitsApi ? '命中接口' : '孤立变更' }}
                       </span>
+                      <span v-if="row.pathFile !== '—'" class="suspect-cell__loc mono">
+                        <span v-if="row.pathDir" class="suspect-cell__path-dir">{{ row.pathDir }}</span>
+                        <span class="suspect-cell__path-file">{{ row.pathFile }}</span>
+                        <span v-if="row.lineLabel" class="suspect-cell__path-lines">{{ row.lineLabel }}</span>
+                      </span>
+                      <span v-else class="suspect-cell__loc mono">—</span>
                     </div>
-                    <span class="suspect-cell__loc mono">{{ row.locationLine }}</span>
                   </div>
                 </el-tooltip>
               </template>
@@ -1256,27 +1591,56 @@ onUnmounted(clearPoll)
 
     <el-drawer
       v-model="unresolvedDrawerOpen"
-      title="未解析动态请求"
       direction="rtl"
-      size="min(92vw, 400px)"
+      size="min(92vw, 420px)"
       :append-to-body="true"
+      :with-header="false"
       class="fs-unresolved-drawer"
+      modal-class="fs-unresolved-drawer-overlay"
     >
-      <p class="fs-unresolved-drawer__hint">
-        通过模板字符串或变量拼接的动态 URL，未参与精确接口匹配。
-      </p>
-      <ul class="fs-unresolved-drawer__list">
-        <li v-for="(item, i) in unresolvedFlat" :key="`${item.file}:${item.line}:${i}`">
-          <button type="button" class="fs-unresolved-row" @click="openUnresolvedAt(item.file, item.line)">
-            <code class="fs-mono-path">
-              <span class="fs-mono-path__file">{{ item.file }}</span>
-              <span class="fs-mono-path__sep"> · </span>
-              <span class="fs-mono-path__line">L{{ item.line }}</span>
-            </code>
+      <header class="fs-unresolved-drawer__head">
+        <span class="mdi mdi-alert-circle-outline fs-unresolved-drawer__warn" aria-hidden="true" />
+        <div class="fs-unresolved-drawer__head-text">
+          <h3 class="fs-unresolved-drawer__title">未解析动态请求</h3>
+          <p class="fs-unresolved-drawer__lead">未参与精确接口匹配</p>
+          <p class="fs-unresolved-drawer__hint">
+            以下文件使用了动态 URL（模板字符串或变量拼接），需人工确认。
+          </p>
+        </div>
+        <button
+          type="button"
+          class="fs-unresolved-drawer__close"
+          aria-label="关闭"
+          @click="unresolvedDrawerOpen = false"
+        >
+          <span class="mdi mdi-close" aria-hidden="true" />
+        </button>
+      </header>
+
+      <ul v-if="unresolvedFlat.length" class="fs-unresolved-drawer__list">
+        <li
+          v-for="(item, i) in unresolvedFlat"
+          :key="`${item.file}:${item.line}:${i}`"
+          class="fs-unresolved-drawer__item"
+        >
+          <button
+            type="button"
+            class="fs-unresolved-row"
+            :title="`${item.file} · L${item.line}`"
+            @click="openUnresolvedAt(item.file, item.line)"
+          >
+            <span class="fs-unresolved-row__badge">{{ unresolvedExtBadge(item.file) }}</span>
+            <span class="fs-unresolved-row__text">
+              <span class="fs-unresolved-row__name">{{ unresolvedFileName(item.file) }}</span>
+              <span class="fs-unresolved-row__path mono">
+                {{ unresolvedFileDir(item.file) }}<template v-if="item.line"> · L{{ item.line }}</template>
+              </span>
+            </span>
+            <span class="fs-unresolved-row__action">↗ 查看</span>
           </button>
         </li>
       </ul>
-      <p v-if="!unresolvedFlat.length" class="fs-unresolved-drawer__empty">暂无未解析条目</p>
+      <p v-else class="fs-unresolved-drawer__empty">暂无未解析条目</p>
     </el-drawer>
 
     <CodeDiffDrawer
@@ -1350,58 +1714,81 @@ onUnmounted(clearPoll)
   font-weight: 600;
   opacity: 0.85;
 }
-.job-meta-card {
-  margin-top: 4px;
-  padding: 20px 24px;
-  background: #1a1a1a;
-  border: 1px solid #2a2e35;
-  border-radius: 8px;
+.job-meta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(30, 30, 30, 0.92);
   box-sizing: border-box;
+  font-size: 13px;
+  line-height: 1.35;
 }
-.job-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px 0;
-  align-items: start;
+.job-meta-strip__status {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 9px;
 }
-.job-meta-item {
-  padding: 4px 22px 4px 0;
-  margin-right: 22px;
-  border-right: 1px dashed #333333;
+.job-meta-strip__sep {
+  width: 1px;
+  height: 16px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.12);
 }
-.job-meta-item:last-child {
-  margin-right: 0;
-  padding-right: 0;
-  border-right: none;
+.job-meta-strip__part {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 3px;
+  min-width: 0;
 }
-.job-meta-item__label {
-  display: block;
+.job-meta-strip__part--branch {
+  flex: 1 1 auto;
+  min-width: min(100%, 12rem);
+}
+.job-meta-strip__label {
   font-size: 12px;
-  color: #888888;
-  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
 }
-.job-meta-item__value {
-  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 1.35rem;
+.job-meta-strip__colon {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.35);
+  margin-right: 2px;
+}
+.job-meta-strip__num {
+  font-size: 14px;
   font-weight: 700;
-  color: #ffffff;
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
-}
-.job-meta-item__ref {
-  display: block;
-  font-size: 1.125rem;
-  font-weight: 700;
   color: #ffffff;
+}
+.job-meta-strip__unit {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.42);
+  margin-left: 1px;
+}
+.job-meta-strip__branch {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.09);
   line-height: 1.25;
 }
-.job-meta-item__range {
-  display: block;
-  margin-top: 6px;
-  font-size: 10px;
+.job-meta-strip__range {
+  font-size: 12px;
   font-weight: 500;
-  color: #555555;
-  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.62);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 .job-tonal-alert {
   display: flex;
@@ -1471,10 +1858,10 @@ onUnmounted(clearPoll)
   opacity: 0.95;
 }
 .job-status-badge--completed {
-  background: rgba(34, 197, 94, 0.12);
-  color: #4ade80;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
   border: none;
-  gap: 2px;
+  gap: 4px;
 }
 .job-status-badge--running {
   background: rgba(138, 180, 248, 0.15);
@@ -1527,7 +1914,9 @@ onUnmounted(clearPoll)
   line-height: 1.5;
   color: rgba(255, 255, 255, 0.55);
 }
-.job-meta-card--muted .job-meta-item__value {
+.job-meta-strip--muted .job-meta-strip__num,
+.job-meta-strip--muted .job-meta-strip__unit,
+.job-meta-strip--muted .job-meta-strip__range {
   opacity: 0.55;
 }
 .job-detail-page--busy::before {
@@ -1596,7 +1985,7 @@ onUnmounted(clearPoll)
 }
 .impact-split {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   gap: 0;
   width: 100%;
   min-height: 0;
@@ -1607,10 +1996,16 @@ onUnmounted(clearPoll)
   display: flex;
   flex-direction: column;
 }
+.impact-split__pane--api-empty {
+  align-self: flex-start;
+}
 .impact-split__pane--right {
   flex-grow: 1;
   padding-left: 0;
   border-left: none;
+}
+.impact-split__pane--suspect-fit {
+  align-self: flex-start;
 }
 /* 透明拖拽条：保留调宽，不画竖线 */
 .impact-split__resizer {
@@ -1628,6 +2023,140 @@ onUnmounted(clearPoll)
 }
 .impact-table-panel {
   padding-bottom: 2px;
+}
+.impact-table-panel--loading,
+.impact-table-panel--empty {
+  overflow: hidden;
+}
+.impact-table-cols {
+  display: grid;
+  grid-template-columns: 15% 45% 40%;
+  align-items: center;
+  column-gap: 8px;
+  padding-left: 16px;
+  padding-right: 16px;
+  box-sizing: border-box;
+}
+.impact-table-skeleton {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.impact-table-skeleton__head {
+  flex-shrink: 0;
+  min-height: 44px;
+  border-bottom: 1px solid #2a2a2a;
+}
+.impact-table-skeleton__th {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.02em;
+}
+.impact-table-skeleton__body {
+  flex: 1;
+  padding: 6px 0 12px;
+  overflow: hidden;
+}
+.impact-table-skeleton__row {
+  min-height: 46px;
+}
+.impact-table-skeleton__row--wide {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  min-height: 52px;
+  border-bottom: 1px solid rgba(42, 42, 42, 0.65);
+}
+.impact-table-skeleton__row--wide:last-child {
+  border-bottom: none;
+}
+.impact-table-skeleton__cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.impact-table-skeleton__cell--center {
+  justify-content: center;
+}
+.impact-table-skeleton__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #2a2a2a;
+}
+.impact-skel-bar {
+  display: block;
+  height: 12px;
+  width: 68%;
+  max-width: 100%;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  position: relative;
+  overflow: hidden;
+}
+.impact-skel-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.09),
+    transparent
+  );
+  animation: impact-skel-shimmer 1.35s ease-in-out infinite;
+}
+.impact-skel-bar--pill {
+  width: 44px;
+  height: 22px;
+  border-radius: 999px;
+}
+.impact-skel-bar--mid {
+  width: 52%;
+}
+.impact-skel-bar--search {
+  flex: 1;
+  height: 34px;
+  border-radius: 8px;
+  max-width: 220px;
+}
+.impact-skel-bar--tag {
+  width: 96px;
+  height: 30px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.impact-skel-bar--fn {
+  width: 46%;
+  height: 11px;
+}
+.impact-skel-bar--file {
+  width: 72%;
+  height: 11px;
+  opacity: 0.85;
+}
+@keyframes impact-skel-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+.impact-table-scroll--idle :deep(.el-scrollbar__bar) {
+  display: none !important;
+}
+.impact-table-scroll--idle :deep(.el-table__body-wrapper),
+.impact-table-scroll--idle :deep(.el-scrollbar__wrap) {
+  overflow: hidden !important;
+}
+.impact-api-table.impact-table-scroll--idle :deep(.el-table__empty-block) {
+  min-height: 300px;
 }
 .impact-table-scroll :deep(.el-table__body-wrapper) {
   padding-bottom: 14px;
@@ -1762,25 +2291,43 @@ onUnmounted(clearPoll)
   font-size: 11.5px;
   color: rgba(255, 255, 255, 0.78);
 }
-.impact-empty {
-  padding: 28px 16px 32px;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.55);
+.impact-empty__icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  margin-bottom: 16px;
+  border-radius: 50%;
+  background: rgba(138, 180, 248, 0.1);
+  border: 1px solid rgba(138, 180, 248, 0.14);
+  box-shadow: inset 0 0 0 6px rgba(0, 0, 0, 0.18);
+}
+.impact-empty--safe .impact-empty__icon-wrap {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.2);
 }
 .impact-empty__icon {
-  font-size: 28px;
-  opacity: 0.45;
-  display: block;
-  margin: 0 auto 8px;
+  font-size: 34px;
+  color: #93b8f8;
+  line-height: 1;
+}
+.impact-empty--safe .impact-empty__icon {
+  color: #34d399;
 }
 .impact-empty__title {
-  margin: 0 0 6px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.72);
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.35;
 }
 .impact-empty__hint {
   margin: 0;
+  max-width: 300px;
   font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.5);
 }
 .impact-empty__link {
   border: none;
@@ -1799,10 +2346,16 @@ onUnmounted(clearPoll)
 .impact-api-table :deep(.el-table__header th.el-table__cell),
 .job-suspect-table :deep(.el-table__header th.el-table__cell) {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.48) !important;
-  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6) !important;
+  font-weight: 600;
   padding-top: 12px;
   padding-bottom: 12px;
+}
+.impact-api-table :deep(.el-table__header-wrapper) {
+  border-bottom: 1px solid #2a2a2a;
+}
+.impact-table-panel--empty :deep(.el-table__inner-wrapper::before) {
+  display: none;
 }
 .impact-api-table :deep(.el-table__body td.el-table__cell) {
   padding-top: 13px;
@@ -1816,7 +2369,7 @@ onUnmounted(clearPoll)
   text-align: left;
 }
 .job-suspect-table :deep(.el-table__body tr td.el-table__cell) {
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 .job-suspect-table :deep(.el-table__body tr:last-child td.el-table__cell) {
   border-bottom: none;
@@ -1847,11 +2400,20 @@ onUnmounted(clearPoll)
   padding: 32px 20px 40px;
   box-sizing: border-box;
 }
-.impact-suspect-empty__icon {
-  font-size: 48px;
-  color: #444444;
+.impact-suspect-empty__icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
   margin-bottom: 14px;
-  opacity: 0.95;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+}
+.impact-suspect-empty__icon {
+  font-size: 28px;
+  color: rgba(255, 255, 255, 0.58);
+  line-height: 1;
 }
 .impact-suspect-empty__title {
   margin: 0 0 10px;
@@ -1881,8 +2443,26 @@ onUnmounted(clearPoll)
 .impact-suspect-empty__cta:hover {
   background: #363636;
 }
-.impact-table-panel--empty {
-  background: #1a1d21;
+.impact-table-panel--empty:not(.impact-table-panel--loading) {
+  background-color: #1c1f24;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+.impact-api-empty-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 232px;
+  padding: 28px 20px 32px;
+  box-sizing: border-box;
+}
+.impact-empty--card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  max-width: 320px;
 }
 .job-detail-page :deep(tr.impact-row--linked td.el-table__cell) {
   background: rgba(253, 214, 99, 0.1) !important;
@@ -1903,25 +2483,18 @@ onUnmounted(clearPoll)
   .impact-split__resizer {
     display: none;
   }
-  .job-meta-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px 0;
+  .job-meta-strip__sep {
+    display: none;
   }
-  .job-meta-item {
-    margin-right: 0;
-    padding-right: 0;
-    border-right: none;
-    border-bottom: 1px dashed #333333;
-    padding-bottom: 14px;
+  .job-meta-strip {
+    gap: 8px 10px;
+    padding: 10px 12px;
   }
-  .job-meta-item:nth-child(odd) {
-    padding-right: 12px;
-    border-right: 1px dashed #333333;
-    border-bottom: none;
+  .job-meta-strip__part {
+    flex: 1 1 calc(50% - 6px);
   }
-  .job-meta-item:nth-last-child(-n + 2) {
-    border-bottom: none;
-    padding-bottom: 4px;
+  .job-meta-strip__part--branch {
+    flex: 1 1 100%;
   }
 }
 .job-section__title {
@@ -2060,15 +2633,15 @@ onUnmounted(clearPoll)
   align-items: center;
   gap: 8px;
   min-width: 0;
-  height: 34px;
+  height: 36px;
   padding: 0 12px;
   border-radius: 10px;
-  border: 1px solid #2a2e35;
-  background: #252930;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
 }
 .suspect-toolbar__search-icon {
   font-size: 18px;
-  color: rgba(255, 255, 255, 0.42);
+  color: rgba(255, 255, 255, 0.34);
   flex-shrink: 0;
 }
 .suspect-toolbar__search {
@@ -2089,15 +2662,19 @@ onUnmounted(clearPoll)
 }
 .suspect-filter-tag {
   flex-shrink: 0;
-  height: 34px;
+  height: 36px;
   padding: 0 14px;
   border-radius: 999px;
-  border: 1px solid #2a2e35;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04);
   color: rgba(255, 255, 255, 0.62);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 .suspect-filter-tag--on {
   color: #fdd663;
@@ -2107,9 +2684,12 @@ onUnmounted(clearPoll)
 .suspect-filter-tag:hover {
   border-color: rgba(255, 255, 255, 0.18);
 }
+.job-suspect-table--fit {
+  max-height: 400px;
+}
 .job-suspect-table :deep(.el-table__cell) {
-  padding-top: 11px;
-  padding-bottom: 11px;
+  padding-top: 14px;
+  padding-bottom: 14px;
 }
 .job-suspect-table :deep(.el-table__body tr > td.el-table__cell) {
   background-color: #1a1d21 !important;
@@ -2120,14 +2700,47 @@ onUnmounted(clearPoll)
 }
 .job-suspect-table :deep(td.suspect-col-actions .cell) {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   padding-right: 12px !important;
+  height: 100%;
+}
+.job-suspect-table :deep(.el-table__body td.el-table__cell) {
+  vertical-align: middle;
+}
+.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap) {
+  overflow-x: hidden !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 128, 140, 0.45) transparent;
 }
 .job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap::-webkit-scrollbar) {
   width: 4px;
+  height: 4px;
+}
+.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap::-webkit-scrollbar-button) {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap::-webkit-scrollbar-thumb) {
+  background: rgba(120, 128, 140, 0.4);
+  border-radius: 4px;
+}
+.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap::-webkit-scrollbar-track) {
+  background: transparent;
 }
 .job-suspect-table.custom-scrollbar :deep(.el-scrollbar__bar.is-vertical) {
   width: 4px;
+  right: 2px;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+.job-suspect-table.custom-scrollbar:hover :deep(.el-scrollbar__bar.is-vertical) {
+  opacity: 1;
+}
+.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__bar.is-vertical .el-scrollbar__thumb) {
+  background: rgba(150, 158, 170, 0.55);
+  border-radius: 4px;
 }
 .job-detail-page .job-suspect-table :deep(tr.impact-row--linked td.el-table__cell) {
   background: rgba(245, 158, 11, 0.06) !important;
@@ -2146,7 +2759,7 @@ onUnmounted(clearPoll)
 .suspect-cell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 .suspect-cell__main {
@@ -2156,18 +2769,39 @@ onUnmounted(clearPoll)
   gap: 8px;
   min-width: 0;
 }
+.suspect-cell__sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .suspect-cell__name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #f1f3f5;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
   line-height: 1.35;
   word-break: break-word;
 }
 .suspect-cell__loc {
-  font-size: 11px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0;
+  font-size: 11.5px;
   line-height: 1.45;
-  color: #888888;
   word-break: break-all;
+}
+.suspect-cell__path-dir {
+  color: rgba(255, 255, 255, 0.38);
+}
+.suspect-cell__path-file {
+  color: rgba(255, 255, 255, 0.62);
+}
+.suspect-cell__path-lines {
+  margin-left: 6px;
+  color: rgba(255, 255, 255, 0.36);
+  font-variant-numeric: tabular-nums;
 }
 .suspect-impact-badge {
   flex-shrink: 0;
@@ -2193,17 +2827,21 @@ onUnmounted(clearPoll)
   font-weight: 600;
 }
 .suspect-impact-badge--iso {
-  color: rgba(255, 255, 255, 0.45);
-  background: transparent;
-  border: none;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 10px;
 }
 .suspect-diff-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 5px 12px;
-  border-radius: 999px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
   color: rgba(138, 180, 248, 0.9);
@@ -2268,15 +2906,95 @@ onUnmounted(clearPoll)
   background: rgba(242, 139, 130, 0.1);
   border: 1px solid rgba(242, 139, 130, 0.28);
 }
-.job-detail-block--fullstack .job-section__title {
+.fs-module-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding-bottom: 16px;
   margin-bottom: 16px;
+  border-bottom: 1px solid #2a2a2a;
 }
-.job-detail-block--fullstack .text-caption.mb-3 {
-  margin-bottom: 16px !important;
+.fs-module-head__main {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.fs-module-head__title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fs-module-head__accent {
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #8ab4f8 0%, #22d3ee 100%);
+  flex-shrink: 0;
+}
+.fs-module-head__glyph {
+  color: #8ab4f8;
+  opacity: 0.92;
+  flex-shrink: 0;
+}
+.fs-module-head__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #ffffff;
+  letter-spacing: 0.01em;
+}
+.fs-module-head__desc {
+  margin: 10px 0 0;
+  padding-left: 31px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #888888;
+  max-width: 600px;
+}
+.fs-module-head__banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 0;
+  max-width: 600px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #9ca3af;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+.fs-module-head__banner-icon {
+  margin-top: 1px;
+  font-size: 15px;
+  color: #8ab4f8;
+  flex-shrink: 0;
+}
+.fs-module-head__banner-text {
+  color: #888888;
+}
+.fs-module-head__stats {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.52);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.fs-module-head__stats strong {
+  color: #8ab4f8;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.fs-module-body {
+  box-sizing: border-box;
 }
 .fullstack-cols {
   margin-bottom: 0;
-  margin-top: 4px;
+  margin-top: 0;
   align-items: stretch;
 }
 .mono {
@@ -2447,67 +3165,160 @@ onUnmounted(clearPoll)
 </style>
 
 <style>
-.fs-unresolved-drawer.el-drawer {
-  background: #2a2a2a !important;
+.fs-unresolved-drawer-overlay {
+  background-color: rgba(0, 0, 0, 0.48) !important;
+  overscroll-behavior: none;
+  touch-action: none;
 }
-.fs-unresolved-drawer .el-drawer__header {
-  margin-bottom: 0;
-  padding: 16px 16px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  color: #e8eaed;
+.fs-unresolved-drawer.el-drawer {
+  background: #1e1e1e !important;
 }
 .fs-unresolved-drawer .el-drawer__body {
-  padding: 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.fs-unresolved-drawer__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 16px 14px;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+.fs-unresolved-drawer__warn {
+  font-size: 22px;
+  color: #fdd663;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.fs-unresolved-drawer__head-text {
+  flex: 1;
+  min-width: 0;
+}
+.fs-unresolved-drawer__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #f3f4f6;
+}
+.fs-unresolved-drawer__lead {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #e5e7eb;
 }
 .fs-unresolved-drawer__hint {
-  margin: 0 0 16px;
+  margin: 6px 0 0;
   font-size: 12px;
-  line-height: 1.6;
-  color: rgba(156, 163, 175, 0.95);
+  line-height: 1.55;
+  color: #888;
+}
+.fs-unresolved-drawer__close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.fs-unresolved-drawer__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 .fs-unresolved-drawer__list {
   margin: 0;
-  padding: 0;
+  padding: 0 8px;
   list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+.fs-unresolved-drawer__item {
+  border-bottom: 1px solid #2a2a2a;
+}
+.fs-unresolved-drawer__item:last-child {
+  border-bottom: none;
 }
 .fs-unresolved-row {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   margin: 0;
-  padding: 10px 12px;
+  padding: 12px 10px;
   text-align: left;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s ease;
 }
 .fs-unresolved-row:hover {
-  background: rgba(251, 146, 60, 0.1);
-  border-color: rgba(251, 146, 60, 0.22);
+  background: rgba(255, 255, 255, 0.05);
 }
-.fs-mono-path {
-  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  word-break: break-all;
+.fs-unresolved-row:hover .fs-unresolved-row__action {
+  color: #8ab4f8;
+  border-color: rgba(138, 180, 248, 0.45);
 }
-.fs-mono-path__file {
-  color: #e8eaed;
-  font-weight: 500;
+.fs-unresolved-row__badge {
+  flex-shrink: 0;
+  min-width: 34px;
+  padding: 3px 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-align: center;
+  color: #8ab4f8;
+  background: rgba(138, 180, 248, 0.12);
+  border-radius: 4px;
 }
-.fs-mono-path__sep {
-  color: rgba(255, 255, 255, 0.35);
+.fs-unresolved-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
-.fs-mono-path__line {
-  color: #81c995;
+.fs-unresolved-row__name {
+  font-size: 14px;
   font-weight: 600;
+  color: #fff;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fs-unresolved-row__path {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fs-unresolved-row__action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 .fs-unresolved-drawer__empty {
   margin: 0;
+  padding: 24px 16px;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.45);
 }

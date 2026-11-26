@@ -14,6 +14,57 @@ const stats = ref<JobAnalysisStats | null>(null)
 const repoFilter = ref<string | null>(null)
 const statusFilter = ref<'all' | JobStatus>('all')
 const repoGateStats = ref<RepoGateStat[]>([])
+const jobPage = ref(1)
+const jobPageSize = ref(10)
+const jobTotal = ref(0)
+const jobPerPageOptions = [10, 25, 50]
+
+const jobPageCount = computed(() => Math.max(1, Math.ceil(jobTotal.value / jobPageSize.value)))
+const jobRangeStart = computed(() =>
+  jobTotal.value === 0 ? 0 : (jobPage.value - 1) * jobPageSize.value + 1,
+)
+const jobRangeEnd = computed(() => Math.min(jobPage.value * jobPageSize.value, jobTotal.value))
+const canGoJobPrev = computed(() => jobPage.value > 1)
+const canGoJobNext = computed(() => jobPage.value < jobPageCount.value)
+
+const jobPaginationNavButtons = computed(() => [
+  {
+    id: 'first',
+    label: '第一页',
+    icon: 'mdi-chevron-double-left',
+    disabled: !canGoJobPrev.value,
+    onClick: () => {
+      jobPage.value = 1
+    },
+  },
+  {
+    id: 'prev',
+    label: '上一页',
+    icon: 'mdi-chevron-left',
+    disabled: !canGoJobPrev.value,
+    onClick: () => {
+      jobPage.value = Math.max(1, jobPage.value - 1)
+    },
+  },
+  {
+    id: 'next',
+    label: '下一页',
+    icon: 'mdi-chevron-right',
+    disabled: !canGoJobNext.value,
+    onClick: () => {
+      jobPage.value = Math.min(jobPageCount.value, jobPage.value + 1)
+    },
+  },
+  {
+    id: 'last',
+    label: '最后一页',
+    icon: 'mdi-chevron-double-right',
+    disabled: !canGoJobNext.value,
+    onClick: () => {
+      jobPage.value = jobPageCount.value
+    },
+  },
+])
 
 const statusItems = [
   { title: '全部', value: 'all' as const },
@@ -109,15 +160,25 @@ async function load() {
   loading.value = true
   try {
     const statusParam = statusFilter.value === 'all' ? undefined : statusFilter.value
-    const [list, overview, dash] = await Promise.all([
-      fetchJobs(100, 0, {
+    const offset = (jobPage.value - 1) * jobPageSize.value
+    const [listPage, overview, dash] = await Promise.all([
+      fetchJobs(jobPageSize.value, offset, {
         repo: repoFilter.value || undefined,
         status: statusParam,
       }),
       fetchJobAnalysisStats(),
       fetchDashboardOverview(7),
     ])
-    jobs.value = list
+    const maxPage = Math.max(1, Math.ceil(listPage.total / jobPageSize.value))
+    if (listPage.total > 0 && jobPage.value > maxPage) {
+      jobPage.value = maxPage
+      loading.value = false
+      await load()
+      return
+    }
+    jobs.value = listPage.items
+    jobTotal.value =
+      listPage.total > 0 ? listPage.total : offset + listPage.items.length
     stats.value = overview
     repoGateStats.value = dash.repo_gate_stats ?? []
   } finally {
@@ -133,7 +194,13 @@ function openCreate() {
   openNewAnalysis()
 }
 
-watch([repoFilter, statusFilter], load)
+watch([repoFilter, statusFilter], () => {
+  jobPage.value = 1
+})
+watch(jobPageSize, () => {
+  jobPage.value = 1
+})
+watch([repoFilter, statusFilter, jobPage, jobPageSize], load)
 
 onMounted(load)
 </script>
@@ -183,26 +250,30 @@ onMounted(load)
       </div>
     </div>
 
-    <v-row class="dashboard-grid dashboard-stack-gap kpi-row mb-4">
-      <v-col v-for="card in overviewCards" :key="card.title" cols="12" md="4">
-        <v-card class="h-100 kpi-card m3-surface-card m3-elevated" rounded="xl" :border="false">
-          <span class="kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
-          <v-card-text class="kpi-card-inner">
-            <div class="d-flex align-start justify-space-between gap-2 mb-3">
-              <div class="text-body-2 text-medium-emphasis kpi-title">{{ card.title }}</div>
-              <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }">
-                <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
-              </v-avatar>
-            </div>
-            <div class="kpi-metric-row">
-              <div class="kpi-metric" :style="{ color: card.valueColor }">{{ card.value }}</div>
-              <span v-if="card.badge" class="kpi-inline-badge mono">{{ card.badge }}</span>
-            </div>
-            <p class="text-caption text-medium-emphasis mt-3 mb-0">{{ card.sub }}</p>
-          </v-card-text>
-        </v-card>
-      </v-col>
-    </v-row>
+    <div class="analysis-kpi-grid mb-4">
+      <v-card
+        v-for="card in overviewCards"
+        :key="card.title"
+        class="h-100 kpi-card m3-surface-card m3-elevated"
+        rounded="xl"
+        :border="false"
+      >
+        <span class="kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
+        <v-card-text class="kpi-card-inner">
+          <div class="d-flex align-start justify-space-between gap-2 mb-3">
+            <div class="text-body-2 text-medium-emphasis kpi-title">{{ card.title }}</div>
+            <v-avatar size="40" rounded="lg" :style="{ backgroundColor: card.iconBg }">
+              <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
+            </v-avatar>
+          </div>
+          <div class="kpi-metric-row">
+            <div class="kpi-metric" :style="{ color: card.valueColor }">{{ card.value }}</div>
+            <span v-if="card.badge" class="kpi-inline-badge mono">{{ card.badge }}</span>
+          </div>
+          <p class="text-caption text-medium-emphasis mt-3 mb-0">{{ card.sub }}</p>
+        </v-card-text>
+      </v-card>
+    </div>
 
     <v-progress-linear v-if="loading && jobs.length === 0" indeterminate color="primary" class="mb-2 rounded" />
 
@@ -293,6 +364,43 @@ onMounted(load)
           </v-btn>
         </div>
       </article>
+
+      <div v-if="jobs.length > 0" class="job-pagination-wrapper">
+        <div class="job-pagination-left">
+          <span class="job-pagination-label">每页</span>
+          <v-select
+            v-model="jobPageSize"
+            :items="jobPerPageOptions"
+            density="compact"
+            hide-details
+            variant="solo"
+            flat
+            class="job-page-size-select"
+            menu-icon="mdi-menu-down"
+          />
+        </div>
+        <div class="job-pagination-right">
+          <span class="job-page-text">
+            {{ jobRangeStart }}-{{ jobRangeEnd }} 共 {{ jobTotal }}
+          </span>
+          <span class="job-page-index">第 {{ jobPage }} / {{ jobPageCount }} 页</span>
+          <div class="job-page-buttons" role="navigation" aria-label="任务列表分页">
+            <v-btn
+              v-for="btn in jobPaginationNavButtons"
+              :key="btn.id"
+              class="job-page-btn"
+              icon
+              variant="text"
+              density="comfortable"
+              :disabled="btn.disabled"
+              :aria-label="btn.label"
+              @click="btn.onClick"
+            >
+              <v-icon :icon="btn.icon" size="20" />
+            </v-btn>
+          </div>
+        </div>
+      </div>
     </div>
     </div>
   </div>
@@ -317,9 +425,24 @@ onMounted(load)
 .analysis-grid {
   width: 100%;
   max-width: 100%;
+  box-sizing: border-box;
+}
+.analysis-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+@media (max-width: 959px) {
+  .analysis-kpi-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .analysis-hero {
   width: 100%;
+  align-items: flex-start;
+  box-sizing: border-box;
 }
 .analysis-sub {
   max-width: 560px;
@@ -457,11 +580,9 @@ onMounted(load)
   gap: 4px;
   letter-spacing: 0.02em;
 }
-.dashboard-stack-gap {
-  margin-bottom: 0 !important;
-}
 .analysis-panel {
   width: 100%;
+  box-sizing: border-box;
 }
 .job-list {
   gap: 12px;
@@ -495,10 +616,15 @@ onMounted(load)
 }
 .job-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1.2fr) auto;
-  gap: 10px 18px;
+  grid-template-columns:
+    minmax(0, 1.35fr)
+    minmax(96px, 108px)
+    minmax(0, 1fr)
+    minmax(236px, 236px);
+  gap: 10px 16px;
   align-items: center;
-  padding: 14px 18px;
+  padding: 14px 16px;
+  box-sizing: border-box;
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
   background: #1c1f24;
@@ -622,6 +748,92 @@ onMounted(load)
   }
   .job-col-actions {
     grid-area: actions;
+    justify-self: end;
+    max-width: none;
+    width: auto;
+    margin-inline-start: 0;
   }
+}
+.job-col-actions {
+  justify-self: stretch;
+  width: 100%;
+  max-width: 236px;
+  margin-inline-start: auto;
+}
+.job-pagination-wrapper {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin-top: 20px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(11, 12, 14, 0.72) 0%, rgba(11, 12, 14, 0.96) 40%);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px 16px;
+  box-sizing: border-box;
+}
+.job-pagination-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+.job-pagination-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-inline-start: auto;
+}
+.job-page-text {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.job-page-index {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.42);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.job-page-size-select {
+  width: 96px;
+  flex: 0 0 96px;
+}
+.job-page-size-select :deep(.v-field) {
+  min-height: 32px !important;
+  height: 32px !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.job-page-size-select :deep(.v-field__outline),
+.job-page-size-select :deep(.v-field__overlay) {
+  opacity: 0 !important;
+}
+.job-page-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.job-page-btn {
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+.job-page-btn:hover:not(.v-btn--disabled) {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+.job-page-btn.v-btn--disabled {
+  color: rgba(255, 255, 255, 0.2) !important;
 }
 </style>

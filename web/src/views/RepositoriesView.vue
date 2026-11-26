@@ -499,7 +499,7 @@ onMounted(async () => {
 <template>
   <div class="repo-page">
     <header class="repo-page-head">
-      <h2 class="text-h5 font-weight-bold repo-page-title">
+      <h2 class="repo-page-title">
         仓库管理
         <span class="repo-page-title-count">({{ repoCountForTitle }})</span>
       </h2>
@@ -508,11 +508,11 @@ onMounted(async () => {
           v-if="showRepoSearch"
           v-model="keyword"
           class="repo-search-field"
-          density="comfortable"
+          density="compact"
           variant="solo"
           flat
           hide-details
-          rounded="lg"
+          rounded="0"
           placeholder="搜索 group/project"
           prepend-inner-icon="mdi-magnify"
           clearable
@@ -521,9 +521,8 @@ onMounted(async () => {
         <v-btn
           class="cta-repo-action cta-repo-action--primary text-none"
           variant="flat"
-          color="primary"
-          rounded="lg"
-          height="40"
+          rounded="0"
+          height="36"
           prepend-icon="mdi-plus"
           @click="openCreate"
         >
@@ -594,9 +593,8 @@ onMounted(async () => {
               <v-btn
                 class="cta-repo-action cta-repo-action--primary text-none"
                 variant="flat"
-                color="primary"
-                rounded="lg"
-                height="40"
+                rounded="0"
+                height="36"
                 prepend-icon="mdi-plus"
                 @click="openCreate"
               >
@@ -1063,15 +1061,20 @@ onMounted(async () => {
 }
 .repo-page-head {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px 24px;
+  gap: 16px;
   width: 100%;
   box-sizing: border-box;
-  padding: 24px 0;
+  padding: 16px 0;
   margin-bottom: 0 !important;
   border-bottom: 1px solid #2a2a2a;
+}
+@media (max-width: 720px) {
+  .repo-page-head {
+    flex-wrap: wrap;
+  }
 }
 .repo-kpi-grid {
   display: grid;
@@ -1099,57 +1102,70 @@ onMounted(async () => {
 }
 .repo-page-title {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   margin: 0;
   flex: 0 1 auto;
   min-width: 0;
-  line-height: 40px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #f3f4f6;
+  white-space: nowrap;
 }
 .repo-page-title-count {
-  font-size: 0.875rem;
+  font-size: 14px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.42);
+  color: #888;
   letter-spacing: 0.02em;
 }
 .repo-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
   flex: 0 0 auto;
   margin-left: auto;
 }
 .repo-search-field {
-  flex: 0 0 auto;
-  width: min(300px, 100%);
-  min-width: 240px;
-  max-width: 320px;
+  flex: 0 0 260px;
+  width: 260px;
+  max-width: min(260px, 42vw);
 }
 .repo-search-field :deep(.v-field) {
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  background: #1e1e1e !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  background: #1a1a1a !important;
   box-shadow: none;
   font-size: 13px;
-  min-height: 40px;
-  border-radius: 8px !important;
+  min-height: 36px;
+  height: 36px;
+  border-radius: 6px !important;
   transition:
     border-color 0.18s ease,
-    box-shadow 0.18s ease;
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+.repo-search-field :deep(.v-field:hover) {
+  border-color: rgba(59, 130, 246, 0.45) !important;
 }
 .repo-search-field :deep(.v-field--focused) {
-  border-color: rgb(var(--v-theme-primary)) !important;
-  box-shadow: 0 0 0 3px rgba(138, 180, 248, 0.22);
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 .repo-search-field :deep(.v-field__input) {
-  min-height: 40px;
+  min-height: 36px;
   padding-top: 0;
   padding-bottom: 0;
+  padding-inline: 8px 10px;
+}
+.repo-search-field :deep(.v-field__prepend-inner) {
+  padding-inline-start: 10px;
 }
 .repo-search-field :deep(.v-field__prepend-inner .v-icon) {
-  opacity: 0.85;
-  color: rgba(255, 255, 255, 0.72);
+  opacity: 0.9;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 18px;
 }
 .repo-search-field :deep(.v-field__outline) {
   opacity: 0 !important;
@@ -1160,17 +1176,25 @@ onMounted(async () => {
 }
 .cta-repo-action--primary {
   font-weight: 600;
-  padding-inline: 20px !important;
+  padding-inline: 16px !important;
   letter-spacing: 0.01em;
+  min-height: 36px !important;
+  height: 36px !important;
+  border-radius: 6px !important;
+  background: #3b82f6 !important;
+  color: #fff !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   transition: filter 0.18s ease;
 }
+.cta-repo-action--primary :deep(.v-btn__prepend) {
+  margin-inline-end: 4px;
+}
 .cta-repo-action--primary :deep(.v-btn__prepend .v-icon) {
-  font-size: 20px;
-  margin-inline-end: 2px;
+  font-size: 18px;
 }
 .cta-repo-action--primary:hover {
   filter: brightness(1.1);
+  background: #3b82f6 !important;
 }
 .repo-table-card {
   background-color: rgb(var(--v-theme-surface)) !important;

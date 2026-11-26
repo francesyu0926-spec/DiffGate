@@ -28,6 +28,7 @@ class ProbeResult:
     changed_lines: int = 0
     api_smoke_results: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
+    branch_coverage_pct: float | None = None
 
 
 def _norm_repo_path(path: str) -> str:
@@ -72,7 +73,6 @@ def _default_query(path: str) -> dict[str, str]:
     return {}
 
 
-def _lines_executed(cov_data, workdir: Path, repo_dir: Path) -> set[tuple[str, int]]:
 def _branch_coverage_pct(cov_data, workdir: Path, repo_dir: Path, changed_files: set[str]) -> float | None:
     """基于 coverage 分支弧统计变更文件的平均分支命中率。"""
     try:
@@ -203,12 +203,13 @@ def run_coverage_probe(
 
     main_py = workdir / "app" / "main.py"
     cov = coverage.Coverage(source=[str(workdir)], branch=True)
+    cov.start()
     inserted = str(workdir)
     path_backup = list(sys.path)
     sys.path = [inserted]
     modules_backup = {}
-    try:
     branch_pct: float | None = None
+    try:
         if not main_py.is_file():
             raise FileNotFoundError(f"FastAPI entry not found: {main_py}")
         for key in list(sys.modules):
@@ -219,7 +220,6 @@ def run_coverage_probe(
         probe_main = importlib.import_module("app.main")
         app = probe_main.app
 
-        with TestClient(app) as client:
         stain_headers = {JOB_HEADER: job.id} if job and job.id else {}
         with TestClient(app) as client:
             smoke_ran = True
@@ -229,6 +229,7 @@ def run_coverage_probe(
                 params = _default_query(path)
                 try:
                     resp = client.request(method, path, params=params, headers=stain_headers)
+                    api_smoke_results.append(
                         {
                             "method": method,
                             "path": path,
@@ -257,7 +258,6 @@ def run_coverage_probe(
         if job:
             executed = _suspect_fallback_hits(job, changed)
     finally:
-    finally:
         cov.stop()
         try:
             cov.save()
@@ -268,6 +268,7 @@ def run_coverage_probe(
                     executed |= _suspect_fallback_hits(job, changed)
             changed_files = {p for p, _ in changed}
             branch_pct = _branch_coverage_pct(data, workdir, repo_dir, changed_files)
+        except Exception as exc:
             err = err or str(exc)
         sys.path = path_backup
         for key, mod in modules_backup.items():
@@ -327,7 +328,7 @@ def run_coverage_probe_for_job_id(job_id: str) -> ProbeResult | None:
             line_ranges=line_ranges,
             job=job,
         )
-        apply_gate_result(
+        gate = apply_gate_result(
             job,
             repo_rec,
             incremental_coverage_pct=result.incremental_coverage_pct,
@@ -336,7 +337,9 @@ def run_coverage_probe_for_job_id(job_id: str) -> ProbeResult | None:
             covered_changed_lines=result.covered_changed_lines,
             api_smoke_results=result.api_smoke_results or None,
         )
-            branch_coverage_pct=result.branch_coverage_pct,
+        if result.branch_coverage_pct is not None:
+            gate["branch_coverage_pct"] = result.branch_coverage_pct
+            job.gate_result = gate
         db.commit()
         return result
     except Exception:

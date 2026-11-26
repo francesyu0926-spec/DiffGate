@@ -8,6 +8,11 @@
 .graph-wrap--empty {
   min-height: 0;
 }
+.graph-wrap--compact-empty {
+  background: #1c1f24;
+  border-color: rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+}
 .graph-wrap--filled {
   min-height: 0;
 }

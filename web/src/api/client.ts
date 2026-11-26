@@ -105,15 +105,34 @@ export function readApiError(err: unknown, fallback: string): string {
   return fallback
 }
 
+export type JobListPage = {
+  items: JobListItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export async function fetchJobs(
   limit = 50,
   offset = 0,
   filters?: { repo?: string; status?: string },
 ) {
-  const { data } = await http.get<{ items: JobListItem[] }>('/jobs', {
+  const { data } = await http.get<Partial<JobListPage> & { items: JobListItem[] }>('/jobs', {
     params: { limit, offset, repo: filters?.repo, status: filters?.status },
   })
-  return data.items
+  let total = data.total
+  if (typeof total !== 'number' || !Number.isFinite(total)) {
+    total =
+      data.items.length < limit
+        ? offset + data.items.length
+        : offset + data.items.length + limit
+  }
+  return {
+    items: data.items,
+    total,
+    limit: data.limit ?? limit,
+    offset: data.offset ?? offset,
+  }
 }
 
 export async function fetchJobAnalysisStats() {
@@ -263,12 +282,29 @@ export interface DashboardOverview {
     change_hits: number
     block_hits: number
     score: number
+    latest_job_id?: string | null
+    repo?: string | null
+    start_line?: number
+    end_line?: number
   }[]
 }
 
 export async function fetchDashboardOverview(days = 7, repo?: string) {
   const { data } = await http.get<DashboardOverview>('/dashboard/overview', {
     params: { days, repo: repo || undefined },
+  })
+  return data
+}
+
+export async function resolveHotspotJob(path: string, repo?: string | null, days = 30) {
+  const { data } = await http.get<{
+    job_id: string
+    repo: string
+    path?: string
+    start_line?: number
+    end_line?: number
+  }>('/dashboard/hotspot-resolve', {
+    params: { path, repo: repo || undefined, days },
   })
   return data
 }

@@ -172,6 +172,7 @@ watch(
   },
   { immediate: true },
 )
+
 </script>
 
 <template>
@@ -634,6 +635,8 @@ watch(
 .code-diff-drawer-overlay {
   background-color: rgba(0, 0, 0, 0.52) !important;
   backdrop-filter: blur(2px);
+  overscroll-behavior: none;
+  touch-action: none;
 }
 .el-drawer.code-diff-drawer {
   position: fixed !important;
