@@ -80,6 +80,18 @@ function isLastTableRow(item: RepositoryItem) {
   return idx >= 0 && idx === rows.value.length - 1
 }
 
+function splitRepoFullName(full: string) {
+  const i = full.lastIndexOf('/')
+  if (i <= 0) return { owner: '', project: full }
+  return { owner: full.slice(0, i), project: full.slice(i + 1) }
+}
+
+function repoRowProps(data: { item: RepositoryItem }) {
+  return {
+    class: data.item.enabled ? 'repo-data-row' : 'repo-data-row repo-data-row--disabled',
+  }
+}
+
 watch(tableItemsPerPage, () => {
   tablePage.value = 1
 })
@@ -207,17 +219,33 @@ const authItems = [
 ]
 
 const headers = [
-  { title: '仓库', key: 'full_name', minWidth: 140 },
+  {
+    title: '仓库',
+    key: 'full_name',
+    width: 248,
+    minWidth: 220,
+    sortable: true,
+    headerProps: { class: 'repo-col-name' },
+    cellProps: { class: 'repo-col-name' },
+  },
   { title: '来源', key: 'provider', width: 88 },
   { title: '默认分支', key: 'default_branch', width: 110 },
   { title: 'AST 节点规模', key: 'ast_scale', minWidth: 172, sortable: false },
   { title: '关联用例集', key: 'test_suite_id', minWidth: 120 },
   { title: '质量门禁', key: 'coverage_threshold', width: 130, sortable: false },
-  { title: '分析次数', key: 'job_count', width: 96, align: 'end' as const },
+  { title: '分析次数', key: 'job_count', width: 96, align: 'center' as const },
   { title: '启用', key: 'enabled', width: 88, sortable: false },
   { title: 'Webhook', key: 'webhook_enabled', width: 96, sortable: false },
   { title: '最近索引', key: 'last_indexed_at', minWidth: 156, width: 156 },
-  { title: '操作', key: 'actions', sortable: false, width: 120, align: 'end' as const },
+  {
+    title: '操作',
+    key: 'actions',
+    sortable: false,
+    width: 88,
+    align: 'center' as const,
+    headerProps: { class: 'repo-col-actions' },
+    cellProps: { class: 'repo-col-actions' },
+  },
 ]
 
 const astTotals = computed(() =>
@@ -611,6 +639,7 @@ onMounted(async () => {
         :loading="loading"
         item-value="id"
         hover
+        :row-props="repoRowProps"
         v-model:page="tablePage"
         v-model:items-per-page="tableItemsPerPage"
         class="repo-table"
@@ -654,7 +683,18 @@ onMounted(async () => {
           </div>
         </template>
         <template #item.full_name="{ item }">
-          <span class="font-weight-medium">{{ item.full_name }}</span>
+          <v-tooltip :text="item.full_name" location="top" :open-delay="280">
+            <template #activator="{ props: tipProps }">
+              <div v-bind="tipProps" class="repo-name-stack" :title="item.full_name">
+                <span class="repo-name-project font-weight-medium">{{
+                  splitRepoFullName(item.full_name).project
+                }}</span>
+                <span v-if="splitRepoFullName(item.full_name).owner" class="repo-name-owner mono">{{
+                  splitRepoFullName(item.full_name).owner
+                }}</span>
+              </div>
+            </template>
+          </v-tooltip>
         </template>
         <template #item.provider="{ item }">
           {{ providerLabel[item.provider as RepoProvider] }}
@@ -701,14 +741,13 @@ onMounted(async () => {
           </div>
         </template>
         <template #item.webhook_enabled="{ item }">
-          <v-chip
-            size="small"
-            variant="flat"
-            class="repo-tone-chip"
-            :class="item.webhook_enabled ? 'repo-tone-chip--ok' : 'repo-tone-chip--muted'"
+          <span
+            class="repo-webhook-status"
+            :class="item.webhook_enabled ? 'repo-webhook-status--on' : 'repo-webhook-status--off'"
           >
+            <span v-if="item.webhook_enabled" class="repo-webhook-dot" aria-hidden="true" />
             {{ item.webhook_enabled ? '开' : '关' }}
-          </v-chip>
+          </span>
         </template>
         <template #item.last_indexed_at="{ item }">
           <span
@@ -1241,21 +1280,45 @@ onMounted(async () => {
   color: rgba(255, 255, 255, 0.62);
 }
 .repo-table :deep(thead th) {
-  color: rgba(255, 255, 255, 0.78) !important;
+  color: rgba(255, 255, 255, 0.6) !important;
   font-weight: 600 !important;
   font-size: 13px !important;
   white-space: nowrap;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
   padding-top: 14px !important;
   padding-bottom: 14px !important;
+  background: rgba(255, 255, 255, 0.02);
+}
+.repo-table :deep(thead th),
+.repo-table :deep(.v-data-table__td) {
+  text-align: center !important;
+}
+.repo-table :deep(thead th .v-data-table-header__content) {
+  padding-inline: 0;
+  justify-content: center !important;
+}
+.repo-table :deep(.v-data-table__td-content) {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+.repo-table :deep(.repo-col-name) {
+  width: 248px !important;
+  min-width: 220px !important;
+  max-width: 280px !important;
+  overflow: hidden;
+}
+.repo-table :deep(.repo-col-name .v-data-table__td-content) {
+  overflow: hidden;
+  min-width: 0;
 }
 .repo-table :deep(thead th:first-child),
-.repo-table :deep(tbody td:first-child) {
-  padding-left: 24px !important;
-}
+.repo-table :deep(.v-data-table__td:first-child),
 .repo-table :deep(thead th:last-child),
-.repo-table :deep(tbody td:last-child) {
-  padding-right: 24px !important;
+.repo-table :deep(.v-data-table__td:last-child) {
+  padding-inline: 16px !important;
 }
 .repo-table :deep(tbody tr) {
   border-bottom: none;
@@ -1275,43 +1338,120 @@ onMounted(async () => {
   vertical-align: middle !important;
   padding-top: 18px !important;
   padding-bottom: 18px !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+  font-size: 13px;
+}
+.repo-table :deep(tbody tr.repo-data-row:hover > .v-data-table__td) {
+  color: rgba(255, 255, 255, 0.94) !important;
+}
+.repo-table :deep(tr.repo-data-row--disabled > .v-data-table__td) {
+  color: rgba(255, 255, 255, 0.38) !important;
+}
+.repo-table :deep(.v-tooltip__activator) {
+  display: block;
+  max-width: 100%;
+  opacity: 1 !important;
+  color: inherit;
 }
 .repo-table-switch :deep(.v-switch__track) {
   opacity: 1 !important;
-  background-color: rgba(255, 255, 255, 0.14) !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
 }
 .repo-table-switch :deep(.v-switch__thumb) {
-  background-color: rgba(210, 214, 220, 0.92) !important;
-  color: rgba(210, 214, 220, 0.92) !important;
+  background-color: #4a4f58 !important;
+  color: #4a4f58 !important;
 }
 .repo-table-switch.v-input--dirty :deep(.v-switch__track) {
-  background-color: rgba(138, 180, 248, 0.38) !important;
+  background-color: rgba(138, 180, 248, 0.52) !important;
 }
 .repo-table-switch.v-input--dirty :deep(.v-switch__thumb) {
-  background-color: #b8d4f7 !important;
-  color: #b8d4f7 !important;
+  background-color: #8ab4f8 !important;
+  color: #8ab4f8 !important;
+}
+.repo-name-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.3;
+  text-align: center;
+  cursor: default;
+}
+.repo-name-project {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.94) !important;
+}
+.repo-name-owner {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.48);
+}
+.repo-table :deep(tr.repo-data-row--disabled .repo-name-project) {
+  color: rgba(255, 255, 255, 0.38) !important;
+}
+.repo-table :deep(tr.repo-data-row--disabled .repo-name-owner) {
+  color: rgba(255, 255, 255, 0.28) !important;
 }
 .repo-ast-scale {
   display: inline-block;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.78);
 }
 .repo-index-time {
   display: inline-block;
   white-space: nowrap;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.72);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.5);
+}
+.repo-webhook-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.repo-webhook-status--on {
+  color: #81c995;
+}
+.repo-webhook-status--off {
+  color: rgba(255, 255, 255, 0.42);
+}
+.repo-webhook-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #81c995;
+  box-shadow: 0 0 0 2px rgba(129, 201, 149, 0.22);
+  flex-shrink: 0;
 }
 .repo-table-cell--control,
 .repo-table-cell--actions {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-height: 40px;
+  width: 100%;
 }
 .repo-table-cell--actions {
   justify-content: center;
   width: 100%;
+  margin-inline: auto;
+}
+.repo-table :deep(.repo-col-actions .repo-table-cell--actions) {
+  justify-content: center;
 }
 .repo-tone-chip {
   font-weight: 500;
@@ -1325,12 +1465,10 @@ onMounted(async () => {
   opacity: 0 !important;
 }
 .repo-tone-chip--warn {
-  background: rgba(255, 193, 7, 0.16) !important;
-  color: #fdd663 !important;
-}
-.repo-tone-chip--ok {
-  background: rgba(52, 168, 83, 0.16) !important;
-  color: #81c995 !important;
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #fbbf24 !important;
+  border-radius: 6px !important;
+  font-size: 12px !important;
 }
 .repo-tone-chip--muted {
   background: rgba(142, 146, 153, 0.14) !important;
@@ -1394,16 +1532,16 @@ onMounted(async () => {
   flex: 0 0 96px;
 }
 .page-size-select :deep(.v-field) {
-  min-height: 32px !important;
-  height: 32px !important;
+  min-height: 34px !important;
+  height: 34px !important;
   background-color: rgba(255, 255, 255, 0.05) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 8px;
   font-size: 13px;
 }
 .page-size-select :deep(.v-field__input) {
-  min-height: 32px;
-  padding: 0 12px !important;
+  min-height: 34px;
+  padding: 0 14px !important;
   padding-top: 0;
   padding-bottom: 0;
   justify-content: center;
@@ -1415,13 +1553,13 @@ onMounted(async () => {
 .page-buttons {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 .repo-pagination-wrapper .page-btn {
   width: 32px !important;
   min-width: 32px !important;
   height: 32px !important;
-  border-radius: 8px;
+  border-radius: 999px;
   color: rgba(255, 255, 255, 0.6) !important;
   background: transparent !important;
   transition:

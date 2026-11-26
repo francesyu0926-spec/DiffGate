@@ -232,8 +232,10 @@ const DONUT_COLORS = ['rgba(234, 139, 130, 0.78)', 'rgba(251, 191, 36, 0.7)', 'r
 
 const CHART = {
   axis: 'rgba(255, 255, 255, 0.5)',
+  axisLines: 'rgba(255, 255, 255, 0.6)',
+  axisPct: 'rgba(138, 180, 248, 0.88)',
   axisDim: '#8E9299',
-  grid: 'rgba(255, 255, 255, 0.03)',
+  grid: 'rgba(255, 255, 255, 0.08)',
   line: '#8AB4F8',
   lineNode: '#1A1D21',
   lineNodeBorder: '#8AB4F8',
@@ -601,7 +603,7 @@ function renderCharts() {
     textStyle: { color: CHART.tooltipText, fontSize: 12 },
     axisPointer: {
       type: 'line' as const,
-      lineStyle: { color: 'rgba(255, 255, 255, 0.22)', width: 1, type: 'dashed' as const },
+      lineStyle: { color: 'rgba(138, 180, 248, 0.45)', width: 1, type: 'dashed' as const },
     },
     position(
       point: number[],
@@ -677,8 +679,8 @@ function renderCharts() {
               color: [CHART.bar, CHART.line],
               axisPointer: { link: [{ xAxisIndex: [0, 1] }] },
               grid: [
-                { left: 52, right: 24, top: 28, height: '34%' },
-                { left: 52, right: 56, top: '52%', height: '38%' },
+                { left: 8, right: 16, top: 28, height: '34%', containLabel: true },
+                { left: 8, right: 8, top: '52%', height: '38%', containLabel: true },
               ],
               tooltip: trendTooltip,
               legend: { show: false },
@@ -694,8 +696,8 @@ function renderCharts() {
                   name: '行数',
                   min: 0,
                   max: linesYMax,
-                  nameTextStyle: { color: CHART.axis },
-                  axisLabel: { color: CHART.axis },
+                  nameTextStyle: { color: CHART.axisLines, fontSize: 11 },
+                  axisLabel: { color: CHART.axisLines, fontSize: 11 },
                   splitLine,
                 },
                 {
@@ -705,8 +707,12 @@ function renderCharts() {
                   min: 50,
                   max: 100,
                   splitNumber: 4,
-                  nameTextStyle: { color: CHART.axis },
-                  axisLabel: { color: CHART.axis, formatter: (v: number) => `${v}%` },
+                  nameTextStyle: { color: CHART.axisPct, fontSize: 11 },
+                  axisLabel: {
+                    color: CHART.axisPct,
+                    fontSize: 11,
+                    formatter: (v: number) => `${v}%`,
+                  },
                   splitLine,
                 },
               ],
@@ -719,16 +725,7 @@ function renderCharts() {
                   data: trend.changed_lines,
                   itemStyle: { color: trendActive ? 'rgba(255, 255, 255, 0.24)' : 'rgba(37, 41, 48, 0.45)' },
                   barMaxWidth: 32,
-                  label: {
-                    show: true,
-                    position: 'top',
-                    color: '#8e9299',
-                    fontSize: 10,
-                    formatter: (p: { value?: number }) => {
-                      const v = Number(p.value ?? 0)
-                      return v > 0 ? String(v) : ''
-                    },
-                  },
+                  label: { show: false },
                   emphasis: { itemStyle: { color: 'rgba(255, 255, 255, 0.34)' } },
                 },
                 {
@@ -762,27 +759,16 @@ function renderCharts() {
                   markLine: {
                     silent: true,
                     symbol: 'none',
-                    lineStyle: { color: '#fb923c', type: 'dashed', width: 2 },
-                    label: {
-                      show: true,
-                      formatter: `基线 ${threshold}%`,
-                      position: 'insideEndTop',
-                      color: '#fb923c',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      distance: 6,
-                      padding: [0, 0, 0, 6],
-                      backgroundColor: 'rgba(251, 146, 60, 0.12)',
-                      borderRadius: 4,
-                    },
-                    data: [{ yAxis: threshold }],
+                    lineStyle: { color: '#fb923c', type: 'dashed', width: 1.5 },
+                    label: { show: false },
+                    data: [{ yAxis: threshold, name: `基线 ${threshold}%` }],
                   },
                 },
               ],
             }
           : {
               color: [CHART.bar],
-              grid: { left: 52, right: 28, top: 32, bottom: 32, containLabel: false },
+              grid: { left: 8, right: 16, top: 32, bottom: 28, containLabel: true },
               tooltip: trendTooltip,
               legend: { show: false },
               dataZoom,
@@ -792,8 +778,8 @@ function renderCharts() {
                 name: '行数',
                 min: 0,
                 max: linesYMax,
-                nameTextStyle: { color: CHART.axis },
-                axisLabel: { color: CHART.axis },
+                nameTextStyle: { color: CHART.axisLines, fontSize: 11 },
+                axisLabel: { color: CHART.axisLines, fontSize: 11 },
                 splitLine,
               },
               series: [
@@ -803,16 +789,7 @@ function renderCharts() {
                   data: trend.changed_lines,
                   itemStyle: { color: trendActive ? 'rgba(255, 255, 255, 0.24)' : 'rgba(37, 41, 48, 0.45)' },
                   barMaxWidth: 32,
-                  label: {
-                    show: true,
-                    position: 'top',
-                    color: '#8e9299',
-                    fontSize: 10,
-                    formatter: (p: { value?: number }) => {
-                      const v = Number(p.value ?? 0)
-                      return v > 0 ? String(v) : ''
-                    },
-                  },
+                  label: { show: false },
                 },
               ],
             },
@@ -1013,6 +990,10 @@ watch([days, repoFilter], load)
                   <span class="trend-legend-swatch trend-legend-swatch--line" />
                   增量覆盖率
                 </span>
+                <span v-if="!trendShowEmptyOverlay" class="trend-legend-item">
+                  <span class="trend-legend-swatch trend-legend-swatch--baseline" />
+                  基线 {{ gateBaseline }}%
+                </span>
               </div>
             </div>
           </v-card-title>
@@ -1150,7 +1131,9 @@ watch([days, repoFilter], load)
                       <div class="intercept-bar-head">
                         <span class="intercept-bar-name">{{ row.name }}</span>
                         <span class="intercept-bar-stat mono">
-                          {{ row.value }} 次 · <span class="intercept-bar-pct">{{ row.pct }}%</span>
+                          <span class="intercept-bar-count">{{ row.value }}</span>
+                          <span class="intercept-bar-count-unit">次</span>
+                          <span class="intercept-bar-pct" :style="{ color: row.color }">· {{ row.pct }}%</span>
                         </span>
                       </div>
                       <div class="intercept-bar-track" aria-hidden="true">
@@ -1161,10 +1144,10 @@ watch([days, repoFilter], load)
                       </div>
                     </div>
                   </div>
-                  <p v-if="interceptBlockTotal > 0" class="intercept-bar-summary">
-                    合计拦截 {{ interceptBlockTotal }} 次
-                  </p>
                   <div class="intercept-bar-footer">
+                    <p v-if="interceptBlockTotal > 0" class="intercept-bar-summary">
+                      合计拦截 {{ interceptBlockTotal }} 次
+                    </p>
                     <button type="button" class="intercept-bar-cta-ghost" @click="openBlockFlows">
                       查看已拦截记录
                       <span class="mdi mdi-chevron-right" aria-hidden="true" />
@@ -1655,14 +1638,15 @@ watch([days, repoFilter], load)
 .trend-sparse-badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  font-size: 11px;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
   line-height: 1.35;
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.28);
-  border-radius: 6px;
+  font-weight: 500;
+  color: rgba(251, 191, 36, 0.88);
+  background: rgba(251, 191, 36, 0.07);
+  border: none;
+  border-radius: 4px;
   white-space: nowrap;
 }
 .trend-sparse-badge__icon {
@@ -1694,6 +1678,14 @@ watch([days, repoFilter], load)
 }
 .trend-legend-swatch--line {
   background: #8ab4f8;
+}
+.trend-legend-swatch--baseline {
+  width: 14px;
+  height: 0;
+  border: none;
+  border-radius: 0;
+  border-top: 2px dashed #fb923c;
+  background: transparent;
 }
 .chart-card-equal {
   display: flex;
@@ -1851,15 +1843,32 @@ watch([days, repoFilter], load)
 }
 .intercept-bar-name {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.86);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
 }
 .intercept-bar-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.45);
+  flex-shrink: 0;
+}
+.intercept-bar-count {
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  font-variant-numeric: tabular-nums;
+}
+.intercept-bar-count-unit {
+  font-size: 12px;
+  font-weight: 500;
+  margin-right: 4px;
 }
 .intercept-bar-pct {
-  color: rgba(255, 255, 255, 0.78);
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.88;
 }
 .intercept-bar-track {
   height: 10px;
@@ -1875,14 +1884,15 @@ watch([days, repoFilter], load)
   opacity: 0.92;
 }
 .intercept-bar-summary {
-  margin: 4px 8px 0;
+  margin: 0;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.48);
+  color: rgba(255, 255, 255, 0.52);
 }
 .intercept-bar-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-top: auto;
   padding: 12px 8px 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
@@ -1891,22 +1901,21 @@ watch([days, repoFilter], load)
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
+  padding: 4px 2px;
+  font-size: 13px;
+  font-weight: 600;
   color: #8ab4f8;
   background: transparent;
-  border: 1px solid rgba(138, 180, 248, 0.35);
-  border-radius: 8px;
+  border: none;
+  border-radius: 6px;
   cursor: pointer;
   transition:
     background 0.15s ease,
-    border-color 0.15s ease,
     color 0.15s ease;
+  flex-shrink: 0;
 }
 .intercept-bar-cta-ghost:hover {
-  color: #aecbfb;
-  border-color: rgba(138, 180, 248, 0.55);
+  color: #c5d9fc;
   background: rgba(138, 180, 248, 0.08);
 }
 .flow-filter-chip {
