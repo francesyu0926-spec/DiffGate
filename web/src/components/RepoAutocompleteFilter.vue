@@ -293,15 +293,6 @@ onMounted(async () => {
 .repo-autocomplete-menu .v-list {
   max-height: 320px;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-}
-.repo-autocomplete-menu .v-list::-webkit-scrollbar {
-  width: 6px;
-}
-.repo-autocomplete-menu .v-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
 }
 .repo-menu-subheader {
   min-height: 32px;

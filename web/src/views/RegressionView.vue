@@ -960,27 +960,6 @@ watch(
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 6px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
-}
-.batch-list::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.batch-list::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
-}
-.batch-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.batch-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-}
-.batch-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
 }
 .batch-card {
   position: relative;
@@ -1303,26 +1282,6 @@ watch(
   padding: 12px 20px 12px 16px;
   font-size: 12px;
   line-height: 1.6;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
-}
-.coverage-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-.coverage-scroll::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
-}
-.coverage-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.coverage-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-}
-.coverage-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
 }
 .coverage-line {
   display: flex;

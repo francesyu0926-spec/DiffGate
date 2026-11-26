@@ -318,7 +318,7 @@ const suspectApiOnly = ref(false)
 const selectedApiKey = ref<string | null>(null)
 const linkHoverApiKey = ref<string | null>(null)
 const linkHoverSuspectQname = ref<string | null>(null)
-const splitPanePct = ref(45)
+const splitPanePct = ref(54)
 const splitRef = ref<HTMLElement | null>(null)
 /** 固定表高 + 底部内边距，避免最后一行被圆角容器裁切 */
 const impactTableHeight = 392
@@ -539,7 +539,7 @@ function formatCallChainShort(row: CallPath & { chain_labels?: string[] }) {
       return short.includes('(') ? short : `${short}()`
     })
     .join(' → ')
-  if (text.length > 56) return `${text.slice(0, 53)}…`
+  if (text.length > 22) return `${text.slice(0, 20)}…`
   return text
 }
 
@@ -1388,13 +1388,13 @@ onUnmounted(clearPoll)
             aria-live="polite"
             aria-label="正在加载受影响接口列表"
           >
-            <div class="impact-table-skeleton__head impact-table-cols" aria-hidden="true">
+            <div class="impact-table-skeleton__head impact-table-cols impact-table-cols--api" aria-hidden="true">
               <span class="impact-table-skeleton__th">方法</span>
               <span class="impact-table-skeleton__th">接口</span>
               <span class="impact-table-skeleton__th">调用链</span>
             </div>
             <div class="impact-table-skeleton__body">
-              <div v-for="row in 6" :key="row" class="impact-table-skeleton__row impact-table-cols">
+              <div v-for="row in 6" :key="row" class="impact-table-skeleton__row impact-table-cols impact-table-cols--api">
                 <span class="impact-table-skeleton__cell impact-table-skeleton__cell--center">
                   <span class="impact-skel-bar impact-skel-bar--pill" />
                 </span>
@@ -1428,29 +1428,43 @@ onUnmounted(clearPoll)
             size="small"
             :stripe="!selectedApiKey"
             :height="apiTableLayoutHeight ?? impactTableHeight"
-            class="job-click-table impact-api-table impact-table-scroll"
+            class="job-click-table impact-api-table impact-table-scroll custom-scrollbar"
             :class="{ 'impact-api-table--compact': apiTableLayoutHeight == null }"
             :row-class-name="impactApiRowClass"
             @row-click="toggleApiFilter"
           >
-            <el-table-column prop="method" label="方法" width="15%" align="center" header-align="center">
+            <el-table-column prop="method" label="方法" width="76" align="center" header-align="center">
               <template #default="{ row }">
-                <span class="http-pill" :class="httpPillClass(row.method)">{{ row.method }}</span>
+                <span class="http-pill impact-api-method-pill" :class="httpPillClass(row.method)">{{ row.method }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="接口" width="45%" header-align="left" show-overflow-tooltip>
+            <el-table-column label="接口" min-width="200" header-align="left">
               <template #default="{ row }">
-                <button
-                  type="button"
-                  class="impact-api-path mono"
-                  :title="`查看 ${row.method} ${row.path} 源码`"
-                  @click.stop="openDrawerFromCallPath(row)"
+                <el-tooltip
+                  :content="`${row.method} ${row.path}`"
+                  placement="top"
+                  :show-after="400"
+                  :disabled="!row.path || row.path.length < 28"
                 >
-                  {{ row.path }}
-                </button>
+                  <button
+                    type="button"
+                    class="impact-api-path mono"
+                    :title="`查看 ${row.method} ${row.path} 源码`"
+                    @click.stop="openDrawerFromCallPath(row)"
+                  >
+                    {{ row.path }}
+                  </button>
+                </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="调用链" width="40%" header-align="left" show-overflow-tooltip>
+            <el-table-column
+              label="调用链"
+              width="122"
+              min-width="108"
+              header-align="left"
+              class-name="impact-col-chain"
+              label-class-name="impact-col-chain"
+            >
               <template #default="{ row }">
                 <el-tooltip
                   :content="callPathTooltip(row)"
@@ -1478,6 +1492,12 @@ onUnmounted(clearPoll)
                 </el-tooltip>
               </template>
             </el-table-column>
+            <el-table-column
+              label=""
+              :min-width="1"
+              class-name="impact-col-tail"
+              label-class-name="impact-col-tail"
+            />
           </el-table>
         </div>
       </div>
@@ -2073,6 +2093,9 @@ onUnmounted(clearPoll)
   padding-right: 16px;
   box-sizing: border-box;
 }
+.impact-table-cols--api {
+  grid-template-columns: 76px minmax(0, 1fr) 118px;
+}
 .impact-table-skeleton {
   display: flex;
   flex-direction: column;
@@ -2206,33 +2229,10 @@ onUnmounted(clearPoll)
 .impact-table-scroll :deep(.el-scrollbar__wrap) {
   padding-bottom: 10px;
   overflow-x: hidden !important;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(120, 128, 140, 0.45) transparent;
-}
-.impact-table-scroll :deep(.el-scrollbar__wrap::-webkit-scrollbar) {
-  width: 6px;
-  height: 6px;
-}
-.impact-table-scroll :deep(.el-scrollbar__wrap::-webkit-scrollbar-track) {
-  background: transparent;
-}
-.impact-table-scroll :deep(.el-scrollbar__wrap::-webkit-scrollbar-thumb) {
-  background: rgba(120, 128, 140, 0.35);
-  border-radius: 6px;
-}
-.impact-table-scroll :deep(.el-scrollbar__wrap:hover::-webkit-scrollbar-thumb) {
-  background: rgba(150, 158, 170, 0.55);
 }
 .impact-table-scroll :deep(.el-scrollbar__bar.is-vertical) {
   width: 6px;
   right: 2px;
-}
-.impact-table-scroll :deep(.el-scrollbar__bar.is-vertical .el-scrollbar__thumb) {
-  background: rgba(120, 128, 140, 0.4);
-  opacity: 0.55;
-}
-.impact-table-scroll:hover :deep(.el-scrollbar__bar.is-vertical .el-scrollbar__thumb) {
-  opacity: 0.95;
 }
 .impact-split__head {
   display: flex;
@@ -2285,47 +2285,76 @@ onUnmounted(clearPoll)
   min-height: 0;
 }
 .impact-api-path {
-  display: inline;
+  display: block;
+  width: 100%;
   padding: 0;
   border: none;
   background: transparent;
-  color: #e8eaed;
-  font-size: 13px;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-overflow: clip;
+  scrollbar-width: none !important;
+}
+.impact-api-path::-webkit-scrollbar,
+.impact-api-path.diffgate-scrollbar-active::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 .impact-api-path:hover {
   color: #8ab4f8;
   text-decoration: underline;
 }
+.impact-api-table :deep(td:nth-child(2) .cell) {
+  overflow: visible;
+  min-width: 0;
+}
+.impact-api-table .impact-api-method-pill.http-pill--get {
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.16);
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  min-width: 2.75rem;
+  padding: 3px 8px;
+  font-weight: 700;
+}
+.impact-api-table .impact-api-method-pill.http-pill--post {
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.14);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+}
 .chain--short {
-  display: inline-block;
+  display: block;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  vertical-align: middle;
+  line-height: 1.45;
 }
 .chain--direct {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #666a73;
+  color: rgba(255, 255, 255, 0.42);
   letter-spacing: 0.02em;
 }
 .chain__direct-glyph {
   font-size: 13px;
-  opacity: 0.85;
+  opacity: 0.65;
 }
 .chain--fn {
   font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.78);
+  color: rgba(255, 255, 255, 0.5);
+}
+.impact-api-table .chain--short {
+  color: rgba(255, 255, 255, 0.5);
 }
 .impact-empty__icon-wrap {
   display: flex;
@@ -2394,8 +2423,8 @@ onUnmounted(clearPoll)
   display: none;
 }
 .impact-api-table :deep(.el-table__body td.el-table__cell) {
-  padding-top: 13px;
-  padding-bottom: 13px;
+  padding-top: 15px;
+  padding-bottom: 15px;
 }
 .impact-api-table :deep(.el-table__body td.el-table__cell:nth-child(1)) {
   text-align: center;
@@ -2403,6 +2432,48 @@ onUnmounted(clearPoll)
 .impact-api-table :deep(.el-table__body td.el-table__cell:nth-child(2)),
 .impact-api-table :deep(.el-table__body td.el-table__cell:nth-child(3)) {
   text-align: left;
+}
+.impact-api-table :deep(th:nth-child(2) .cell),
+.impact-api-table :deep(td:nth-child(2) .cell) {
+  padding-right: 2px !important;
+}
+.impact-api-table :deep(th.impact-col-chain .cell),
+.impact-api-table :deep(td.impact-col-chain .cell) {
+  padding-left: 4px !important;
+  padding-right: 6px !important;
+  justify-content: flex-start;
+  overflow: visible !important;
+  line-height: 1.45;
+}
+.impact-api-table :deep(.el-table__header th.impact-col-chain),
+.impact-api-table :deep(.el-table__body td.impact-col-chain) {
+  padding-right: 6px !important;
+  padding-left: 4px !important;
+  overflow: visible;
+}
+.impact-api-table :deep(td.impact-col-chain .el-tooltip__trigger) {
+  display: block;
+  max-width: 100%;
+  line-height: 1.45;
+}
+.impact-api-table :deep(th.impact-col-tail),
+.impact-api-table :deep(td.impact-col-tail) {
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  pointer-events: none;
+}
+.impact-api-table :deep(th.impact-col-tail .cell),
+.impact-api-table :deep(td.impact-col-tail .cell) {
+  padding: 0 !important;
+  overflow: hidden;
+}
+.impact-api-table.custom-scrollbar :deep(.el-table__body-wrapper) {
+  margin-right: 0;
+  padding-right: 0;
+}
+.impact-api-table.custom-scrollbar :deep(.el-scrollbar__bar.is-vertical) {
+  right: 0;
 }
 .job-suspect-table :deep(.el-table__body tr td.el-table__cell) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -2422,7 +2493,14 @@ onUnmounted(clearPoll)
   color: #888888;
 }
 .impact-api-table :deep(.el-table__body tr td.el-table__cell) {
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.impact-api-table.custom-scrollbar :deep(.el-scrollbar__wrap) {
+  overflow-x: hidden !important;
+}
+.impact-api-table.custom-scrollbar :deep(.el-scrollbar__bar.is-vertical) {
+  width: 4px;
+  right: 2px;
 }
 .impact-api-table :deep(.el-table__body tr:last-child td.el-table__cell) {
   border-bottom: none;
@@ -2746,37 +2824,10 @@ onUnmounted(clearPoll)
 }
 .job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap) {
   overflow-x: hidden !important;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(120, 128, 140, 0.45) transparent;
-}
-.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap::-webkit-scrollbar) {
-  width: 4px;
-  height: 4px;
-}
-.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap::-webkit-scrollbar-button) {
-  display: none;
-  width: 0;
-  height: 0;
-}
-.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap::-webkit-scrollbar-thumb) {
-  background: rgba(120, 128, 140, 0.4);
-  border-radius: 4px;
-}
-.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__wrap::-webkit-scrollbar-track) {
-  background: transparent;
 }
 .job-suspect-table.custom-scrollbar :deep(.el-scrollbar__bar.is-vertical) {
   width: 4px;
   right: 2px;
-  opacity: 0.6;
-  transition: opacity 0.2s ease;
-}
-.job-suspect-table.custom-scrollbar:hover :deep(.el-scrollbar__bar.is-vertical) {
-  opacity: 1;
-}
-.job-suspect-table.custom-scrollbar :deep(.el-scrollbar__bar.is-vertical .el-scrollbar__thumb) {
-  background: rgba(150, 158, 170, 0.55);
-  border-radius: 4px;
 }
 .job-detail-page .job-suspect-table :deep(tr.impact-row--linked td.el-table__cell) {
   background: rgba(245, 158, 11, 0.06) !important;

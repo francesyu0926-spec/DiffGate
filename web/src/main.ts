@@ -7,6 +7,8 @@ import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import 'element-plus/dist/index.css'
 import App from './App.vue'
+import { installScrollOverlayScrollbar } from './utils/scrollOverlayScrollbar'
 
 // Vuetify 须最先注册；JobDetail 等页仍用 Element Plus
+installScrollOverlayScrollbar()
 createApp(App).use(vuetify).use(router).use(ElementPlus, { locale: zhCn }).mount('#app')

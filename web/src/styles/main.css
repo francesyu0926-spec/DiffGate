@@ -45,50 +45,9 @@ html.diffgate-scroll-lock .v-main__wrap {
 }
 
 /* 与顶栏、正文同一水平栅格 */
-/* 抽屉 / 浮层内滚动条：细条、透明轨道（Element Plus + Vuetify 兼容） */
-.v-navigation-drawer__content::-webkit-scrollbar,
-.v-overlay__content *::-webkit-scrollbar,
-.el-drawer__body::-webkit-scrollbar,
-.el-drawer__body *::-webkit-scrollbar,
-.cdd-code-panel::-webkit-scrollbar,
-.fs-unresolved-drawer__list::-webkit-scrollbar {
-  width: 5px !important;
-  height: 5px !important;
-}
-
-.v-navigation-drawer__content::-webkit-scrollbar-track,
-.v-overlay__content *::-webkit-scrollbar-track,
-.el-drawer__body::-webkit-scrollbar-track,
-.el-drawer__body *::-webkit-scrollbar-track,
-.cdd-code-panel::-webkit-scrollbar-track,
-.fs-unresolved-drawer__list::-webkit-scrollbar-track {
-  background: transparent !important;
-}
-
-.v-navigation-drawer__content::-webkit-scrollbar-thumb,
-.v-overlay__content *::-webkit-scrollbar-thumb,
-.el-drawer__body::-webkit-scrollbar-thumb,
-.el-drawer__body *::-webkit-scrollbar-thumb,
-.cdd-code-panel::-webkit-scrollbar-thumb,
-.fs-unresolved-drawer__list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16) !important;
-  border-radius: 999px !important;
-}
-
-.v-navigation-drawer__content::-webkit-scrollbar-thumb:hover,
-.v-overlay__content *::-webkit-scrollbar-thumb:hover,
-.el-drawer__body::-webkit-scrollbar-thumb:hover,
-.el-drawer__body *::-webkit-scrollbar-thumb:hover,
-.cdd-code-panel::-webkit-scrollbar-thumb:hover,
-.fs-unresolved-drawer__list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.32) !important;
-}
-
 .code-diff-drawer .el-drawer__body,
 .fs-unresolved-drawer .el-drawer__body {
   overflow: hidden !important;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
 
 .shell {
@@ -149,26 +108,89 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-/* 全站暗黑极细圆角滚动条 (Chrome / Edge / Safari + Firefox) */
+/* 全站：默认完全隐藏滚动条，滑动/滚动时短暂显示（见 scrollOverlayScrollbar.ts） */
+html:has(.v-theme--darkMonochrome),
+html:has(.v-theme--darkMonochrome) body,
 html:has(.v-theme--darkMonochrome) * {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
+html:has(.v-theme--darkMonochrome)::-webkit-scrollbar,
+html:has(.v-theme--darkMonochrome) body::-webkit-scrollbar,
 html:has(.v-theme--darkMonochrome) *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+html:has(.v-theme--darkMonochrome).diffgate-scrollbar-active,
+html:has(.v-theme--darkMonochrome) body.diffgate-scrollbar-active,
+html:has(.v-theme--darkMonochrome) .diffgate-scrollbar-active {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  -ms-overflow-style: auto;
+}
+
+html:has(.v-theme--darkMonochrome).diffgate-scrollbar-active::-webkit-scrollbar,
+html:has(.v-theme--darkMonochrome) body.diffgate-scrollbar-active::-webkit-scrollbar,
+html:has(.v-theme--darkMonochrome) .diffgate-scrollbar-active::-webkit-scrollbar {
+  display: block;
   width: 6px;
   height: 6px;
 }
 
-html:has(.v-theme--darkMonochrome) *::-webkit-scrollbar-track {
+html:has(.v-theme--darkMonochrome).diffgate-scrollbar-active::-webkit-scrollbar-track,
+html:has(.v-theme--darkMonochrome) body.diffgate-scrollbar-active::-webkit-scrollbar-track,
+html:has(.v-theme--darkMonochrome) .diffgate-scrollbar-active::-webkit-scrollbar-track {
   background: transparent;
 }
 
-html:has(.v-theme--darkMonochrome) *::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+html:has(.v-theme--darkMonochrome).diffgate-scrollbar-active::-webkit-scrollbar-thumb,
+html:has(.v-theme--darkMonochrome) body.diffgate-scrollbar-active::-webkit-scrollbar-thumb,
+html:has(.v-theme--darkMonochrome) .diffgate-scrollbar-active::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 999px;
+  transition: background 0.2s ease;
 }
 
-html:has(.v-theme--darkMonochrome) *::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
+html:has(.v-theme--darkMonochrome).diffgate-scrollbar-active::-webkit-scrollbar-thumb:hover,
+html:has(.v-theme--darkMonochrome) body.diffgate-scrollbar-active::-webkit-scrollbar-thumb:hover,
+html:has(.v-theme--darkMonochrome) .diffgate-scrollbar-active::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+/* Element Plus：隐藏原生条，仅用自定义条；滚动时露出 */
+html:has(.v-theme--darkMonochrome) .el-scrollbar__wrap {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+
+html:has(.v-theme--darkMonochrome) .el-scrollbar__wrap::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
+html:has(.v-theme--darkMonochrome) .el-scrollbar__bar {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+html:has(.v-theme--darkMonochrome) .el-scrollbar.diffgate-scrollbar-active .el-scrollbar__bar,
+html:has(.v-theme--darkMonochrome) .el-scrollbar:has(.diffgate-scrollbar-active) .el-scrollbar__bar {
+  opacity: 0.88;
+  pointer-events: auto;
+}
+
+html:has(.v-theme--darkMonochrome) .el-scrollbar.diffgate-scrollbar-active .el-scrollbar__bar.is-vertical,
+html:has(.v-theme--darkMonochrome) .el-scrollbar:has(.diffgate-scrollbar-active) .el-scrollbar__bar.is-vertical {
+  width: 6px;
+  right: 2px;
+}
+
+html:has(.v-theme--darkMonochrome) .el-scrollbar__bar .el-scrollbar__thumb {
+  background: rgba(150, 158, 170, 0.52);
+  border-radius: 4px;
 }

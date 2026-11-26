@@ -214,8 +214,23 @@ export async function reindexRepository(id: string) {
   return data
 }
 
-export async function triggerRepoAnalysis(id: string) {
-  const { data } = await http.post<{ ok: boolean; job_id: string }>(`/repositories/${id}/analyze`)
+export async function fetchRepoBranches(id: string) {
+  const { data } = await http.get<{
+    items: string[]
+    default_branch: string
+    cache_ttl_sec?: number
+  }>(`/repositories/${id}/branches`)
+  return data
+}
+
+export async function triggerRepoAnalysis(
+  id: string,
+  opts?: { branch?: string; base_branch?: string },
+) {
+  const { data } = await http.post<{ ok: boolean; job_id: string }>(
+    `/repositories/${id}/analyze`,
+    opts ?? {},
+  )
   return data
 }
 

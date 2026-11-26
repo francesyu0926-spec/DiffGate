@@ -26,6 +26,17 @@ class GateOverrideIn(BaseModel):
     actor: str = Field(default="admin", max_length=64)
 
 
+class RepositoryAnalyzeIn(BaseModel):
+    """手动触发分析：可选目标分支与基准分支（三点 diff）。"""
+
+    branch: str | None = Field(default=None, max_length=255, description="待测分支，默认仓库 default_branch")
+    base_branch: str | None = Field(
+        default=None,
+        max_length=255,
+        description="对比基准分支；设置后 base=merge-base(base_branch, branch)",
+    )
+
+
 class GateReportIn(BaseModel):
     """精准回归 / CI 回传增量覆盖率与用例结果。"""
 

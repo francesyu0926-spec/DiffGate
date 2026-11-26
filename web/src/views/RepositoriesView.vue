@@ -1610,8 +1610,6 @@ onMounted(async () => {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
 .repo-dialog-form {
   padding-right: 16px;
@@ -1622,31 +1620,6 @@ onMounted(async () => {
   margin-inline: 0 !important;
   width: 100%;
   max-width: 100%;
-}
-.repo-dialog-body::-webkit-scrollbar {
-  width: 6px;
-}
-.repo-dialog-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.repo-dialog-body::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  transition: background-color 0.2s ease;
-}
-.repo-dialog-body:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.26);
-}
-.repo-dialog-body::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.36);
-}
-.repo-dialog-body::-webkit-scrollbar-button,
-.repo-dialog-body::-webkit-scrollbar-corner {
-  display: none;
-  width: 0;
-  height: 0;
 }
 .repo-form-grid {
   margin-top: 0;

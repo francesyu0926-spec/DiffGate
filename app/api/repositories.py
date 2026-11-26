@@ -6,10 +6,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.schemas import RepositoryCreate, RepositoryOut, RepositoryUpdate
+from app.api.schemas import RepositoryAnalyzeIn, RepositoryCreate, RepositoryOut, RepositoryUpdate
+from app.services.git_branches import list_repository_branches, resolve_analysis_shas
 from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
-from app.services.repo_index import reindex_repository, resolve_head_shas
+from app.services.repo_index import reindex_repository
 from app.services.analysis_runner import schedule_analyze_merge
 from app.utils.time_format import as_utc_iso
 
@@ -192,19 +193,46 @@ def rebuild_ast_index(repo_id: str, db: Session = Depends(get_db)) -> dict:
     return {"ok": True, "repository": _to_out(repo), "stats": stats}
 
 
+@router.get("/{repo_id}/branches")
+def list_repo_branches(repo_id: str, db: Session = Depends(get_db)) -> dict:
+    repo = db.get(Repository, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="仓库不存在")
+    try:
+        branches = list_repository_branches(repo)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"无法列举分支: {exc}") from exc
+    default_branch = repo.default_branch or "main"
+    if default_branch not in branches:
+        branches = sorted({*branches, default_branch}, key=str.lower)
+    return {
+        "items": branches,
+        "default_branch": default_branch,
+        "cache_ttl_sec": 30,
+    }
+
+
 @router.post("/{repo_id}/analyze", status_code=status.HTTP_202_ACCEPTED)
 def trigger_diff_analysis(
     repo_id: str,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    body: RepositoryAnalyzeIn | None = None,
 ) -> dict:
     repo = db.get(Repository, repo_id)
     if not repo:
         raise HTTPException(status_code=404, detail="仓库不存在")
     if not repo.enabled:
         raise HTTPException(status_code=400, detail="仓库已停用")
+    opts = body or RepositoryAnalyzeIn()
+    branch = (opts.branch or "").strip() or None
+    base_branch = (opts.base_branch or "").strip() or None
     try:
-        base_sha, head_sha = resolve_head_shas(repo)
+        base_sha, head_sha, ref = resolve_analysis_shas(
+            repo,
+            branch=branch,
+            base_branch=base_branch,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"无法解析 Git: {exc}") from exc
 
@@ -213,7 +241,7 @@ def trigger_diff_analysis(
         id=job_id,
         provider=repo.provider,
         repo_full_name=repo.full_name,
-        ref=repo.default_branch,
+        ref=ref,
         base_sha=base_sha,
         head_sha=head_sha,
         status="pending",
@@ -228,7 +256,7 @@ def trigger_diff_analysis(
         clone_url=repo.clone_url,
         base_sha=base_sha,
         head_sha=head_sha,
-        ref=repo.default_branch,
+        ref=ref,
     )
     out = {"ok": True, "job_id": job_id, "runner": meta["runner"]}
     if meta.get("task_id"):

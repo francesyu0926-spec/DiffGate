@@ -492,8 +492,6 @@ watch(
   min-height: 0;
   max-height: 100%;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
 .cdd-pre {
   margin: 0;
