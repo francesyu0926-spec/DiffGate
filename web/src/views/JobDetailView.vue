@@ -901,6 +901,50 @@ const graphEmptyDesc = computed(() => {
 
 const showZeroRiskAutoPass = computed(() => isEmptyImpact.value)
 
+const suspectPanelEmptyCopy = computed(() => {
+  if (selectedApiKey.value) {
+    return {
+      title: '当前接口下无关联的变更函数',
+      hint: '该 API 在调用链中为「直达」，或未索引到变更符号。',
+      showClear: true,
+    }
+  }
+  if (suspectSearch.value.trim() || suspectApiOnly.value) {
+    return {
+      title: '无匹配的变更函数',
+      hint: '试试放宽搜索词，或关闭「仅看波及接口」。',
+      showClear: false,
+    }
+  }
+  if (isEmptyImpact.value) {
+    const ds = job.value?.changed_symbols?.diff_summary
+    if (ds && ds.python_files === 0 && ds.other_files === 0) {
+      return {
+        title: '对比范围内无文件差异',
+        hint: '本次提交未改动任何文件，因此不会产生变更函数列表。',
+        showClear: false,
+      }
+    }
+    if (ds && ds.python_files === 0 && ds.other_files > 0) {
+      return {
+        title: '无 Python 函数级变更',
+        hint: `仅有 ${ds.other_files} 个非 Python 文件变更，无法解析 AST 符号。`,
+        showClear: false,
+      }
+    }
+    return {
+      title: '未检测到可列出的变更函数',
+      hint: '分析已完成，但未在变更行中定位到 Python 符号。',
+      showClear: false,
+    }
+  }
+  return {
+    title: '暂无变更函数',
+    hint: '若任务仍在进行，完成后将在此展示嫌疑符号与行号。',
+    showClear: false,
+  }
+})
+
 /** 已完成、有底层变更但无 API/调用链：拓扑区折叠为轻量提示条 */
 const showTopologyCompactEmpty = computed(() => {
   if (showAnalyzingUi.value) return false
@@ -1508,20 +1552,12 @@ onUnmounted(clearPoll)
             <span class="impact-suspect-empty__icon-wrap" aria-hidden="true">
               <span class="mdi mdi-code-brackets impact-suspect-empty__icon" />
             </span>
-            <p class="impact-suspect-empty__title">
-              {{
-                selectedApiKey
-                  ? '当前接口下无关联的变更函数'
-                  : suspectSearch.trim() || suspectApiOnly
-                    ? '无匹配的变更函数'
-                    : '暂无变更函数'
-              }}
-            </p>
-            <p v-if="selectedApiKey" class="impact-suspect-empty__sub">
-              该 API 在调用链中为「直达」，或未索引到变更符号。
+            <p class="impact-suspect-empty__title">{{ suspectPanelEmptyCopy.title }}</p>
+            <p v-if="suspectPanelEmptyCopy.hint" class="impact-suspect-empty__sub">
+              {{ suspectPanelEmptyCopy.hint }}
             </p>
             <button
-              v-if="selectedApiKey"
+              v-if="suspectPanelEmptyCopy.showClear"
               type="button"
               class="impact-suspect-empty__cta"
               @click="clearApiFilter"
