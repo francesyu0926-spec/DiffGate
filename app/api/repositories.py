@@ -10,6 +10,7 @@ from app.api.schemas import RepositoryAnalyzeIn, RepositoryCreate, RepositoryOut
 from app.services.git_branches import list_repository_branches, resolve_analysis_shas
 from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
+from app.adapters.registry import list_repo_type_options
 from app.services.repo_index import reindex_repository
 from app.services.analysis_runner import schedule_analyze_merge
 from app.utils.time_format import as_utc_iso
@@ -54,8 +55,18 @@ def repository_overview(db: Session = Depends(get_db)) -> dict:
     }
 
 
+def _sync_notify_url(repo: Repository, url: str | None) -> None:
+    url = (url or "").strip() or None
+    repo.notify_webhook_url = url
+    repo.webhook_notify_url = url
+
+
 def _to_out(repo: Repository, job_count: int = 0) -> dict:
     data = RepositoryOut.model_validate(repo, from_attributes=True).model_dump()
+    notify_url = repo.notify_webhook_url or repo.webhook_notify_url
+    data["notify_webhook_url"] = notify_url
+    data["webhook_notify_url"] = notify_url
+    data["notify_policy"] = repo.notify_policy or "block_only"
     data["token_configured"] = bool(repo.access_token)
     data["ssh_configured"] = bool(repo.ssh_private_key)
     data["job_count"] = job_count
@@ -63,6 +74,11 @@ def _to_out(repo: Repository, job_count: int = 0) -> dict:
     data["created_at"] = as_utc_iso(repo.created_at)
     data["updated_at"] = as_utc_iso(repo.updated_at)
     return data
+
+
+@router.get("/meta/repo-types")
+def list_repo_type_meta() -> dict:
+    return {"items": list_repo_type_options()}
 
 
 @router.get("/meta/test-suites")
@@ -104,6 +120,7 @@ def list_repositories(
 
 @router.post("", response_model=dict)
 def create_repository(body: RepositoryCreate, db: Session = Depends(get_db)) -> dict:
+    notify_url = body.notify_webhook_url or body.webhook_notify_url
     repo = Repository(
         id=str(uuid.uuid4()),
         full_name=body.full_name.strip(),
@@ -119,6 +136,14 @@ def create_repository(body: RepositoryCreate, db: Session = Depends(get_db)) -> 
         ssh_private_key=body.ssh_private_key,
         scan_root=body.scan_root.strip() or ".",
         test_suite_id=body.test_suite_id,
+        gate_path_rules=body.gate_path_rules,
+        high_risk_paths=body.high_risk_paths,
+        notify_policy=body.notify_policy,
+        notify_webhook_url=notify_url,
+        webhook_notify_url=notify_url,
+        repo_type=body.repo_type,
+        api_base_prefix=(body.api_base_prefix or "").strip(),
+        linked_repo_ids=list(body.linked_repo_ids or []),
     )
     db.add(repo)
     try:
@@ -152,6 +177,14 @@ def update_repository(repo_id: str, body: RepositoryUpdate, db: Session = Depend
         updates["full_name"] = updates["full_name"].strip()
     if "clone_url" in updates and updates["clone_url"]:
         updates["clone_url"] = updates["clone_url"].strip()
+    notify_keys = {"notify_webhook_url", "webhook_notify_url"}
+    if notify_keys & set(updates):
+        _sync_notify_url(
+            repo,
+            updates.get("notify_webhook_url") or updates.get("webhook_notify_url"),
+        )
+        for k in notify_keys:
+            updates.pop(k, None)
     for key, value in updates.items():
         if key == "access_token" and not value:
             continue
@@ -179,6 +212,22 @@ def delete_repository(repo_id: str, db: Session = Depends(get_db)) -> dict:
     db.delete(repo)
     db.commit()
     return {"ok": True, "id": repo_id}
+
+
+@router.post("/{repo_id}/test-notify")
+def test_repository_notify(repo_id: str, db: Session = Depends(get_db)) -> dict:
+    from app.services.im_notify import repo_notify_webhook, send_test_notify
+
+    repo = db.get(Repository, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="仓库不存在")
+    url = repo_notify_webhook(repo)
+    if not url:
+        raise HTTPException(status_code=400, detail="请先配置 notify_webhook_url")
+    result = send_test_notify(url)
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=result.get("message") or "发送失败")
+    return result
 
 
 @router.post("/{repo_id}/reindex")

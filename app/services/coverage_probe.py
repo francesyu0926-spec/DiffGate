@@ -35,6 +35,20 @@ def _norm_repo_path(path: str) -> str:
     return path.replace("\\", "/")
 
 
+def count_line_range_lines(line_ranges: list[dict]) -> int:
+    """与 quality_gate._line_range_stats 一致：Diff 变更行总数。"""
+    total = 0
+    for block in line_ranges:
+        if not isinstance(block, dict):
+            continue
+        start = int(block.get("start") or 0)
+        end = int(block.get("end") or start)
+        if start <= 0:
+            continue
+        total += max(0, end - start + 1)
+    return total
+
+
 def expand_changed_lines(line_ranges: list[dict]) -> list[tuple[str, int]]:
     rows: list[tuple[str, int]] = []
     for block in line_ranges:
@@ -167,7 +181,15 @@ def run_coverage_probe(
     job: AnalysisJob | None = None,
 ) -> ProbeResult:
     changed = expand_changed_lines(line_ranges)
+    total_diff_lines = count_line_range_lines(line_ranges)
     if not changed:
+        if total_diff_lines > 0:
+            return ProbeResult(
+                incremental_coverage_pct=0.0,
+                tests_passed=True,
+                changed_lines=total_diff_lines,
+                covered_changed_lines=0,
+            )
         return ProbeResult(incremental_coverage_pct=100.0, tests_passed=True, changed_lines=0)
 
     workdir = guess_python_workdir(repo_dir, line_ranges)

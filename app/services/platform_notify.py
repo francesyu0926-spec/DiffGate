@@ -131,36 +131,19 @@ def notify_gitlab(job: AnalysisJob, repo: Repository | None, gr: dict) -> None:
         logger.warning("gitlab notify failed: %s", exc)
 
 
-def notify_im_block(job: AnalysisJob, gr: dict) -> None:
-    settings = get_settings()
-    if (gr.get("gate") or "").upper() != "BLOCK":
-        return
-    webhook = settings.feishu_webhook_url or settings.dingtalk_webhook_url
-    if not webhook:
-        return
-    meta = job.job_metadata or {}
-    committer = meta.get("committer") or job.repo_full_name
-    text = (
-        f"DiffGate 拦截 · {job.repo_full_name}\n"
-        f"Commit: {(job.head_sha or '')[:8]}\n"
-        f"原因: {gr.get('block_reason_label') or gr.get('block_reason')}\n"
-        f"覆盖率: {gr.get('incremental_coverage_pct')}% / {gr.get('coverage_threshold')}%"
-    )
-    card = {
-        "msg_type": "text",
-        "content": {"text": f"{text}\n提交人: {committer}"},
-    }
-    try:
-        with httpx.Client(timeout=15.0) as client:
-            client.post(webhook, json=card)
-    except Exception as exc:
-        logger.warning("im notify failed: %s", exc)
+def notify_im_block(job: AnalysisJob, repo: Repository | None, gr: dict) -> dict | None:
+    from app.services.im_notify import send_gate_im_notice
+
+    return send_gate_im_notice(job, repo, gr)
 
 
 def notify_platform(job: AnalysisJob, repo: Repository | None) -> None:
-    gr = job.gate_result or {}
+    gr = dict(job.gate_result or {})
     if job.provider == "github":
         notify_github(job, repo, gr)
     elif job.provider == "gitlab":
         notify_gitlab(job, repo, gr)
-    notify_im_block(job, gr)
+    notify_status = notify_im_block(job, repo, gr)
+    if notify_status is not None:
+        gr["notify_status"] = notify_status
+        job.gate_result = gr

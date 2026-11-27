@@ -169,6 +169,58 @@ function nodeSubtitle(n: GraphNode) {
   return n.file
 }
 
+function nodeSubline(n: GraphNode): string {
+  const sub = nodeSubtitle(n)
+  if (sub && !sub.startsWith('点击展开')) {
+    if (sub.length > 48) return `${sub.slice(0, 24)}…${sub.slice(-20)}`
+    return sub
+  }
+  const raw = (n.label ?? n.id).replace(/\\/g, '.')
+  const parts = raw.split('.').filter(Boolean)
+  if (parts.length > 2) return parts.slice(-3, -1).join('.')
+  return ''
+}
+
+function nodeTipDetail(n: GraphNode): string {
+  const full = nodeTitleFull(n)
+  const short = nodeTitle(n)
+  if (full !== short) return full
+  const sub = nodeSubtitle(n)
+  return sub && !sub.startsWith('点击展开') ? sub : ''
+}
+
+const nodeTip = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  title: '',
+  sub: '',
+})
+
+function showNodeTip(event: MouseEvent, d: GraphNode) {
+  const wrap = wrapRef.value
+  if (!wrap) return
+  const rect = wrap.getBoundingClientRect()
+  const pad = 12
+  let x = event.clientX - rect.left + pad
+  let y = event.clientY - rect.top + pad
+  const maxX = Math.max(pad, wrap.clientWidth - 280)
+  const maxY = Math.max(pad, wrap.clientHeight - 72)
+  x = Math.min(x, maxX)
+  y = Math.min(y, maxY)
+  nodeTip.value = {
+    show: true,
+    x,
+    y,
+    title: nodeTitle(d),
+    sub: nodeTipDetail(d),
+  }
+}
+
+function hideNodeTip() {
+  nodeTip.value = { ...nodeTip.value, show: false }
+}
+
 function layoutNodes(
   nodes: GraphNode[],
   containerWidth: number,
@@ -427,18 +479,19 @@ function drawGraph() {
     .on('mouseenter', (event, d) => {
       event.stopPropagation()
       hoverId.value = d.id
+      showNodeTip(event, d)
       updateHoverStyles()
     })
     .on('mouseleave', (event) => {
       event.stopPropagation()
       hoverId.value = null
+      hideNodeTip()
       updateHoverStyles()
     })
     .on('click', (event, d) => onNodeClick(d, event))
 
   nodeG
     .attr('opacity', (d) => (active && !active.has(d.id) ? 0.2 : 1))
-    .attr('title', (d) => nodeTitleFull(d))
 
   nodeG
     .append('rect')
@@ -487,15 +540,7 @@ function drawGraph() {
     .attr('fill', 'rgba(255,255,255,0.52)')
     .attr('font-size', 10)
     .attr('font-family', 'ui-monospace, Consolas, monospace')
-    .text((d) => {
-      const full = nodeTitleFull(d)
-      const short = nodeTitle(d)
-      const sub =
-        full !== short && !d.id.startsWith('file:')
-          ? full
-          : nodeSubtitle(d)
-      return sub.length > 44 ? `…${sub.slice(-42)}` : sub
-    })
+    .text((d) => nodeSubline(d))
 
   ensureZoomBehavior(svg)
   applyZoomTransform(savedTransform)
@@ -679,6 +724,15 @@ onBeforeUnmount(() => {
       </div>
       <div v-show="graphHasRenderable" ref="wrapRef" class="d3-graph-canvas" :style="{ height: `${canvasHeight}px` }">
         <svg ref="svgRef" class="d3-graph-svg" role="img" aria-label="变更影响拓扑图" />
+        <div
+          v-show="nodeTip.show"
+          class="d3-node-tip"
+          role="tooltip"
+          :style="{ left: `${nodeTip.x}px`, top: `${nodeTip.y}px` }"
+        >
+          <p class="d3-node-tip__title">{{ nodeTip.title }}</p>
+          <p v-if="nodeTip.sub" class="d3-node-tip__sub mono">{{ nodeTip.sub }}</p>
+        </div>
         <div class="d3-floating-tools" aria-label="画布缩放">
           <button type="button" class="d3-float-btn" title="放大" aria-label="放大" @click="applyZoom(1.12)">
             <span class="mdi mdi-plus" aria-hidden="true" />
@@ -754,5 +808,30 @@ onBeforeUnmount(() => {
 .d3-float-btn .mdi {
   font-size: 18px;
   line-height: 1;
+}
+.d3-node-tip {
+  position: absolute;
+  z-index: 4;
+  max-width: min(320px, calc(100% - 24px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  pointer-events: none;
+  background: rgba(36, 38, 42, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.d3-node-tip__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.94);
+}
+.d3-node-tip__sub {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.62);
+  word-break: break-all;
 }
 </style>

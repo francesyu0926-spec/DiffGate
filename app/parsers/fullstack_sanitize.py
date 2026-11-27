@@ -68,7 +68,7 @@ def tree_sitter_scan_shape(impact: dict) -> dict:
         api_calls.append(
             {
                 "file": c.get("file"),
-                "method": c.get("method"),
+                "method": c.get("backend_method") or c.get("method"),
                 "endpoint": c.get("backend_path") or c.get("path"),
                 "line": c.get("line"),
             }

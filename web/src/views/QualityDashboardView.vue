@@ -291,11 +291,19 @@ function rowBlockHighlight(item: FlowRow) {
   return interceptCardHover.value && item.gate === 'BLOCK'
 }
 
+function flowBlockReasonText(item: FlowRow) {
+  if (item.gate !== 'BLOCK') return ''
+  const label = item.block_reason_label
+    ? shortenReasonLabel(item.block_reason_label)
+    : item.block_reason || ''
+  return label
+}
+
 function flowGateTooltip(item: FlowRow) {
   if (item.gate === 'BLOCK') {
-    const label = item.block_reason_label
-      ? shortenReasonLabel(item.block_reason_label)
-      : '未达质量门禁要求'
+    const summary = item.trigger_detail_summary
+    if (summary) return summary
+    const label = flowBlockReasonText(item) || '未达质量门禁要求'
     return `因「${label}」被拦截`
   }
   if (item.gate === 'OVERRIDDEN') return '已人工特批放行（审计记录见精准回归详情）'
@@ -1396,7 +1404,7 @@ watch([days, repoFilter], load)
               class="gate-progress"
             />
             <span class="mono text-caption gate-pct">{{ flowCoveragePctLabel(item) }}</span>
-            <div class="gate-status-slot">
+            <div class="gate-status-slot" :class="{ 'gate-status-slot--stack': item.gate === 'BLOCK' }">
               <v-tooltip
                 :text="flowGateTooltip(item)"
                 location="top end"
@@ -1420,6 +1428,13 @@ watch([days, repoFilter], load)
                   </v-chip>
                 </template>
               </v-tooltip>
+              <span
+                v-if="flowBlockReasonText(item)"
+                class="flow-block-reason text-truncate"
+                :title="`拦截原因：${flowBlockReasonText(item)}`"
+              >
+                {{ flowBlockReasonText(item) }}
+              </span>
             </div>
           </div>
 
@@ -2453,6 +2468,21 @@ watch([days, repoFilter], load)
   gap: 10px;
   min-width: 0;
   flex-wrap: nowrap;
+}
+.gate-status-slot--stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+  max-width: 132px;
+}
+.flow-block-reason {
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(232, 168, 163, 0.92);
+  max-width: 100%;
+  text-align: right;
 }
 .gate-pct {
   flex-shrink: 0;

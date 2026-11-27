@@ -1,0 +1,123 @@
+/**
+ * Material Design 3 加载态（全站统一）
+ * — 深色主题下的骨架屏、进度指示与占位波纹
+ */
+
+@keyframes md3-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Vuetify v-skeleton-loader：避免默认白底（全局样式勿用 :deep） */
+.v-skeleton-loader.m3-skeleton-tonal,
+.m3-skeleton-tonal.v-skeleton-loader {
+  background: transparent !important;
+}
+.m3-skeleton-tonal .v-skeleton-loader__bone,
+.m3-skeleton-tonal .v-skeleton-loader__image,
+.m3-skeleton-tonal .v-skeleton-loader__avatar,
+.m3-skeleton-tonal .v-skeleton-loader__heading,
+.m3-skeleton-tonal .v-skeleton-loader__text,
+.m3-skeleton-tonal .v-skeleton-loader__button,
+.m3-skeleton-tonal .v-skeleton-loader__chip,
+.m3-skeleton-tonal .v-skeleton-loader__divider,
+.m3-skeleton-tonal .v-skeleton-loader__list-item,
+.m3-skeleton-tonal .v-skeleton-loader__table-cell,
+.m3-skeleton-tonal .v-skeleton-loader__table-row,
+.m3-skeleton-tonal .v-skeleton-loader__sentences {
+  background: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: none !important;
+}
+.m3-skeleton-tonal .v-skeleton-loader__bone::after,
+.m3-skeleton-tonal .v-skeleton-loader__image::after,
+.m3-skeleton-tonal .v-skeleton-loader__avatar::after,
+.m3-skeleton-tonal .v-skeleton-loader__heading::after,
+.m3-skeleton-tonal .v-skeleton-loader__text::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent) !important;
+  animation: md3-shimmer 1.4s ease-in-out infinite;
+}
+
+.md3-load-state {
+  width: 100%;
+  box-sizing: border-box;
+}
+.md3-load-state--linear {
+  min-height: 0;
+  padding: 0;
+}
+.md3-load-state--overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 24px;
+}
+.md3-load-overlay-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  min-height: inherit;
+  padding: 32px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+}
+.md3-load-label {
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+}
+
+.kpi-skeleton-md3 {
+  border-radius: 16px;
+  min-height: 168px;
+  overflow: hidden;
+}
+
+.md3-panel-load {
+  position: relative;
+  min-height: 120px;
+}
+.md3-panel-load__track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+}
+
+/* 与 JobDetail 自定义条统一 */
+.md3-skel-bar {
+  display: block;
+  height: 12px;
+  width: 68%;
+  max-width: 100%;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  position: relative;
+  overflow: hidden;
+}
+.md3-skel-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.09), transparent);
+  animation: md3-shimmer 1.35s ease-in-out infinite;
+}
+
+/* Element Plus v-loading 与 MD3 深色遮罩 */
+.el-loading-mask {
+  background-color: rgba(11, 12, 14, 0.72) !important;
+}
+.el-loading-spinner .path {
+  stroke: #8ab4f8 !important;
+}

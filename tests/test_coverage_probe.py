@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app.services.coverage_probe import (
+    count_line_range_lines,
     expand_changed_lines,
     guess_python_workdir,
     run_coverage_probe,
@@ -28,6 +29,10 @@ def test_probe_rows_marks_hits():
     rows = _probe_rows(changed, executed)
     assert rows[0]["covered"] is False
     assert rows[1]["covered"] is True
+
+
+def test_count_line_range_lines():
+    assert count_line_range_lines([{"path": "a.py", "start": 1, "end": 3}]) == 3
 
 
 def test_run_coverage_probe_empty_ranges():

@@ -31,6 +31,8 @@ export interface ImpactAccordionItem {
   fileCount: number
   frontendCount: number
   symbolCount: number
+  /** 逆向 BFS 跳数（含 API 入口层）；与 chain_labels 同源 */
+  layers: number
   chainLabels: string[]
   steps: ImpactAccordionStep[]
   apiFile?: string
@@ -264,13 +266,16 @@ export function buildImpactAccordionItems(
     const key = apiKey(row.method, row.path)
     const meta = findApiMeta(row, apis, graph)
     const fe = frontendHits(row.path, row.method, fullstack)
+    const symCount = symbolsFromLabels(labels).length
+    const hopLayers = row.layers ?? Math.max(symCount, labels.length > 0 ? labels.length : 0)
     items.push({
       key,
       method: (row.method || 'GET').toUpperCase(),
       path: row.path,
       fileCount: fileCountFromChain(labels, suspects),
       frontendCount: fe.length,
-      symbolCount: symbolsFromLabels(labels).length,
+      symbolCount: symCount,
+      layers: hopLayers,
       chainLabels: labels,
       steps: buildSteps(row, meta, fullstack, suspects),
       apiFile: meta.file,

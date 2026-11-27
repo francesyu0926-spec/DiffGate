@@ -34,12 +34,14 @@ def init_db() -> None:
     from app.db.migrate_sqlite import (
         ensure_analysis_job_columns,
         ensure_analysis_job_extra_columns,
+        ensure_diffgate_user_columns,
         ensure_repository_columns,
     )
 
     ensure_repository_columns()
     ensure_analysis_job_columns()
     ensure_analysis_job_extra_columns()
+    ensure_diffgate_user_columns()
 
 
 def get_db():

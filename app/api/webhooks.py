@@ -105,14 +105,21 @@ async def github_webhook(
         ref = pr["head"]["ref"]
         clone_url = repo["clone_url"]
         full_name = repo["full_name"]
+        pr_user = (pr.get("user") or {}).get("login") or ""
         job_metadata = {
             "pr_number": pr.get("number"),
             "pr_url": pr.get("html_url"),
-            "committer": (pr.get("user") or {}).get("login"),
+            "committer": pr_user,
+            "commit_author_username": pr_user,
         }
     else:
+        commits = payload.get("commits") or []
+        last = commits[-1] if commits else {}
+        from app.api.webhook_meta import author_from_push_commit
+
         job_metadata = {
             "committer": ((payload.get("pusher") or {}).get("name")),
+            **author_from_push_commit(last),
         }
         ref = payload.get("ref", "")
         if not ref.startswith("refs/heads/"):
@@ -193,10 +200,22 @@ async def gitlab_webhook(
 
     job_metadata: dict | None = None
     if kind == "merge_request":
+        user = payload.get("user", {}) or {}
+        uname = str(user.get("username") or user.get("name") or "").strip()
         job_metadata = {
             "pr_number": payload.get("object_attributes", {}).get("iid"),
-            "committer": payload.get("user", {}).get("username"),
+            "committer": uname,
+            "commit_author_username": uname,
+            "commit_author_email": str(user.get("email") or "").strip(),
         }
+    elif kind == "push":
+        from app.api.webhook_meta import author_from_push_commit
+
+        commits = payload.get("commits") or []
+        job_metadata = author_from_push_commit(commits[-1] if commits else None)
+        user = payload.get("user_name") or payload.get("user_username")
+        if user and not job_metadata.get("committer"):
+            job_metadata["committer"] = str(user)
 
     ref_branch = ref.replace("refs/heads/", "") if ref.startswith("refs/heads/") else ref
     if ensure_registered(db, provider="gitlab", full_name=full_name, clone_url=clone_url, default_branch=ref_branch) is None:

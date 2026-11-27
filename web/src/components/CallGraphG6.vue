@@ -40,6 +40,7 @@ const props = withDefaults(
 const emit = defineEmits<{ nodePick: [GraphNodePick] }>()
 
 const filterApiOnly = ref(true)
+const showCrossRepo = ref(true)
 const compactLayers = ref(false)
 const aggregateByFile = ref(true)
 const expandedFiles = ref<Set<string>>(new Set())
@@ -289,6 +290,11 @@ const displayData = computed(() => {
   let nodes = raw.nodes.map((n) => (n.file ? { ...n, file: fileKey(n.file) } : n))
   let edges = raw.edges
   const changedSet = new Set(props.changedIds)
+  if (!showCrossRepo.value) {
+    const feIds = new Set(nodes.filter((n) => n.type === 'frontend').map((n) => n.id))
+    nodes = nodes.filter((n) => n.type !== 'frontend')
+    edges = edges.filter((e) => !feIds.has(e.source) && !feIds.has(e.target))
+  }
   if (filterApiOnly.value) {
     const keep = nodesOnPathsToApi(nodes, edges, changedSet)
     nodes = nodes.filter((n) => keep.has(n.id))
@@ -568,6 +574,11 @@ function renderGraph() {
         id: `e-${idx}`,
         source: e.source,
         target: e.target,
+        data: {
+          kind: (e as { kind?: string; cross_repo?: boolean }).kind,
+          cross_repo: (e as { cross_repo?: boolean }).cross_repo,
+          label: (e as { label?: string }).label,
+        },
       })),
     },
     layout: pickLayout(displayData.value.nodes, displayData.value.edges, filterApiOnly.value),
@@ -633,7 +644,14 @@ function renderGraph() {
     edge: {
       type: 'cubic-horizontal',
       style: {
-        stroke: EDGE_DIM,
+        stroke: (d: { data?: { cross_repo?: boolean; kind?: string } }) =>
+          d.data?.cross_repo || d.data?.kind === 'http_contract'
+            ? 'rgba(251, 191, 36, 0.72)'
+            : EDGE_DIM,
+        lineDash: (d: { data?: { cross_repo?: boolean; kind?: string } }) =>
+          d.data?.cross_repo || d.data?.kind === 'http_contract' ? [7, 5] : undefined,
+        labelText: (d: { data?: { label?: string; kind?: string } }) =>
+          d.data?.kind === 'http_contract' ? d.data?.label || 'HTTP 契约' : '',
         lineWidth: 1.35,
         endArrow: true,
         endArrowSize: 7,
@@ -744,6 +762,10 @@ onBeforeUnmount(() => {
             <label class="graph-toggle">
               <input v-model="compactLayers" type="checkbox" />
               折叠冗长层级
+            </label>
+            <label class="graph-toggle">
+              <input v-model="showCrossRepo" type="checkbox" />
+              显示跨仓库上下游影响
             </label>
           </div>
           <span class="graph-toolbar-divider" aria-hidden="true" />

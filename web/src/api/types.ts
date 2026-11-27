@@ -32,6 +32,15 @@ export interface RepositoryItem {
   auth_method: AuthMethod
   scan_root: string
   test_suite_id: string | null
+  webhook_notify_url?: string | null
+  notify_webhook_url?: string | null
+  notify_policy?: 'off' | 'block_only' | 'always'
+  high_risk_paths?: string[] | null
+  low_risk_paths?: string[] | null
+  high_risk_api_threshold?: number | null
+  high_risk_symbol_threshold?: number | null
+  allow_self_override?: boolean
+  gate_path_rules?: { path_prefix: string; threshold: number; allow_override?: boolean }[] | null
   token_configured?: boolean
   ssh_configured?: boolean
   ast_method_count: number
@@ -40,6 +49,10 @@ export interface RepositoryItem {
   created_at: string | null
   updated_at: string | null
   job_count?: number
+  repo_type?: string
+  api_base_prefix?: string
+  api_strip_prefix?: string
+  linked_repo_ids?: string[] | null
 }
 
 export interface RepositoryPayload {
@@ -56,6 +69,19 @@ export interface RepositoryPayload {
   ssh_private_key?: string
   scan_root?: string
   test_suite_id?: string | null
+  webhook_notify_url?: string | null
+  notify_webhook_url?: string | null
+  notify_policy?: 'off' | 'block_only' | 'always'
+  high_risk_paths?: string[] | null
+  low_risk_paths?: string[] | null
+  high_risk_api_threshold?: number | null
+  high_risk_symbol_threshold?: number | null
+  allow_self_override?: boolean
+  gate_path_rules?: { path_prefix: string; threshold: number; allow_override?: boolean }[] | null
+  repo_type?: string
+  api_base_prefix?: string
+  api_strip_prefix?: string
+  linked_repo_ids?: string[] | null
 }
 
 export interface JobAnalysisStats {

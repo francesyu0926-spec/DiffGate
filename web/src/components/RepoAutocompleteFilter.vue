@@ -182,7 +182,9 @@ onMounted(async () => {
     @update:model-value="onPick"
   >
     <template #selection="{ item }">
-      <span class="text-truncate">{{ item?.title ?? displayValue }}</span>
+      <span class="text-truncate" :title="String(item?.title ?? displayValue ?? '')">
+        {{ item?.title ?? displayValue }}
+      </span>
     </template>
     <template #item="{ props: itemProps, item }">
       <template v-if="item.raw.kind === 'subheader'">

@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, provide, ref } from 'vue'
+import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDisplay } from 'vuetify'
 import NewAnalysisDialog from '@/components/NewAnalysisDialog.vue'
 import WebhookHelpDrawer from '@/components/WebhookHelpDrawer.vue'
-import { fetchSystemStatus, type SystemStatus } from '@/api/client'
+import {
+  fetchAuthSession,
+  fetchSystemStatus,
+  hasAppSession,
+  loadAuthSession,
+  logoutAuth,
+  type AuthSession,
+  type SystemStatus,
+} from '@/api/client'
+import MembersManageDialog from '@/components/MembersManageDialog.vue'
+import { dismissRegressionFilterMenus } from '@/utils/dismissOverlays'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,6 +23,20 @@ const helpVisible = ref(false)
 const newAnalysisOpen = ref(false)
 const apiOnline = ref(true)
 const systemStatus = ref<SystemStatus | null>(null)
+const statusRefreshing = ref(false)
+const authSession = ref<AuthSession | null>(loadAuthSession())
+const membersOpen = ref(false)
+
+const isAdmin = computed(() => authSession.value?.role === 'admin')
+const userMenuLabel = computed(
+  () => authSession.value?.display_name || authSession.value?.username || '未登录',
+)
+const userRoleLabel = computed(() => authSession.value?.role_label || authSession.value?.role || '')
+
+const isLoginRoute = computed(() => route.name === 'login' || Boolean(route.meta.public))
+
+const API_START_CMD = '.\\scripts\\run_api.ps1'
+const showDevStartHint = import.meta.env.DEV
 provide('openWebhookHelp', () => {
   helpVisible.value = true
 })
@@ -23,19 +47,25 @@ provide('openNewAnalysis', () => {
 const engineStatusShort = computed(() => {
   if (!apiOnline.value) return 'API 未连接'
   const st = systemStatus.value
-  if (!st?.db_online) return 'Staging · 数据库不可用'
+  if (!st?.db_online) return 'Staging · 数据库连接异常'
   const ast = st.ast_engine === 'online' ? '引擎就绪' : '引擎异常'
   return `Staging · ${ast}`
 })
 
 const engineStatusPanel = computed(() => {
+  const apiDownHint = showDevStartHint
+    ? '本地 API 未响应，请确认已启动服务。'
+    : '本地服务未响应，请稍后重试或联系管理员。'
+
   if (!apiOnline.value) {
     return {
       title: '服务状态',
       worker: 'API 未连接',
       workerOk: false,
-      db: '请运行 run_api.ps1',
+      db: '数据库',
       dbOk: false,
+      dbHint: apiDownHint,
+      dbDetail: true,
       redis: '确认前端代理 /api/v1 可达',
       redisOk: false,
     }
@@ -46,8 +76,10 @@ const engineStatusPanel = computed(() => {
       title: '服务状态',
       worker: '加载中…',
       workerOk: false,
-      db: '—',
+      db: '数据库',
       dbOk: false,
+      dbHint: null,
+      dbDetail: false,
       redis: '—',
       redisOk: false,
     }
@@ -59,19 +91,31 @@ const engineStatusPanel = computed(() => {
         ? 'Celery Worker 队列'
         : 'Celery 同步（eager）'
   const redis = st.use_redis ? (st.redis_online ? 'Redis 已连接' : 'Redis 未连接') : '未启用 Redis'
-  const db = st.db_online ? '数据库正常' : '数据库异常'
+  const dbOk = Boolean(st.db_online)
+  const dbHint = dbOk
+    ? null
+    : showDevStartHint
+      ? '连接失败，请确认本地已启动 API 服务。'
+      : '数据库连接异常，请联系系统管理员或稍后重试。'
   return {
     title: '服务状态',
     worker,
     workerOk: st.ast_engine === 'online',
-    db,
-    dbOk: st.db_online,
+    db: dbOk ? '数据库正常' : '数据库',
+    dbOk,
+    dbHint,
+    dbDetail: !dbOk,
     redis,
     redisOk: !st.use_redis || st.redis_online,
   }
 })
 
-const statusDotOn = computed(() => apiOnline.value && systemStatus.value?.ast_engine === 'online')
+const statusDotOn = computed(
+  () =>
+    apiOnline.value &&
+    Boolean(systemStatus.value?.db_online) &&
+    systemStatus.value?.ast_engine === 'online',
+)
 
 let timer: number | undefined
 
@@ -90,17 +134,69 @@ function isActive(path: string) {
 }
 
 async function refreshStatus() {
+  statusRefreshing.value = true
   try {
     systemStatus.value = await fetchSystemStatus()
     apiOnline.value = true
   } catch {
     apiOnline.value = false
     systemStatus.value = null
+  } finally {
+    statusRefreshing.value = false
   }
 }
 
+async function copyStartCmd() {
+  try {
+    await navigator.clipboard.writeText(API_START_CMD)
+  } catch {
+    /* ignore */
+  }
+}
+
+async function refreshAuth() {
+  if (!hasAppSession()) {
+    authSession.value = null
+    return
+  }
+  try {
+    const s = await fetchAuthSession()
+    const base = loadAuthSession()
+    if (base) {
+      authSession.value = {
+        ...base,
+        username: s.username,
+        role: s.role,
+        role_label: s.role_label,
+        email: s.email,
+        display_name: s.display_name,
+        avatar_url: s.avatar_url,
+        authenticated: s.authenticated,
+      }
+    }
+  } catch {
+    /* keep cached session */
+  }
+}
+
+async function onLogout() {
+  await logoutAuth()
+  authSession.value = null
+  router.push('/login')
+}
+
+watch(
+  isLoginRoute,
+  (onLogin) => {
+    if (onLogin) dismissRegressionFilterMenus()
+  },
+  { flush: 'post' },
+)
+
 onMounted(() => {
+  if (isLoginRoute.value) dismissRegressionFilterMenus()
   refreshStatus()
+  refreshAuth()
   timer = window.setInterval(refreshStatus, 30000)
 })
 
@@ -110,7 +206,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <v-app class="diffgate-app">
+  <v-app class="diffgate-app" :class="{ 'diffgate-app--login': isLoginRoute }">
+    <router-view v-if="isLoginRoute" />
+
+    <template v-else>
     <v-app-bar flat color="surface" height="56" class="app-bar app-bar--md3-dark">
       <div class="shell bar-track d-flex align-center">
         <div class="brand d-flex align-center" @click="router.push('/dashboard')">
@@ -119,7 +218,7 @@ onUnmounted(() => {
           </v-avatar>
           <div class="d-none d-sm-flex align-center brand-title-row">
             <span class="text-subtitle-1 font-weight-bold brand-name">DiffGate</span>
-            <span class="version-text">v2.0</span>
+            <span class="version-text">v1.0</span>
           </div>
         </div>
 
@@ -190,7 +289,42 @@ onUnmounted(() => {
                   <span class="engine-status-card__label">任务引擎</span>
                   <span class="engine-status-card__value">{{ engineStatusPanel.worker }}</span>
                 </div>
-                <div class="engine-status-card__row">
+                <template v-if="engineStatusPanel.dbDetail">
+                  <div class="engine-status-card__row engine-status-card__row--title">
+                    <v-icon
+                      icon="mdi-circle"
+                      size="8"
+                      color="#f28b82"
+                      class="engine-status-card__dot"
+                    />
+                    <span class="engine-status-card__label">数据库</span>
+                  </div>
+                  <div class="engine-status-card__detail">
+                    <p class="engine-status-card__hint">
+                      {{ engineStatusPanel.dbHint }}
+                      <button
+                        type="button"
+                        class="engine-status-card__retry text-none"
+                        :disabled="statusRefreshing"
+                        @click="refreshStatus"
+                      >
+                        {{ statusRefreshing ? '检测中…' : '重试' }}
+                      </button>
+                    </p>
+                    <div v-if="showDevStartHint" class="engine-status-card__cmd">
+                      <code class="engine-status-card__code mono">{{ API_START_CMD }}</code>
+                      <v-btn
+                        icon="mdi-content-copy"
+                        size="x-small"
+                        variant="text"
+                        color="#f28b82"
+                        aria-label="复制启动命令"
+                        @click="copyStartCmd"
+                      />
+                    </div>
+                  </div>
+                </template>
+                <div v-else class="engine-status-card__row">
                   <v-icon
                     icon="mdi-circle"
                     size="8"
@@ -224,6 +358,46 @@ onUnmounted(() => {
           >
             新建分析
           </v-btn>
+          <v-menu v-if="authSession" location="bottom end" offset="8">
+            <template #activator="{ props: menuProps }">
+              <v-btn
+                v-bind="menuProps"
+                class="user-menu-btn text-none"
+                variant="text"
+                size="small"
+                rounded="pill"
+              >
+                <v-avatar size="28" :image="authSession.avatar_url || undefined" class="me-2">
+                  <span v-if="!authSession.avatar_url" class="text-caption font-weight-bold">
+                    {{ authSession.username.slice(0, 1).toUpperCase() }}
+                  </span>
+                </v-avatar>
+                <span class="d-none d-lg-inline user-menu-btn__name">{{ userMenuLabel }}</span>
+                <v-icon icon="mdi-chevron-down" size="16" class="ms-1" />
+              </v-btn>
+            </template>
+            <v-list density="compact" class="user-menu-list" min-width="220">
+              <v-list-item :title="userMenuLabel" :subtitle="userRoleLabel" />
+              <v-divider class="my-1" />
+              <v-list-item
+                v-if="isAdmin"
+                prepend-icon="mdi-account-group-outline"
+                title="成员与角色"
+                @click="membersOpen = true"
+              />
+              <v-list-item prepend-icon="mdi-logout" title="退出登录" @click="onLogout" />
+            </v-list>
+          </v-menu>
+          <v-btn
+            v-else
+            class="text-none"
+            variant="tonal"
+            size="small"
+            rounded="pill"
+            to="/login"
+          >
+            登录
+          </v-btn>
           <v-btn
             class="help-btn"
             icon="mdi-help-circle-outline"
@@ -244,10 +418,26 @@ onUnmounted(() => {
 
     <WebhookHelpDrawer v-model:visible="helpVisible" />
     <NewAnalysisDialog v-model="newAnalysisOpen" />
+    <MembersManageDialog v-model="membersOpen" />
+    </template>
   </v-app>
 </template>
 
 <style scoped>
+.user-menu-btn {
+  color: rgba(255, 255, 255, 0.82) !important;
+  max-width: 200px;
+}
+.user-menu-btn__name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-list {
+  border: 1px solid #2e333b;
+  background: #22262b !important;
+}
 .brand {
   cursor: pointer;
   flex-shrink: 0;
@@ -368,6 +558,49 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.9);
   text-align: right;
   flex: 1 1 auto;
+}
+.engine-status-card__row--title {
+  padding-bottom: 0;
+}
+.engine-status-card__detail {
+  margin: 0 0 8px 1.25rem;
+  padding-left: 4px;
+  border-left: 2px solid rgba(242, 139, 130, 0.35);
+}
+.engine-status-card__hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #f4a9a3;
+}
+.engine-status-card__retry {
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8ab4f8;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.engine-status-card__retry:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.engine-status-card__cmd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(242, 139, 130, 0.25);
+}
+.engine-status-card__code {
+  flex: 1;
+  font-size: 11px;
+  color: #e8c4c0;
+  word-break: break-all;
 }
 .status-dot {
   width: 8px;

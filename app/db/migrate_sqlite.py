@@ -29,11 +29,32 @@ def ensure_repository_columns() -> None:
         "scan_root": "VARCHAR(255) DEFAULT '.'",
         "test_suite_id": "VARCHAR(128)",
         "gate_path_rules": "JSON",
+        "high_risk_paths": "JSON",
+        "low_risk_paths": "JSON",
+        "high_risk_api_threshold": "INTEGER",
+        "high_risk_symbol_threshold": "INTEGER",
+        "allow_self_override": "INTEGER DEFAULT 0",
+        "webhook_notify_url": "VARCHAR(512)",
+        "notify_webhook_url": "VARCHAR(512)",
+        "notify_policy": "VARCHAR(32) DEFAULT 'block_only'",
+        "repo_type": "VARCHAR(20) DEFAULT 'backend'",
+        "api_base_prefix": "VARCHAR(128) DEFAULT ''",
+        "api_strip_prefix": "VARCHAR(128) DEFAULT ''",
+        "linked_repo_ids": "JSON",
     }
     with engine.begin() as conn:
         for name, ddl in patches.items():
             if name not in cols:
                 conn.execute(text(f"ALTER TABLE repositories ADD COLUMN {name} {ddl}"))
+
+
+def ensure_diffgate_user_columns() -> None:
+    if not inspect(engine).has_table("diffgate_users"):
+        return
+    cols = {c["name"] for c in inspect(engine).get_columns("diffgate_users")}
+    if "password_hash" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE diffgate_users ADD COLUMN password_hash TEXT"))
 
 
 def ensure_analysis_job_extra_columns() -> None:

@@ -11,6 +11,7 @@ def analyze_impact(
     use_neo4j: bool,
     job_id: str | None = None,
     scan_root: str = ".",
+    repo_id: str | None = None,
 ) -> ImpactReport:
     return ReverseTraceEngine().run(
         repo_path=repo_path,
@@ -20,4 +21,5 @@ def analyze_impact(
         use_neo4j=use_neo4j,
         job_id=job_id,
         scan_root=scan_root,
+        repo_id=repo_id,
     )

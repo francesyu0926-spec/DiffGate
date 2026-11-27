@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Header, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,7 +12,14 @@ from app.db.models import AnalysisJob, Repository
 from app.db.session import get_db
 from app.api.dispatch import _run_probe_task
 from app.api.schemas import GateOverrideIn
-from app.services.quality_gate import apply_manual_override, reconcile_gates_for_jobs
+from app.config import get_settings
+from app.services.rbac import evaluate_override_eligibility, require_override_permission, resolve_actor
+from app.services.quality_gate import (
+    apply_manual_override,
+    build_trigger_detail,
+    reconcile_gates_for_jobs,
+    reconciled_coverage_stats,
+)
 from app.utils.time_format import as_utc_iso
 
 router = APIRouter(prefix="/regression", tags=["regression"])
@@ -158,18 +165,17 @@ def regression_overview(
     gate: str | None = Query(None),
 ) -> dict:
     jobs = _filter_jobs(db, repo=repo, gate=gate, limit=200)
-    repos = list(db.scalars(select(Repository).where(Repository.enabled.is_(True))))
-    baseline_cases = sum(int(r.ast_api_count or 0) for r in repos)
+    enabled_repos = list(db.scalars(select(Repository).where(Repository.enabled.is_(True))))
+    if repo:
+        scoped = [r for r in enabled_repos if r.full_name == repo]
+        baseline_cases = sum(int(r.ast_api_count or 0) for r in scoped)
+    else:
+        baseline_cases = sum(int(r.ast_api_count or 0) for r in enabled_repos)
 
     executed = 0
     for job in jobs:
         gr = job.gate_result or {}
         executed += int(gr.get("api_impact") or 0)
-
-    reduction = 0.0
-    if baseline_cases > 0 and executed > 0:
-        reduction = round((1 - executed / baseline_cases) * 100, 1)
-        reduction = min(99.9, max(0.0, reduction))
 
     latest = jobs[0] if jobs else None
     latest_gr = (latest.gate_result or {}) if latest else {}
@@ -180,13 +186,16 @@ def regression_overview(
     passed = sum(1 for c in case_rows if c["status"] == "PASS")
     pass_rate = round(passed / total_cases * 100, 1) if total_cases else 0.0
 
-    cov = latest_gr.get("incremental_coverage_pct")
-    changed_lines = int(latest_gr.get("changed_lines") or 0)
-    hit_lines = int(latest_gr.get("covered_changed_lines") or 0)
-    if hit_lines <= 0 and cov is not None and changed_lines > 0:
-        hit_lines = int(round(changed_lines * float(cov) / 100))
+    reduction = 0.0
+    if baseline_cases > 0 and total_cases > 0:
+        reduction = round((1 - total_cases / baseline_cases) * 100, 1)
+        reduction = min(99.9, max(0.0, reduction))
+
+    cov, changed_lines, hit_lines = reconciled_coverage_stats(latest_gr)
 
     current_gate = latest_gr.get("gate") if latest else None
+    block_reason = latest_gr.get("block_reason") if latest else None
+    block_reason_label = latest_gr.get("block_reason_label") if latest else None
 
     return {
         "kpi": {
@@ -201,6 +210,8 @@ def regression_overview(
             "changed_lines": changed_lines,
             "covered_lines": hit_lines,
             "current_gate": current_gate,
+            "block_reason": block_reason,
+            "block_reason_label": block_reason_label,
         }
     }
 
@@ -216,6 +227,7 @@ def list_regression_batches(
     items = []
     for job in jobs:
         gr = job.gate_result or {}
+        cov, changed_lines, hit_lines = reconciled_coverage_stats(gr)
         items.append(
             {
                 "job_id": job.id,
@@ -225,25 +237,43 @@ def list_regression_batches(
                 "gate": _job_gate(job),
                 "created_at": as_utc_iso(job.created_at),
                 "api_impact": int(gr.get("api_impact") or 0),
-                "coverage": gr.get("incremental_coverage_pct"),
+                "coverage": cov,
+                "changed_lines": changed_lines,
+                "covered_lines": hit_lines,
             }
         )
     return {"items": items}
 
 
 @router.get("/batches/{job_id}")
-def regression_batch_detail(job_id: str, db: Session = Depends(get_db)) -> dict:
+def regression_batch_detail(
+    job_id: str,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(None),
+    x_diffgate_user: str | None = Header(None, alias="X-DiffGate-User"),
+    x_diffgate_role: str | None = Header(None, alias="X-DiffGate-Role"),
+    x_diffgate_email: str | None = Header(None, alias="X-DiffGate-Email"),
+) -> dict:
     job = db.get(AnalysisJob, job_id)
     if not job:
         raise HTTPException(404, "批次不存在")
-    gr = job.gate_result or {}
+    repo = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
+    gr = dict(job.gate_result or {})
+    if gr.get("gate") == "BLOCK" and not gr.get("trigger_detail"):
+        td = build_trigger_detail(
+            job,
+            gr,
+            covered_changed_lines=int(gr.get("covered_changed_lines") or 0) or None,
+        )
+        if td:
+            gr["trigger_detail"] = td
     apis = (job.affected_apis or {}).get("apis", []) or []
     gate = str(gr.get("gate") or "PENDING")
     cases = _build_case_rows(apis, gate, gr)
 
     suspects = job.changed_symbols or {}
     line_ranges = suspects.get("line_ranges") or []
-    cov = gr.get("incremental_coverage_pct")
+    cov, changed_lines, covered_lines = reconciled_coverage_stats(gr)
     stored_probes = gr.get("coverage_probes")
     coverage_lines: list[dict] = []
     if stored_probes:
@@ -272,34 +302,93 @@ def regression_batch_detail(job_id: str, db: Session = Depends(get_db)) -> dict:
                     }
                 )
 
+    allow_manual = gr.get("allow_override", True) is not False
+    actor = resolve_actor(
+        db,
+        authorization=authorization,
+        x_diffgate_user=x_diffgate_user,
+        x_diffgate_role=x_diffgate_role,
+        x_diffgate_email=x_diffgate_email,
+    )
+    eligibility = evaluate_override_eligibility(
+        actor,
+        job=job,
+        repo=repo,
+        gate=gate,
+        allow_override_flag=allow_manual,
+    )
+    share_url = _override_share_url(job.id)
+    share_text = (
+        f"【DiffGate 人工豁免审批】仓库 {job.repo_full_name} · "
+        f"批次 {job.id[:8]} · 门禁 BLOCK\n{share_url}"
+    )
+
     return {
         "job_id": job.id,
         "repo": job.repo_full_name,
         "commit": job.head_sha,
         "gate": gate,
         "gate_label": gr.get("gate_label") or gate,
+        "block_reason": gr.get("block_reason"),
+        "block_reason_label": gr.get("block_reason_label"),
+        "trigger_detail": gr.get("trigger_detail"),
+        "high_risk_details": gr.get("high_risk_details"),
+        "notify_status": gr.get("notify_status"),
         "manual_override": gr.get("manual_override"),
+        "allow_manual_override": allow_manual,
+        "override_eligibility": {
+            **eligibility,
+            "share_url": share_url,
+            "share_text": share_text,
+        },
         "gate_result": gr,
         "cases": cases,
         "coverage_lines": coverage_lines,
         "incremental_coverage_pct": cov,
-        "changed_lines": gr.get("changed_lines") or 0,
-        "covered_lines": int(gr.get("covered_changed_lines") or 0),
+        "changed_lines": changed_lines,
+        "covered_lines": covered_lines,
     }
 
 
+def _override_share_url(job_id: str) -> str:
+    base = (get_settings().web_app_public_base_url or "").rstrip("/")
+    if not base:
+        return f"/regression?job_id={job_id}&action=override"
+    return f"{base}/regression?job_id={job_id}&action=override"
+
+
 @router.post("/batches/{job_id}/override")
-def manual_override_batch(job_id: str, body: GateOverrideIn, db: Session = Depends(get_db)) -> dict:
+def manual_override_batch(
+    job_id: str,
+    body: GateOverrideIn,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(None),
+    x_diffgate_user: str | None = Header(None, alias="X-DiffGate-User"),
+    x_diffgate_role: str | None = Header(None, alias="X-DiffGate-Role"),
+    x_diffgate_email: str | None = Header(None, alias="X-DiffGate-Email"),
+) -> dict:
     job = db.get(AnalysisJob, job_id)
     if not job:
         raise HTTPException(404, "批次不存在")
     repo = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
+    actor = resolve_actor(
+        db,
+        authorization=authorization,
+        x_diffgate_user=x_diffgate_user,
+        x_diffgate_role=x_diffgate_role,
+        x_diffgate_email=x_diffgate_email,
+    )
+    try:
+        require_override_permission(actor, job=job, repo=repo)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc)) from exc
     try:
         gate = apply_manual_override(
             job,
             reason_category=body.reason_category,
             reason_detail=body.reason_detail,
-            actor=body.actor.strip() or "admin",
+            actor=actor.username,
+            auditor_role=actor.role,
             repo=repo,
         )
     except ValueError as exc:

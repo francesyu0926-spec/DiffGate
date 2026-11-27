@@ -156,6 +156,14 @@ def augment_graph_with_frontend(
         if key in seen_edges:
             continue
         seen_edges.add(key)
-        edges.append({"source": fid, "target": api_id, "kind": "http_client"})
+        edges.append(
+            {
+                "source": fid,
+                "target": api_id,
+                "kind": "http_contract",
+                "cross_repo": True,
+                "label": "HTTP 契约",
+            }
+        )
 
     return {**graph, "nodes": nodes, "edges": edges, "has_frontend_layer": True}

@@ -81,8 +81,23 @@ function summaryText(item: (typeof items.value)[number]) {
   const parts: string[] = []
   if (item.fileCount > 0) parts.push(`${item.fileCount} 个变更文件`)
   if (item.frontendCount > 0) parts.push(`${item.frontendCount} 个前端组件`)
-  if (!parts.length && item.symbolCount > 0) parts.push(`${item.symbolCount} 处上游符号`)
-  return parts.length ? parts.join(' · ') : '链路待补全'
+
+  const hasChangeStep = item.steps.some((s) => s.kind === 'change')
+  const treeDepth = item.steps.length
+  const layers = item.layers ?? 0
+  const midHops = layers > 1 ? layers - 1 : Math.max(0, item.symbolCount - 1)
+
+  if (midHops > 0) {
+    parts.push(`${midHops} 层中间调用`)
+  } else if (hasChangeStep && treeDepth > 1) {
+    parts.push('路由 → 变更符号')
+  } else if (item.symbolCount > 0) {
+    parts.push(`${item.symbolCount} 处上游符号`)
+  } else if (treeDepth > 1) {
+    parts.push(`${treeDepth - 1} 步逆向链路`)
+  }
+
+  return parts.length ? parts.join(' · ') : '已命中接口'
 }
 
 function stepIcon(kind: ImpactAccordionStep['kind']) {

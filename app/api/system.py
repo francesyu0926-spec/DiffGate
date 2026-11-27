@@ -1,9 +1,12 @@
-from fastapi import APIRouter
-
-from app.config import get_settings
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.api.auth import LoginBody
+from app.config import get_settings
+from app.db.session import SessionLocal, get_db
+from app.services.auth_login import perform_login
+from app.services.rbac import resolve_actor
 
 router = APIRouter(prefix="/system", tags=["system"])
 
@@ -27,6 +30,38 @@ def _ast_engine_online() -> bool:
         return True
     except Exception:
         return False
+
+
+@router.post("/local-dev-login")
+def local_dev_login(request: Request, db: Session = Depends(get_db)) -> dict:
+    """本地调试登录（与 /auth/login 等价；旧进程未热载 auth 路由时可用）。"""
+    body = LoginBody(provider="local", dev_local=True)
+    return perform_login(db, request, body)
+
+
+@router.get("/whoami")
+def whoami(
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(None),
+    x_diffgate_user: str | None = Header(None, alias="X-DiffGate-User"),
+    x_diffgate_role: str | None = Header(None, alias="X-DiffGate-Role"),
+    x_diffgate_email: str | None = Header(None, alias="X-DiffGate-Email"),
+) -> dict:
+    actor = resolve_actor(
+        db,
+        authorization=authorization,
+        x_diffgate_user=x_diffgate_user,
+        x_diffgate_role=x_diffgate_role,
+        x_diffgate_email=x_diffgate_email,
+    )
+    return {
+        "username": actor.username,
+        "role": actor.role,
+        "role_label": actor.role_label,
+        "email": actor.email or None,
+        "can_manual_override": actor.can_override,
+        "override_roles": get_settings().override_roles,
+    }
 
 
 @router.get("/status")

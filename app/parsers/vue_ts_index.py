@@ -32,6 +32,14 @@ API_CALL_FALLBACK_RE = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE,
 )
+LITERAL_NAV_HTTP_RE = re.compile(
+    r"""
+    window\.open\s*\(\s*['"`]([^'"?`]+)
+    |window\.location(?:\.href)?\s*=\s*['"`]([^'"?`]+)
+    |location\.href\s*=\s*['"`]([^'"?`]+)
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
 SKIP_DIR = frozenset({".git", "node_modules", "dist", "build", ".nuxt", "coverage", "__pycache__"})
 
 
@@ -248,15 +256,20 @@ def scan_frontend_repo(repo_root: Path, scan_roots: Iterable[str] = ("web", "fro
             parser = parser_for_path(rel)
             source_bytes = script.encode("utf-8")
             api_calls = _walk_calls_ts(source_bytes, parser, rel)
-            if not api_calls:
-                for i, line in enumerate(script.splitlines(), start=1):
-                    for m in API_CALL_FALLBACK_RE.finditer(line):
-                        method = (m.group(1) or "GET").upper()
-                        pth = m.group(2) or m.group(3) or m.group(4) or m.group(5)
-                        if pth:
-                            api_calls.append(
-                                FrontendApiCall(method=method, path=pth, file_path=rel, line=i)
-                            )
+            for i, line in enumerate(script.splitlines(), start=1):
+                for m in API_CALL_FALLBACK_RE.finditer(line):
+                    method = (m.group(1) or "GET").upper()
+                    pth = m.group(2) or m.group(3) or m.group(4) or m.group(5)
+                    if pth:
+                        api_calls.append(
+                            FrontendApiCall(method=method, path=pth, file_path=rel, line=i)
+                        )
+                for m in LITERAL_NAV_HTTP_RE.finditer(line):
+                    pth = m.group(1) or m.group(2) or m.group(3)
+                    if pth and pth.startswith("/"):
+                        api_calls.append(
+                            FrontendApiCall(method="GET", path=pth, file_path=rel, line=i)
+                        )
 
             components.append(ComponentUnit(file_path=rel, imports=imports, api_calls=api_calls))
             all_calls.extend(api_calls)
@@ -268,6 +281,42 @@ def scan_frontend_repo(repo_root: Path, scan_roots: Iterable[str] = ("web", "fro
 def _import_graph(index: FrontendIndex) -> dict[str, set[str]]:
     """文件 → 直接 import 到的相对路径（已解析为 repo 内路径）。"""
     return {c.file_path: set(c.imports) for c in index.components}
+
+
+def build_resolved_import_graph(repo_root: Path, index: FrontendIndex) -> dict[str, set[str]]:
+    """文件 → 解析后的依赖路径（支持 Page → Hook → api/* 多跳）。"""
+    graph: dict[str, set[str]] = {}
+    for comp in index.components:
+        resolved: set[str] = set()
+        for spec in comp.imports:
+            target = _resolve_import_to_file(repo_root, comp.file_path, spec)
+            if target:
+                resolved.add(target)
+        graph[comp.file_path] = resolved
+    return graph
+
+
+def collect_transitive_api_calls(
+    entry_file: str,
+    index: FrontendIndex,
+    repo_root: Path,
+) -> list[FrontendApiCall]:
+    """沿 import 链收集 API 调用（Composable/Hook 穿透）。"""
+    file_calls = {c.file_path: c.api_calls for c in index.components}
+    import_g = build_resolved_import_graph(repo_root, index)
+    seen: set[str] = set()
+    queue = [entry_file]
+    out: list[FrontendApiCall] = []
+    while queue:
+        f = queue.pop()
+        if f in seen:
+            continue
+        seen.add(f)
+        out.extend(file_calls.get(f, []))
+        for dep in import_g.get(f, ()):
+            if dep not in seen:
+                queue.append(dep)
+    return out
 
 
 def trace_frontend_impact(
@@ -321,16 +370,21 @@ def trace_frontend_impact(
                 break
 
     api_hits: list[dict] = []
-    for comp in index.components:
-        if comp.file_path not in affected_files:
-            continue
-        for call in comp.api_calls:
+    seen_hit: set[tuple] = set()
+    for af in sorted(affected_files):
+        for call in collect_transitive_api_calls(af, index, repo_root):
+            key = (call.method, call.path, call.file_path, call.line)
+            if key in seen_hit:
+                continue
+            seen_hit.add(key)
             api_hits.append(
                 {
                     "method": call.method,
                     "path": call.path,
                     "file": call.file_path,
                     "line": call.line,
+                    "via_chain": call.file_path != af,
+                    "entry_page": af if call.file_path != af else None,
                 }
             )
 

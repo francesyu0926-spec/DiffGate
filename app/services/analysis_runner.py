@@ -26,6 +26,11 @@ from app.services.git_worktree import (
 )
 from app.services.platform_notify import notify_platform
 from app.parsers.frontend_trace import build_fullstack_impact
+from app.services.contract_impact import (
+    enrich_cross_repo,
+    evaluate_backend_contract_impact,
+    evaluate_frontend_contract_impact,
+)
 from app.services.cross_repo_trace import find_cross_repo_consumers
 from app.services.impact import analyze_impact
 from app.services.quality_gate import apply_gate_result
@@ -92,6 +97,7 @@ def run_analyze_merge(
                 use_neo4j=settings.use_neo4j,
                 job_id=job_id,
                 scan_root=scan_root,
+                repo_id=str(repo_rec.id) if repo_rec else None,
             )
             payload = report.to_dict()
             if settings.use_fullstack_trace:
@@ -120,7 +126,48 @@ def run_analyze_merge(
                         provider_repo=repo_full_name,
                         provider_api_paths=api_paths,
                         extra_paths=fe_paths,
+                        provider_repo_id=str(repo_rec.id) if repo_rec else None,
                     )
+                    if settings.use_neo4j and cross_repo and repo_rec:
+                        from app.graph.neo4j_contracts import (
+                            Neo4jGlobalGraph,
+                            contract_key_http,
+                            symbol_uid,
+                        )
+                        from app.graph.stores import Neo4jCallGraphStore
+
+                        try:
+                            store = Neo4jCallGraphStore()
+                            try:
+                                gg = Neo4jGlobalGraph(store)
+                                store.upsert_provider_routes(
+                                    repo_full_name,
+                                    report.affected_apis,
+                                )
+                                keys = [
+                                    contract_key_http(str(a.get("method") or "GET"), str(a.get("path") or "/"))
+                                    for a in report.affected_apis
+                                ]
+                                upstream = gg.find_upstream_impact(
+                                    keys,
+                                    exclude_repo_id=repo_rec.id,
+                                )
+                                changed_uids = [
+                                    symbol_uid(
+                                        repo_rec.id,
+                                        str(s.file_path),
+                                        str(s.qualified_name),
+                                    )
+                                    for s in report.suspect_functions
+                                ]
+                                reverse_hits = gg.reverse_trace_changed_symbols(changed_uids)
+                                cross_repo["upstream_neo4j"] = upstream
+                                cross_repo["reverse_trace"] = reverse_hits
+                                cross_repo["contract_keys"] = keys
+                            finally:
+                                store.close()
+                        except Exception:
+                            pass
                 except Exception:
                     fullstack = fullstack or {"error": "fullstack_trace_failed"}
                     cross_repo = cross_repo or {"consumers": [], "match_count": 0}
@@ -133,11 +180,56 @@ def run_analyze_merge(
 
         head_commit_message = ""
         try:
-            head_commit_message = (repo.commit(head_sha).message or "").strip().split("\n")[0][:160]
+            head_commit = repo.commit(head_sha)
+            head_commit_message = (head_commit.message or "").strip().split("\n")[0][:160]
+            if job:
+                meta = dict(job.job_metadata or {})
+                author = head_commit.author
+                meta.setdefault("commit_author_email", str(getattr(author, "email", "") or "").strip())
+                meta.setdefault(
+                    "commit_author_username",
+                    str(getattr(author, "name", "") or getattr(author, "email", "") or "").strip(),
+                )
+                meta.setdefault("committer", meta.get("committer") or meta.get("commit_author_username"))
+                job.job_metadata = meta
         except Exception:
             pass
 
         payload = report.to_dict()
+
+        if repo_rec and job:
+            try:
+                if (repo_rec.repo_type or "backend") == "frontend":
+                    if fullstack is None and settings.use_fullstack_trace:
+                        changed_paths = {
+                            lr.get("path")
+                            for lr in (payload.get("line_ranges") or [])
+                            if lr.get("path")
+                        }
+                        fullstack = build_fullstack_impact(
+                            analyze_path,
+                            changed_paths,
+                            scan_roots=("frontend", "web", "src", "."),
+                            backend_apis=[],
+                        )
+                    contract_impact = evaluate_frontend_contract_impact(
+                        db, repo=repo_rec, fullstack=fullstack
+                    )
+                else:
+                    contract_impact = evaluate_backend_contract_impact(
+                        db,
+                        job=job,
+                        repo=repo_rec,
+                        repo_path=analyze_path,
+                        base_sha=base_sha,
+                        head_sha=head_sha,
+                        affected_apis=report.affected_apis,
+                    )
+                enrich_cross_repo(job, repo_rec, contract_impact)
+                cross_repo = cross_repo or {}
+                cross_repo["contract_impact"] = contract_impact
+            except Exception:
+                pass
 
         if job:
             job.status = "completed"
@@ -157,8 +249,13 @@ def run_analyze_merge(
                 "fullstack_impact": fullstack,
             }
             apply_gate_result(job, repo_rec)
+            if repo_rec and (repo_rec.repo_type or "backend") == "frontend":
+                from app.services.contract_gate_refresh import refresh_linked_backend_contract_gates
+
+                refresh_linked_backend_contract_gates(db, frontend_repo=repo_rec)
             db.commit()
             notify_platform(job, repo_rec)
+            db.commit()
 
         return {"job_id": job_id, **payload}
     except Exception as exc:

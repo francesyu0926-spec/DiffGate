@@ -192,6 +192,7 @@ class ReverseTraceEngine:
         use_neo4j: bool,
         job_id: str | None = None,
         scan_root: str = ".",
+        repo_id: str | None = None,
     ) -> ImpactReport:
         diff_summary = summarize_diff(repo_path, base_sha, head_sha)
         line_ranges = get_changed_line_ranges(repo_path, base_sha, head_sha)
@@ -211,10 +212,17 @@ class ReverseTraceEngine:
             suspect_names = [s.qualified_name for s in suspects]
             cache_job_graph(job_id, build_g6_payload(graph, suspect_names))
 
-        if use_neo4j:
+        if use_neo4j and repo_id:
             store = Neo4jCallGraphStore()
             try:
-                store.upsert_repo_graph(repo_key, symbols, graph)
+                store.upsert_repo_graph(
+                    repo_key,
+                    symbols,
+                    graph,
+                    repo_id=str(repo_id),
+                    replace_calls=False,
+                    touch_files=changed_files,
+                )
             finally:
                 store.close()
 

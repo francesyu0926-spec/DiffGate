@@ -7,7 +7,11 @@ from pydantic import BaseModel, Field
 AuthMethod = Literal["none", "token", "ssh"]
 GateStatus = Literal["PASS", "BLOCK", "PENDING", "OVERRIDDEN"]
 OverrideReasonCategory = Literal[
-    "hotfix", "branch_unsimulatable", "non_core_reviewed", "other"
+    "hotfix",
+    "branch_unsimulatable",
+    "non_core_reviewed",
+    "fe_be_coordinated",
+    "other",
 ]
 
 
@@ -23,7 +27,6 @@ class GateOverrideIn(BaseModel):
 
     reason_category: OverrideReasonCategory
     reason_detail: str = Field(..., min_length=2, max_length=2000)
-    actor: str = Field(default="admin", max_length=64)
 
 
 class RepositoryAnalyzeIn(BaseModel):
@@ -61,6 +64,22 @@ class RepositoryCreate(BaseModel):
     scan_root: str = Field(default=".", max_length=255)
     test_suite_id: str | None = Field(default=None, max_length=128)
     gate_path_rules: list[dict] | None = None
+    high_risk_paths: list[str] | None = None
+    low_risk_paths: list[str] | None = None
+    high_risk_api_threshold: int | None = Field(default=None, ge=1, le=100)
+    high_risk_symbol_threshold: int | None = Field(default=None, ge=1, le=500)
+    allow_self_override: bool = False
+    webhook_notify_url: str | None = Field(default=None, max_length=512)
+    notify_webhook_url: str | None = Field(default=None, max_length=512)
+    notify_policy: Literal["off", "block_only", "always"] = "block_only"
+    repo_type: str = Field(
+        default="backend_python",
+        max_length=32,
+        pattern="^(backend_python|backend|frontend|backend_node|backend_go|backend_java)$",
+    )
+    api_base_prefix: str = Field(default="", max_length=128)
+    api_strip_prefix: str = Field(default="", max_length=128)
+    linked_repo_ids: list[str] = Field(default_factory=list)
 
 
 class RepositoryUpdate(BaseModel):
@@ -78,6 +97,18 @@ class RepositoryUpdate(BaseModel):
     scan_root: str | None = Field(default=None, max_length=255)
     test_suite_id: str | None = Field(default=None, max_length=128)
     gate_path_rules: list[dict] | None = None
+    high_risk_paths: list[str] | None = None
+    low_risk_paths: list[str] | None = None
+    high_risk_api_threshold: int | None = Field(default=None, ge=1, le=100)
+    high_risk_symbol_threshold: int | None = Field(default=None, ge=1, le=500)
+    allow_self_override: bool | None = None
+    webhook_notify_url: str | None = Field(default=None, max_length=512)
+    notify_webhook_url: str | None = Field(default=None, max_length=512)
+    notify_policy: Literal["off", "block_only", "always"] | None = None
+    repo_type: str | None = Field(default=None, max_length=32)
+    api_base_prefix: str | None = Field(default=None, max_length=128)
+    api_strip_prefix: str | None = Field(default=None, max_length=128)
+    linked_repo_ids: list[str] | None = None
 
 
 class RepositoryOut(BaseModel):
@@ -94,6 +125,18 @@ class RepositoryOut(BaseModel):
     scan_root: str
     test_suite_id: str | None
     gate_path_rules: list[dict] | None = None
+    high_risk_paths: list[str] | None = None
+    low_risk_paths: list[str] | None = None
+    high_risk_api_threshold: int | None = None
+    high_risk_symbol_threshold: int | None = None
+    allow_self_override: bool = False
+    webhook_notify_url: str | None = None
+    notify_webhook_url: str | None = None
+    notify_policy: str = "block_only"
+    repo_type: str = "backend"
+    api_base_prefix: str = ""
+    api_strip_prefix: str = ""
+    linked_repo_ids: list[str] | None = None
     token_configured: bool = False
     ssh_configured: bool = False
     ast_method_count: int

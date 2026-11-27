@@ -76,6 +76,38 @@ function reconcilePoll() {
 const apis = computed(() => job.value?.affected_apis?.apis ?? [])
 const fullstackImpact = computed(() => job.value?.changed_symbols?.fullstack_impact ?? null)
 const crossRepoConsumers = computed(() => job.value?.affected_apis?.cross_repo_consumers ?? [])
+const crossRepoMeta = computed(
+  () =>
+    job.value?.affected_apis?.cross_repo as {
+      upstream_neo4j?: unknown[]
+      reverse_trace?: unknown[]
+      contract_impact?: Record<string, unknown>
+    } | undefined,
+)
+const crossRepoUpstream = computed(() => crossRepoMeta.value?.upstream_neo4j ?? [])
+const contractImpact = computed(
+  () =>
+    (crossRepoMeta.value?.contract_impact ?? job.value?.gate_result?.cross_repo_impacts) as
+      | {
+          perspective?: string
+          impacts?: Record<string, unknown>[]
+          breaking_hits?: Record<string, unknown>[]
+          warnings?: Record<string, unknown>[]
+          suggested_regression_cases?: Record<string, unknown>[]
+        }
+      | undefined,
+)
+const crossRepoReverseTrace = computed(
+  () =>
+    (crossRepoMeta.value?.reverse_trace ?? []) as {
+      repo_name?: string
+      method?: string
+      route_path?: string
+      call_depth?: number
+      trace_kind?: string
+      trace_chain?: string[]
+    }[],
+)
 const frontendPages = computed(() => {
   const norm = fullstackImpact.value?.components
   if (norm?.length) {
@@ -126,55 +158,110 @@ type AggFrontendCall = {
   backend_methods: string[]
 }
 
+function resolveCallEndpoint(
+  raw: { endpoint?: string; backend_path?: string; path?: string; api?: string },
+): string {
+  const ep = raw.endpoint ?? raw.backend_path ?? raw.path ?? raw.api
+  const s = String(ep ?? '').trim().split('?')[0]
+  if (!s || s === '-' || s === '—') return ''
+  return s
+}
+
+function resolveCallMethod(
+  raw: { method?: string; backend_method?: string },
+  fallback = 'GET',
+): string {
+  return (raw.backend_method || raw.method || fallback).toUpperCase()
+}
+
 const aggregatedFrontendCalls = computed((): AggFrontendCall[] => {
-  const matched = fullstackImpact.value?.matched_api_calls
-  if (matched?.length) {
-    return matched.map((row) => ({
-      file: row.file,
-      file_name: row.file_name,
-      file_dir: splitRepoPath(row.file).dir,
-      lines: row.lines,
-      backend_paths: [row.endpoint],
-      backend_methods: [row.method],
-    }))
-  }
-  const pre = fullstackImpact.value?.frontend_api_calls_aggregated
-  if (pre?.length) {
-    return pre.map((row) => ({
-      ...row,
-      file: cleanRepoRelativePath(row.file),
-      file_name: row.file_name || splitRepoPath(row.file).name,
-      file_dir: row.file_dir || splitRepoPath(row.file).dir,
-    }))
-  }
+  const fs = fullstackImpact.value
+  if (!fs) return []
+
   const map = new Map<string, AggFrontendCall>()
-  for (const c of fullstackImpact.value?.frontend_api_calls ?? []) {
-    if (!c.backend_path) continue
-    const full = cleanRepoRelativePath(c.file)
-    if (!full) continue
+
+  const ensureRow = (file: string): AggFrontendCall | null => {
+    const full = cleanRepoRelativePath(file)
+    if (!full) return null
     const { name, dir } = splitRepoPath(full)
-    const cur =
-      map.get(full) ??
-      ({
-        file: full,
-        file_name: name,
-        file_dir: dir,
-        lines: [],
-        backend_paths: [],
-        backend_methods: [],
-      } as AggFrontendCall)
-    if (c.line && !cur.lines.includes(c.line)) cur.lines.push(c.line)
-    if (c.backend_path && !cur.backend_paths.includes(c.backend_path)) cur.backend_paths.push(c.backend_path)
-    if (c.backend_method && !cur.backend_methods.includes(c.backend_method.toUpperCase()))
-      cur.backend_methods.push(c.backend_method.toUpperCase())
-    map.set(full, cur)
+    const existing = map.get(full)
+    if (existing) return existing
+    const row: AggFrontendCall = {
+      file: full,
+      file_name: name,
+      file_dir: dir,
+      lines: [],
+      backend_paths: [],
+      backend_methods: [],
+    }
+    map.set(full, row)
+    return row
   }
-  return [...map.values()].map((r) => ({
-    ...r,
-    lines: [...r.lines].sort((a, b) => a - b),
-    backend_paths: [...r.backend_paths].sort(),
-    backend_methods: [...r.backend_methods].sort(),
-  }))
+
+  const addHit = (
+    file: string,
+    line: number | undefined,
+    endpoint: string,
+    method: string,
+    fileName?: string,
+    fileDir?: string,
+  ) => {
+    const row = ensureRow(file)
+    if (!row) return
+    if (fileName) row.file_name = fileName
+    if (fileDir) row.file_dir = fileDir
+    if (typeof line === 'number' && line > 0 && !row.lines.includes(line)) row.lines.push(line)
+    if (!endpoint) return
+    const idx = row.backend_paths.indexOf(endpoint)
+    const m = method || 'GET'
+    if (idx < 0) {
+      row.backend_paths.push(endpoint)
+      row.backend_methods.push(m)
+    } else if (row.backend_methods[idx] === 'GET' && m !== 'GET') {
+      row.backend_methods[idx] = m
+    }
+  }
+
+  for (const row of fs.matched_api_calls ?? []) {
+    const ep = resolveCallEndpoint(row)
+    const method = resolveCallMethod(row)
+    const lines = row.lines?.length ? row.lines : row.first_line ? [row.first_line] : []
+    for (const ln of lines) addHit(row.file, ln, ep, method, row.file_name, splitRepoPath(row.file).dir)
+    if (!lines.length && ep) addHit(row.file, undefined, ep, method, row.file_name, splitRepoPath(row.file).dir)
+  }
+
+  for (const row of fs.frontend_api_calls_aggregated ?? []) {
+    const paths = (row.backend_paths ?? []).filter(Boolean)
+    const methods = (row.backend_methods ?? []).filter(Boolean)
+    const lines = row.lines ?? []
+    if (paths.length) {
+      paths.forEach((p, i) => {
+        const method = methods[i] ?? methods[0] ?? 'GET'
+        for (const ln of lines.length ? lines : [undefined]) {
+          addHit(row.file, ln, p, method, row.file_name, row.file_dir)
+        }
+      })
+    } else {
+      const legacyEp = resolveCallEndpoint(row as { backend_path?: string; path?: string })
+      for (const ln of lines) addHit(row.file, ln, legacyEp, methods[0] ?? 'GET', row.file_name, row.file_dir)
+    }
+  }
+
+  for (const c of fs.frontend_api_calls ?? []) {
+    const ep = resolveCallEndpoint(c)
+    if (!ep) continue
+    addHit(c.file, c.line, ep, resolveCallMethod(c), undefined, undefined)
+  }
+
+  return [...map.values()]
+    .filter((r) => r.lines.length > 0 || r.backend_paths.length > 0)
+    .map((r) => ({
+      ...r,
+      lines: [...r.lines].sort((a, b) => a - b),
+      backend_paths: [...r.backend_paths],
+      backend_methods: [...r.backend_methods],
+    }))
+    .sort((a, b) => a.file.localeCompare(b.file))
 })
 
 const unresolvedFrontendCalls = computed(() => {
@@ -206,7 +293,18 @@ const unresolvedFlat = computed(() => {
 })
 
 /** 左右双表统一可视高度（含表头），保证卡片底边对齐 */
-const fullstackTableHeight = 220
+const fullstackTableHeight = 200
+
+function formatFrontendApiHitLine(row: AggFrontendCall, idx: number) {
+  const path = row.backend_paths[idx]
+  if (!path) return '—'
+  const method = (row.backend_methods[idx] || row.backend_methods[0] || 'GET').toUpperCase()
+  return `${method} ${path}`
+}
+
+function formatFrontendApiHits(row: AggFrontendCall) {
+  return row.backend_paths.map((_, idx) => formatFrontendApiHitLine(row, idx)).join('\n')
+}
 
 function unresolvedFileName(file: string) {
   const parts = file.replace(/\\/g, '/').split('/')
@@ -518,10 +616,8 @@ const suspectTableRows = computed(() => {
 })
 
 const suspectTableLayoutHeight = computed(() => {
-  const n = suspectTableRows.value.length
-  if (!n) return suspectTableMaxHeight
-  const estimated = 44 + n * 58
-  return Math.min(suspectTableMaxHeight, Math.max(estimated, 168))
+  if (!suspectTableRows.value.length) return suspectTableMaxHeight
+  return Math.min(suspectTableMaxHeight, impactTableHeight)
 })
 
 function isDirectApiChain(row: CallPath & { chain_labels?: string[] }) {
@@ -533,14 +629,11 @@ function formatCallChainShort(row: CallPath & { chain_labels?: string[] }) {
   const labels = row.chain_labels?.length ? row.chain_labels : row.chain ?? []
   const nonApi = labels.filter((l) => l && !isApiChainLabel(l))
   if (!nonApi.length) return ''
-  const text = nonApi
-    .map((l) => {
-      const short = l.split('.').pop() ?? l
-      return short.includes('(') ? short : `${short}()`
-    })
-    .join(' → ')
-  if (text.length > 22) return `${text.slice(0, 20)}…`
-  return text
+  const last = nonApi[nonApi.length - 1]!
+  const short = last.split('.').pop() ?? last
+  const withCall = short.includes('(') ? short : `${short}()`
+  if (withCall.length > 20) return `${withCall.slice(0, 18)}…`
+  return withCall
 }
 
 function callPathTooltip(row: (typeof callPathRows.value)[number]) {
@@ -1276,20 +1369,36 @@ onUnmounted(clearPoll)
               </el-table-column>
               <el-table-column label="命中接口" min-width="120">
                 <template #default="{ row }">
-                  <div class="fs-hit-cell">
-                    <span
-                      v-for="(p, idx) in row.backend_paths"
-                      :key="`${p}-${idx}`"
-                      class="http-pill fs-api-pill fs-http-pill mono"
-                    >{{ (row.backend_methods[idx] || row.backend_methods[0] || 'GET').toUpperCase() }} {{ p }}</span>
-                  </div>
+                  <el-tooltip
+                    v-if="row.backend_paths.length"
+                    :content="formatFrontendApiHits(row)"
+                    placement="top"
+                    :show-after="320"
+                  >
+                    <template #activator="{ props: tipProps }">
+                      <div v-bind="tipProps" class="fs-hit-cell">
+                        <span class="http-pill fs-api-pill fs-http-pill mono fs-hit-cell__pill">
+                          {{
+                            formatFrontendApiHitLine(
+                              row,
+                              0,
+                            )
+                          }}
+                        </span>
+                        <span v-if="row.backend_paths.length > 1" class="fs-hit-cell__more mono">
+                          +{{ row.backend_paths.length - 1 }}
+                        </span>
+                      </div>
+                    </template>
+                  </el-tooltip>
+                  <span v-else class="fs-hit-placeholder mono">待关联</span>
                 </template>
               </el-table-column>
-              <el-table-column label="行号" width="112" align="right">
+              <el-table-column label="行号" width="96" align="right">
                 <template #default="{ row }">
                   <div class="fs-lines">
                     <button
-                      v-for="ln in row.lines"
+                      v-for="ln in row.lines.slice(0, 2)"
                       :key="ln"
                       type="button"
                       class="fs-line-text mono"
@@ -1297,6 +1406,9 @@ onUnmounted(clearPoll)
                     >
                       L{{ ln }}
                     </button>
+                    <span v-if="row.lines.length > 2" class="fs-lines__more mono">
+                      +{{ row.lines.length - 2 }}
+                    </span>
                   </div>
                 </template>
               </el-table-column>
@@ -1312,6 +1424,68 @@ onUnmounted(clearPoll)
           <el-table-column prop="matched_api" label="命中 API" min-width="120" show-overflow-tooltip />
           <el-table-column prop="file" label="文件" min-width="120" show-overflow-tooltip />
           <el-table-column prop="line" label="行" width="56" />
+        </el-table>
+      </div>
+      <div v-if="crossRepoUpstream.length" class="job-panel job-panel--table mt-3">
+        <p class="text-caption text-medium-emphasis mb-2">Neo4j 上游影响（跨仓契约）</p>
+        <el-table :data="crossRepoUpstream" size="small" max-height="180">
+          <el-table-column prop="upstream_repo" label="上游仓库" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="upstream_route" label="上游 API" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="contract_key" label="契约" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="consumer_file" label="消费方文件" min-width="120" show-overflow-tooltip />
+        </el-table>
+      </div>
+      <div v-if="contractImpact?.impacts?.length || contractImpact?.suggested_regression_cases?.length" class="job-panel job-panel--table mt-3">
+        <p class="text-caption text-medium-emphasis mb-2">跨仓受影响清单（契约）</p>
+        <el-table
+          v-if="contractImpact?.perspective === 'backend'"
+          :data="contractImpact?.impacts ?? []"
+          size="small"
+          max-height="200"
+        >
+          <el-table-column prop="frontend_repo" label="前端仓库" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="page_file" label="页面/文件" min-width="140" show-overflow-tooltip />
+          <el-table-column label="API" min-width="140">
+            <template #default="{ row }">{{ row.method }} {{ row.api_path }}</template>
+          </el-table-column>
+          <el-table-column label="置信度" width="88">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.dynamic ? 'warning' : 'success'">
+                {{ row.dynamic ? '疑似' : '确定' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-table
+          v-else
+          :data="contractImpact?.suggested_regression_cases ?? []"
+          size="small"
+          max-height="200"
+        >
+          <el-table-column prop="backend_repo" label="后端仓库" min-width="120" show-overflow-tooltip />
+          <el-table-column label="API" min-width="140">
+            <template #default="{ row }">{{ row.method }} {{ row.path }}</template>
+          </el-table-column>
+          <el-table-column prop="yaml_file" label="YAML 用例" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="test_suite_id" label="用例集" min-width="100" show-overflow-tooltip />
+        </el-table>
+      </div>
+      <div v-if="crossRepoReverseTrace.length" class="job-panel job-panel--table mt-3">
+        <p class="text-caption text-medium-emphasis mb-2">Neo4j 变更符号逆向追溯（API / 调用链）</p>
+        <el-table :data="crossRepoReverseTrace" size="small" max-height="200">
+          <el-table-column prop="repo_name" label="仓库" min-width="120" show-overflow-tooltip />
+          <el-table-column label="API" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.method }} {{ row.route_path }}</template>
+          </el-table-column>
+          <el-table-column prop="call_depth" label="深度" width="56" />
+          <el-table-column prop="trace_kind" label="类型" width="88">
+            <template #default="{ row }">
+              {{ row.trace_kind === 'cross_repo' ? '跨仓契约' : '仓内调用' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="链路" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">{{ (row.trace_chain ?? []).join(' → ') }}</template>
+          </el-table-column>
         </el-table>
       </div>
     </section>
@@ -2221,6 +2395,11 @@ onUnmounted(clearPoll)
   padding-bottom: 14px;
   overflow-x: hidden !important;
 }
+.impact-table-scroll :deep(.el-table__body-wrapper),
+.impact-table-scroll :deep(.el-scrollbar__wrap) {
+  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
+}
 .impact-table-scroll :deep(table.el-table__header),
 .impact-table-scroll :deep(table.el-table__body) {
   table-layout: fixed;
@@ -2692,6 +2871,11 @@ onUnmounted(clearPoll)
 .job-detail-page :deep(.el-page-header__title) {
   color: #e8eaed;
 }
+.job-detail-page :deep(.el-table__body-wrapper),
+.job-detail-page :deep(.el-scrollbar__wrap) {
+  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
+}
 .job-detail-page :deep(.el-table) {
   --el-table-bg-color: #1a1d21;
   --el-table-tr-bg-color: #1a1d21;
@@ -2799,11 +2983,11 @@ onUnmounted(clearPoll)
   border-color: rgba(255, 255, 255, 0.18);
 }
 .job-suspect-table--fit {
-  max-height: 400px;
+  max-height: 392px;
 }
 .job-suspect-table :deep(.el-table__cell) {
-  padding-top: 14px;
-  padding-bottom: 14px;
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 .job-suspect-table :deep(.el-table__body tr > td.el-table__cell) {
   background-color: #1a1d21 !important;
@@ -2846,38 +3030,45 @@ onUnmounted(clearPoll)
 .suspect-cell {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 .suspect-cell__main {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 .suspect-cell__sub {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
+  overflow: hidden;
 }
 .suspect-cell__name {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: #ffffff;
   line-height: 1.35;
-  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .suspect-cell__loc {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: baseline;
   gap: 0;
-  font-size: 11.5px;
-  line-height: 1.45;
-  word-break: break-all;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .suspect-cell__path-dir {
   color: rgba(255, 255, 255, 0.38);
@@ -3102,10 +3293,19 @@ onUnmounted(clearPoll)
   border: 1px solid rgba(255, 255, 255, 0.05) !important;
   border-radius: 12px !important;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+  max-height: 268px;
+  min-height: 0;
+  overflow: hidden;
 }
 .fullstack-panel-half .fullstack-table {
-  flex: 1;
+  flex: 0 0 auto;
   width: 100%;
+  max-height: 200px;
+}
+.fullstack-table :deep(.el-table__body-wrapper),
+.fullstack-table :deep(.el-scrollbar__wrap) {
+  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
 }
 .fullstack-table :deep(.el-table__header th.el-table__cell) {
   background: transparent !important;
@@ -3117,7 +3317,7 @@ onUnmounted(clearPoll)
 }
 .fullstack-table :deep(.el-table__body td.el-table__cell) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-  padding: 12px 10px !important;
+  padding: 8px 10px !important;
   vertical-align: middle !important;
 }
 .fullstack-table :deep(.el-table__body tr:last-child td.el-table__cell) {
@@ -3135,10 +3335,14 @@ onUnmounted(clearPoll)
 }
 .fs-path-cell {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: baseline;
-  gap: 2px 6px;
-  line-height: 1.45;
+  gap: 4px;
+  line-height: 1.35;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .fs-file-name {
   font-weight: 600;
@@ -3156,16 +3360,41 @@ onUnmounted(clearPoll)
 }
 .fs-hit-cell {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 6px 8px;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.fs-hit-cell__pill {
+  min-width: 0 !important;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-hit-cell__more {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+}
+.fs-hit-placeholder {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.38);
 }
 .fs-lines {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px 10px;
+  gap: 6px;
+  min-width: 0;
+}
+.fs-lines__more {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.42);
 }
 .fs-line-text {
   margin: 0;

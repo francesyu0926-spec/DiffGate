@@ -166,6 +166,32 @@ def _normalize_api_path(path: str) -> str:
     return p.rstrip("/") or "/"
 
 
+def normalize_contract_path(path: str) -> str:
+    """FastAPI `{user_id}` / 动态段归一为 `*`，便于 PROVIDES/CONSUMES 对齐。"""
+    import re
+
+    p = _normalize_api_path(path)
+    p = re.sub(r"\{[^}/]+\}", "*", p)
+    p = re.sub(r"\$\{[^}]+\}", "*", p)
+    # 字面量数字段降级为通配（消费者常写具体 id）
+    p = re.sub(r"/\d+(?=/|$)", "/*", p)
+    p = re.sub(r"/+", "/", p)
+    return p.rstrip("/") or "/"
+
+
+def http_client_confidence(url_or_path: str) -> float:
+    """AST 无法完全解析的动态 URL 使用较低置信度。"""
+    raw = (url_or_path or "").strip()
+    if not raw:
+        return 0.6
+    dynamic_markers = ("{", "}", "${", "%(", " + ", 'f"', 'f"', "{host}", "${")
+    if any(m in raw for m in dynamic_markers):
+        return 0.6
+    if "://" in raw and _normalize_api_path(raw) in ("/", ""):
+        return 0.6
+    return 0.85
+
+
 def match_consumers(
     hits: list[HttpClientHit],
     provider_api_paths: list[str],

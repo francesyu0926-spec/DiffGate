@@ -281,4 +281,5 @@ def report_job_gate(job_id: str, body: GateReportIn, db: Session = Depends(get_d
     from app.services.platform_notify import notify_platform
 
     notify_platform(job, repo)
-    return {"ok": True, "job_id": job_id, "gate_result": gate}
+    db.commit()
+    return {"ok": True, "job_id": job_id, "gate_result": job.gate_result or gate}

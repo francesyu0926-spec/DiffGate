@@ -16,6 +16,259 @@ const http = axios.create({
   timeout: 15000,
 })
 
+const ACTOR_STORAGE_KEY = 'diffgate_actor_v1'
+const SESSION_STORAGE_KEY = 'diffgate_session_v2'
+export const LEGACY_DEV_TOKEN = '__legacy_dev__'
+
+export interface AuthSession {
+  token: string
+  username: string
+  display_name?: string
+  role: string
+  role_label?: string
+  email?: string | null
+  avatar_url?: string | null
+  user_id?: string
+  authenticated?: boolean
+  legacy_dev?: boolean
+}
+
+export interface AuthMember {
+  user_id: string
+  username: string
+  display_name: string
+  email?: string | null
+  avatar_url?: string | null
+  role: string
+  role_label?: string
+  role_locked: boolean
+  provider: string
+  last_login_at?: string | null
+}
+
+export interface SessionWhoami {
+  username: string
+  role: string
+  role_label?: string
+  email?: string | null
+  can_manual_override: boolean
+  override_roles: string
+}
+
+export interface OverrideEligibility {
+  allowed: boolean
+  reason?: string | null
+  hint?: string | null
+  actor_role?: string
+  actor_role_label?: string
+  auditor_label?: string
+  commit_author?: string
+  share_url?: string
+  share_text?: string
+}
+
+export function loadStoredActor(): { username: string; role: string; email?: string } {
+  try {
+    const raw = localStorage.getItem(ACTOR_STORAGE_KEY)
+    if (!raw) return { username: 'developer', role: 'dev' }
+    const parsed = JSON.parse(raw) as { username?: string; role?: string; email?: string }
+    return {
+      username: parsed.username?.trim() || 'developer',
+      role: (parsed.role || 'dev').toLowerCase(),
+      email: parsed.email?.trim() || undefined,
+    }
+  } catch {
+    return { username: 'developer', role: 'dev' }
+  }
+}
+
+export function saveStoredActor(username: string, role: string, email?: string) {
+  localStorage.setItem(
+    ACTOR_STORAGE_KEY,
+    JSON.stringify({
+      username: username.trim(),
+      role: role.trim().toLowerCase(),
+      email: email?.trim() || undefined,
+    }),
+  )
+}
+
+export function loadAuthSession(): AuthSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as AuthSession
+    if (parsed?.legacy_dev || parsed?.token === LEGACY_DEV_TOKEN) return parsed
+    if (!parsed?.token) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export function hasAppSession(): boolean {
+  return Boolean(loadAuthSession())
+}
+
+export function saveAuthSession(session: AuthSession) {
+  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session))
+  saveStoredActor(session.username, session.role, session.email || undefined)
+}
+
+export function clearAuthSession() {
+  localStorage.removeItem(SESSION_STORAGE_KEY)
+}
+
+http.interceptors.request.use((config) => {
+  const session = loadAuthSession()
+  config.headers = config.headers ?? {}
+  if (session?.token && session.token !== LEGACY_DEV_TOKEN) {
+    config.headers.Authorization = `Bearer ${session.token}`
+  } else if (session?.legacy_dev || session?.token === LEGACY_DEV_TOKEN) {
+    config.headers['X-DiffGate-User'] = session.username
+    config.headers['X-DiffGate-Role'] = session.role
+    if (session.email) config.headers['X-DiffGate-Email'] = session.email
+  } else {
+    const actor = loadStoredActor()
+    config.headers['X-DiffGate-User'] = actor.username
+    config.headers['X-DiffGate-Role'] = actor.role
+    if (actor.email) config.headers['X-DiffGate-Email'] = actor.email
+  }
+  return config
+})
+
+export async function fetchAuthTokenWizard(gitlabBaseUrl?: string) {
+  const { data } = await http.get<{
+    github: { create_url: string; scopes_hint: string; wizard_link_text?: string }
+    gitlab: { create_url: string; scopes_hint: string; wizard_link_text?: string }
+  }>('/auth/token-wizard', { params: { gitlab_base_url: gitlabBaseUrl } })
+  return data
+}
+
+export type AuthProvider = 'github' | 'gitlab' | 'local'
+
+function sessionFromLoginPayload(
+  data: AuthSession & { session_token: string; needs_password_setup?: boolean },
+): AuthSession & { needs_password_setup?: boolean } {
+  const session: AuthSession = {
+    token: data.session_token,
+    username: data.username,
+    display_name: data.display_name,
+    role: data.role,
+    role_label: data.role_label,
+    email: data.email,
+    avatar_url: data.avatar_url,
+    user_id: data.user_id,
+    authenticated: true,
+  }
+  saveAuthSession(session)
+  return { ...session, needs_password_setup: data.needs_password_setup }
+}
+
+/** API 未重启、无认证路由时：仅 Header 模拟 admin（无法使用成员管理） */
+export function establishLegacyDevSession(): AuthSession {
+  const session: AuthSession = {
+    token: LEGACY_DEV_TOKEN,
+    username: 'local-dev',
+    display_name: '本地调试',
+    role: 'admin',
+    role_label: '管理员',
+    email: 'dev@localhost',
+    authenticated: true,
+    legacy_dev: true,
+  }
+  saveAuthSession(session)
+  return session
+}
+
+function isAxiosStatus(err: unknown, code: number) {
+  return (err as { response?: { status?: number } })?.response?.status === code
+}
+
+export async function loginWithPat(body: {
+  provider: AuthProvider
+  access_token?: string
+  gitlab_base_url?: string
+  dev_local?: boolean
+}) {
+  try {
+    const { data } = await http.post<AuthSession & { session_token: string }>('/auth/login', body, {
+      timeout: 120000,
+    })
+    return sessionFromLoginPayload(data)
+  } catch (err) {
+    if (body.dev_local && isAxiosStatus(err, 404)) {
+      try {
+        const { data } = await http.post<AuthSession & { session_token: string }>(
+          '/system/local-dev-login',
+          {},
+          { timeout: 60000 },
+        )
+        return sessionFromLoginPayload(data)
+      } catch (err2) {
+        if (isAxiosStatus(err2, 404)) {
+          return establishLegacyDevSession()
+        }
+        throw err2
+      }
+    }
+    throw err
+  }
+}
+
+export async function loginLocalDev() {
+  return loginWithPat({ provider: 'local', dev_local: true })
+}
+
+export async function loginWithPassword(login: string, password: string) {
+  const { data } = await http.post<AuthSession & { session_token: string; needs_password_setup?: boolean }>(
+    '/auth/login-password',
+    { login, password },
+    { timeout: 60000 },
+  )
+  return sessionFromLoginPayload(data)
+}
+
+export async function setAuthPassword(password: string, passwordConfirm: string) {
+  await http.post('/auth/set-password', {
+    password,
+    password_confirm: passwordConfirm,
+  })
+}
+
+export async function logoutAuth() {
+  try {
+    await http.post('/auth/logout')
+  } finally {
+    clearAuthSession()
+  }
+}
+
+export async function fetchAuthSession() {
+  const { data } = await http.get<AuthSession & SessionWhoami>('/auth/session')
+  return data
+}
+
+export async function fetchAuthMembers() {
+  const { data } = await http.get<{ items: AuthMember[] }>('/auth/members')
+  return data.items
+}
+
+export async function patchAuthMemberRole(userId: string, role: string, roleLocked = true) {
+  const { data } = await http.patch<{
+    user_id: string
+    role: string
+    role_label?: string
+    role_locked: boolean
+  }>(`/auth/members/${userId}`, { role, role_locked: roleLocked })
+  return data
+}
+
+export async function fetchWhoami() {
+  const { data } = await http.get<SessionWhoami>('/system/whoami')
+  return data
+}
+
 /** Turn verbose git/索引 failures into short Chinese hints for snackbars. */
 export function humanizeRepoIndexError(raw: string): string {
   const body = raw.replace(/^索引失败:\s*/u, '').trim()
@@ -179,6 +432,21 @@ export async function fetchTestSuitePresets() {
   return data.items
 }
 
+export type RepoTypeMeta = {
+  id: string
+  label: string
+  language: string
+  index_supported?: boolean
+  coming_soon?: boolean
+  preview_only?: boolean
+  coverage_hint?: string
+}
+
+export async function fetchRepoTypeOptions() {
+  const { data } = await http.get<{ items: RepoTypeMeta[] }>('/repositories/meta/repo-types')
+  return data.items
+}
+
 export async function fetchRepositories(q?: string) {
   const { data } = await http.get<{ items: RepositoryItem[] }>('/repositories', {
     params: q ? { q } : {},
@@ -193,6 +461,13 @@ export async function createRepository(payload: RepositoryPayload) {
 
 export async function updateRepository(id: string, payload: Partial<RepositoryPayload>) {
   const { data } = await http.patch<RepositoryItem>(`/repositories/${id}`, payload)
+  return data
+}
+
+export async function testRepositoryNotify(id: string) {
+  const { data } = await http.post<{ success: boolean; platform: string; message: string }>(
+    `/repositories/${id}/test-notify`,
+  )
   return data
 }
 
@@ -219,7 +494,7 @@ export async function fetchRepoBranches(id: string) {
     items: string[]
     default_branch: string
     cache_ttl_sec?: number
-  }>(`/repositories/${id}/branches`)
+  }>(`/repositories/${id}/branches`, { timeout: 45000 })
   return data
 }
 
@@ -291,6 +566,7 @@ export interface DashboardOverview {
     job_id: string | null
     block_reason?: string | null
     block_reason_label?: string | null
+    trigger_detail_summary?: string | null
   }[]
   code_hotspots?: {
     path: string
@@ -342,6 +618,18 @@ export interface RegressionOverview {
     changed_lines: number
     covered_lines: number
     current_gate: string | null
+    block_reason?: string | null
+    block_reason_label?: string | null
+  }
+}
+
+export interface GateTriggerDetail {
+  kind: string
+  summary: string
+  metrics?: Record<string, number>
+  high_risk_items?: {
+    apis?: { method?: string; path?: string; file?: string; status_code?: number | null; error?: string }[]
+    symbols?: { qualified_name?: string; file?: string | null }[]
   }
 }
 
@@ -354,6 +642,28 @@ export interface RegressionBatchItem {
   created_at: string | null
   api_impact: number
   coverage: number | null
+  changed_lines?: number
+  covered_lines?: number
+}
+
+export interface HighRiskDetails {
+  triggered_by?: string[]
+  api_count?: number
+  api_threshold?: number
+  symbol_count?: number
+  symbol_threshold?: number
+  override_hint?: string
+  matched_impacts?: {
+    backend_api?: string
+    page_file?: string
+    frontend_repo?: string
+  }[]
+  matched_modules?: {
+    file: string | null
+    symbol: string | null
+    level?: string
+    reason: string
+  }[]
 }
 
 export interface RegressionBatchDetail {
@@ -362,13 +672,21 @@ export interface RegressionBatchDetail {
   commit: string
   gate: string
   gate_label?: string
+  block_reason?: string | null
+  block_reason_label?: string | null
+  trigger_detail?: GateTriggerDetail | null
+  high_risk_details?: HighRiskDetails | null
+  notify_status?: { sent?: boolean; sent_at?: string | null; error_msg?: string | null }
   manual_override?: {
     actor: string
+    auditor_role?: string
     at: string
     reason_category: string
     reason_category_label: string
     reason_detail: string
   } | null
+  allow_manual_override?: boolean
+  override_eligibility?: OverrideEligibility
   gate_result: Record<string, unknown>
   cases: {
     method: string
@@ -415,6 +733,7 @@ export type GateOverrideReasonCategory =
   | 'hotfix'
   | 'branch_unsimulatable'
   | 'non_core_reviewed'
+  | 'fe_be_coordinated'
   | 'other'
 
 export async function submitRegressionGateOverride(
@@ -422,7 +741,6 @@ export async function submitRegressionGateOverride(
   body: {
     reason_category: GateOverrideReasonCategory
     reason_detail: string
-    actor?: string
   },
 ) {
   const { data } = await http.post<{ ok: boolean; gate_result: Record<string, unknown> }>(

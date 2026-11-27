@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { fetchDashboardOverview, fetchJobAnalysisStats, fetchJobs } from '@/api/client'
 import type { JobAnalysisStats, JobListItem, JobStatus } from '@/api/types'
 import RepoAutocompleteFilter, { type RepoGateStat } from '@/components/RepoAutocompleteFilter.vue'
+import Md3LoadState from '@/components/Md3LoadState.vue'
 import { formatLocalDateTime } from '@/utils/datetime'
 
 const router = useRouter()
@@ -275,7 +276,9 @@ onMounted(load)
       </v-card>
     </div>
 
-    <v-progress-linear v-if="loading && jobs.length === 0" indeterminate color="primary" class="mb-2 rounded" />
+    <div v-if="loading && jobs.length === 0" class="mb-3">
+      <Md3LoadState mode="overlay" label="加载分析记录…" min-height="220px" />
+    </div>
 
     <div v-if="!loading && jobs.length === 0" class="empty-panel analysis-panel">
       <div class="empty-icon-wrap mb-4" aria-hidden="true">

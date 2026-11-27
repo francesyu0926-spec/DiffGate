@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { fetchRepoBranches, fetchRepositories, triggerRepoAnalysis } from '@/api/client'
+import {
+  fetchRepoBranches,
+  fetchRepositories,
+  humanizeRepoIndexError,
+  readApiError,
+  triggerRepoAnalysis,
+} from '@/api/client'
 import type { RepositoryItem } from '@/api/types'
 
 const props = defineProps<{ modelValue: boolean }>()
@@ -19,6 +25,7 @@ const targetBranch = ref<string | null>(null)
 const compareBaseMode = ref(false)
 const baseBranch = ref<string | null>(null)
 const error = ref('')
+const branchWarning = ref('')
 
 const open = computed({
   get: () => props.modelValue,
@@ -49,9 +56,10 @@ async function loadRepos() {
 async function loadBranches(repoId: string) {
   branchesLoading.value = true
   error.value = ''
+  branchWarning.value = ''
   try {
     const data = await fetchRepoBranches(repoId)
-    branchItems.value = data.items
+    branchItems.value = data.items?.length ? data.items : [data.default_branch]
     defaultBranch.value = data.default_branch
     const repo = selectedRepo.value
     const fallback = repo?.default_branch || data.default_branch
@@ -60,13 +68,15 @@ async function loadBranches(repoId: string) {
       : branchItems.value[0] ?? fallback
     const base = data.default_branch || repo?.default_branch || 'main'
     baseBranch.value = branchItems.value.includes(base) ? base : branchItems.value[0] ?? base
-  } catch {
-    branchItems.value = []
+  } catch (err) {
+    const detail = readApiError(err, '')
+    const hint = detail ? humanizeRepoIndexError(detail).replace(/^索引失败：/u, '') : '请确认 API 已启动且仓库 SSH/Token 有效'
     const fb = selectedRepo.value?.default_branch ?? 'main'
+    branchItems.value = [fb]
     defaultBranch.value = fb
     targetBranch.value = fb
     baseBranch.value = fb
-    error.value = '无法加载分支列表，将使用仓库默认分支。'
+    branchWarning.value = `无法加载远程分支列表，已回退为默认分支「${fb}」。${hint}`
   } finally {
     branchesLoading.value = false
   }
@@ -114,6 +124,7 @@ watch(
       baseBranch.value = null
       compareBaseMode.value = false
       branchItems.value = []
+      branchWarning.value = ''
       loadRepos()
     }
   },
@@ -132,7 +143,26 @@ watch(
         <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mb-3 text-body-2">
           {{ error }}
         </v-alert>
-        <v-skeleton-loader v-if="loading" type="list-item-two-line" />
+        <v-alert
+          v-if="branchWarning"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mb-3 text-body-2"
+        >
+          <div>{{ branchWarning }}</div>
+          <v-btn
+            v-if="selectedId"
+            size="small"
+            variant="text"
+            class="text-none px-0 mt-1"
+            :loading="branchesLoading"
+            @click="loadBranches(selectedId)"
+          >
+            重试加载分支
+          </v-btn>
+        </v-alert>
+        <v-skeleton-loader v-if="loading" type="list-item-two-line" class="m3-skeleton-tonal" boilerplate />
         <template v-else-if="enabledRepos.length">
           <v-select
             v-model="selectedId"
@@ -145,7 +175,12 @@ watch(
             hide-details="auto"
             class="mb-3"
           />
-          <v-skeleton-loader v-if="branchesLoading" type="list-item" class="mb-2" />
+          <v-skeleton-loader
+            v-if="branchesLoading"
+            type="list-item"
+            class="m3-skeleton-tonal mb-2"
+            boilerplate
+          />
           <template v-else-if="selectedId">
             <v-select
               v-model="targetBranch"

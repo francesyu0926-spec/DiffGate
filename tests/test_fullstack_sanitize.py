@@ -63,3 +63,4 @@ def test_sanitize_mirrors_legacy_fields():
     out = sanitize_fullstack_payload(raw)
     assert out["matched_api_calls"][0]["file"] == "frontend/src/Foo.tsx"
     assert out["frontend_api_calls_aggregated"][0]["lines"] == [10]
+    assert out["frontend_api_calls_aggregated"][0]["backend_paths"] == ["/radar"]

@@ -194,3 +194,32 @@ html:has(.v-theme--darkMonochrome) .el-scrollbar__bar .el-scrollbar__thumb {
   background: rgba(150, 158, 170, 0.52);
   border-radius: 4px;
 }
+
+/* 顶栏「新建分析」/ 仓库「添加仓库」共用幽灵主按钮 */
+.v-theme--darkMonochrome .v-btn.cta-new-analysis.cta-new-analysis--ghost {
+  font-weight: 600;
+  letter-spacing: normal;
+  border: 1px solid rgba(138, 180, 248, 0.55) !important;
+  color: #8ab4f8 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.v-theme--darkMonochrome .v-btn.cta-new-analysis.cta-new-analysis--ghost .v-btn__overlay,
+.v-theme--darkMonochrome .v-btn.cta-new-analysis.cta-new-analysis--ghost .v-btn__underlay {
+  opacity: 0 !important;
+}
+.v-theme--darkMonochrome .v-btn.cta-new-analysis.cta-new-analysis--ghost .v-icon {
+  color: #8ab4f8 !important;
+  opacity: 1 !important;
+}
+.v-theme--darkMonochrome .v-btn.cta-new-analysis.cta-new-analysis--ghost:hover {
+  background: rgba(37, 99, 235, 0.22) !important;
+  border-color: rgba(138, 180, 248, 0.85) !important;
+  color: #d2e3fc !important;
+}
+.v-theme--darkMonochrome .v-btn.cta-new-analysis.cta-new-analysis--ghost:hover .v-icon {
+  color: #d2e3fc !important;
+}
+.cta-new-analysis .v-btn__prepend .v-icon {
+  font-size: 18px;
+}

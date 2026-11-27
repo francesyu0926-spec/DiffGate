@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     dingtalk_webhook_url: str = ""
     wecom_webhook_url: str = ""
 
+    # RBAC：可信 Header X-DiffGate-User / X-DiffGate-Role（由反向代理注入）
+    default_actor_name: str = "developer"
+    default_actor_role: str = "dev"
+    override_roles: str = "qa,pm,admin,owner"
+    # 前端精准回归页根地址（IM 卡片「人工豁免」链接）
+    web_app_public_base_url: str = "http://127.0.0.1:5173"
+
 
 @lru_cache
 def get_settings() -> Settings:
