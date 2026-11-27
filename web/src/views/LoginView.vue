@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   fetchAuthTokenWizard,
   loginLocalDev,
   loginWithPassword,
   loginWithPat,
+  readApiError,
   setAuthPassword,
   type AuthProvider,
 } from '@/api/client'
+import axios from 'axios'
 import { dismissRegressionFilterMenus } from '@/utils/dismissOverlays'
 
 const router = useRouter()
@@ -49,7 +51,7 @@ const wizardLinkText = computed(() => {
 })
 
 const tokenPlaceholder = computed(() =>
-  provider.value === 'github' ? '请输入 Access Token' : '请输入 glpat-…',
+  provider.value === 'github' ? '请输入 Access Token' : '请输入 glpat- 开头的令牌',
 )
 
 const showAccessToken = ref(false)
@@ -68,12 +70,34 @@ async function loadWizard() {
 }
 
 function readErr(e: unknown) {
-  const status = (e as { response?: { status?: number; data?: { detail?: string } } })?.response?.status
-  const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+  const status = axios.isAxiosError(e) ? e.response?.status : undefined
   if (status === 404) {
     return '认证接口未就绪，请重启后端 API（.\\scripts\\run_api.ps1）后重试。'
   }
-  return detail || (e instanceof Error ? e.message : '登录失败')
+  if (axios.isAxiosError(e)) {
+    const detail = e.response?.data?.detail
+    if (Array.isArray(detail)) {
+      const fields = new Set(
+        detail.map((row) => {
+          const loc = (row as { loc?: unknown[] })?.loc
+          return Array.isArray(loc) ? String(loc[loc.length - 1] ?? '') : ''
+        }),
+      )
+      if (fields.has('login') && fields.has('password')) {
+        return '请填写 Git 用户名或邮箱与 DiffGate 登录密码'
+      }
+      if (fields.has('login')) return '请填写 Git 用户名或邮箱'
+      if (fields.has('password')) return '请填写 DiffGate 登录密码'
+      if (fields.has('access_token')) {
+        return provider.value === 'github'
+          ? '请填写 GitHub Personal Access Token'
+          : '请填写 GitLab Personal Access Token'
+      }
+      const msg = (detail[0] as { msg?: string } | undefined)?.msg
+      if (msg?.includes('at least 1 character')) return '请完整填写登录信息'
+    }
+  }
+  return readApiError(e, '登录失败，请检查填写内容后重试')
 }
 
 function navigateAfterLogin() {
@@ -83,6 +107,13 @@ function navigateAfterLogin() {
 
 async function submitTokenLogin() {
   error.value = ''
+  if (!accessToken.value.trim()) {
+    error.value =
+      provider.value === 'github'
+        ? '请填写 GitHub Personal Access Token'
+        : '请填写 GitLab Personal Access Token'
+    return
+  }
   loading.value = true
   postLoginRedirect.value =
     typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
@@ -106,6 +137,18 @@ async function submitTokenLogin() {
 
 async function submitPasswordLogin() {
   error.value = ''
+  if (!accountLogin.value.trim() && !accountPassword.value) {
+    error.value = '请填写 Git 用户名或邮箱与 DiffGate 登录密码'
+    return
+  }
+  if (!accountLogin.value.trim()) {
+    error.value = '请填写 Git 用户名或邮箱'
+    return
+  }
+  if (!accountPassword.value) {
+    error.value = '请填写 DiffGate 登录密码'
+    return
+  }
   loading.value = true
   postLoginRedirect.value =
     typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
@@ -155,6 +198,10 @@ async function localDevLogin() {
     loading.value = false
   }
 }
+
+watch([accessToken, accountLogin, accountPassword], () => {
+  if (error.value) error.value = ''
+})
 
 onMounted(() => {
   dismissRegressionFilterMenus()
@@ -250,8 +297,9 @@ onMounted(() => {
                   rounded="md"
                   autocomplete="off"
                   prepend-inner-icon="mdi-key-variant"
-                  class="login-field"
+                  class="login-field login-field--token-input"
                   :placeholder="tokenPlaceholder"
+                  :title="provider === 'gitlab' ? '例如 glpat-xxxxxxxxxxxxxxxxxxxx' : undefined"
                   :disabled="loading"
                   hide-details
                   :append-inner-icon="showAccessToken ? 'mdi-eye-off' : 'mdi-eye'"
@@ -267,11 +315,19 @@ onMounted(() => {
                   >
                     没有 Token？{{ wizardLinkLabel }} ↗
                   </a>
-                  <span v-if="provider === 'gitlab'" class="login-field-extra__scopes">read_user / read_api</span>
+                  <div v-if="provider === 'gitlab'" class="login-field-extra__scopes-row">
+                    <span class="login-scope-chip">read_user</span>
+                    <span class="login-scope-chip">read_api</span>
+                  </div>
                 </div>
               </div>
 
-              <p v-if="error" class="login-error login-error--spaced mb-0" role="alert">{{ error }}</p>
+              <Transition name="login-alert">
+                <div v-if="error" class="login-error" role="alert">
+                  <v-icon icon="mdi-alert-circle-outline" size="16" class="login-error__icon" />
+                  <span class="login-error__text">{{ error }}</span>
+                </div>
+              </Transition>
 
               <v-btn
                 block
@@ -321,7 +377,7 @@ onMounted(() => {
                   <span class="login-field-block__label">DiffGate 登录密码</span>
                   <button
                     type="button"
-                    class="login-link login-link--inline login-field-block__aside"
+                    class="login-forgot-link login-field-block__aside"
                     title="使用 Git 令牌重新登录即可重置"
                     @click="switchToTokenMode"
                   >
@@ -345,7 +401,12 @@ onMounted(() => {
                 />
               </div>
 
-              <p v-if="error" class="login-error login-error--spaced mb-0" role="alert">{{ error }}</p>
+              <Transition name="login-alert">
+                <div v-if="error" class="login-error" role="alert">
+                  <v-icon icon="mdi-alert-circle-outline" size="16" class="login-error__icon" />
+                  <span class="login-error__text">{{ error }}</span>
+                </div>
+              </Transition>
 
               <v-btn
                 block
@@ -404,7 +465,12 @@ onMounted(() => {
             rounded="lg"
             autocomplete="new-password"
           />
-          <p v-if="error && passwordSetupOpen" class="login-error mt-3 mb-0" role="alert">{{ error }}</p>
+          <Transition name="login-alert">
+            <div v-if="error && passwordSetupOpen" class="login-error login-error--dialog" role="alert">
+              <v-icon icon="mdi-alert-circle-outline" size="16" class="login-error__icon" />
+              <span class="login-error__text">{{ error }}</span>
+            </div>
+          </Transition>
         </v-card-text>
         <v-card-actions class="px-4 pb-4">
           <v-btn variant="text" class="text-none" :disabled="setupSubmitting" @click="skipPasswordSetup">
@@ -494,7 +560,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 36px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
   padding: 0 2px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -569,7 +635,11 @@ onMounted(() => {
   margin-bottom: 24px;
 }
 .login-field-block--gitlab {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+}
+.login-field-block--gitlab .login-field--hint :deep(.v-input__details) {
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 .login-field-block--tight {
   margin-bottom: 24px;
@@ -579,38 +649,66 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .login-field-block__head .login-field-block__label {
   margin-bottom: 0;
 }
 .login-field-block__aside {
-  font-size: 12px;
   flex-shrink: 0;
 }
+.login-forgot-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.login-forgot-link:hover {
+  color: #ffffff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .login-field-block__label {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-size: 12px;
   font-weight: 500;
-  line-height: 1.35;
+  line-height: 1.3;
   color: rgba(255, 255, 255, 0.55);
   padding-left: 2px;
 }
 .login-field-extra {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 12px;
-  margin-top: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  max-width: 100%;
 }
 .login-field-extra__link {
   font-size: 12px;
-  line-height: 1.45;
-}
-.login-field-extra__scopes {
-  font-size: 11px;
   line-height: 1.4;
-  color: rgba(255, 255, 255, 0.38);
+}
+.login-field-extra__scopes-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.login-scope-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
 }
 .login-field :deep(.v-field__prepend-inner),
 .login-field :deep(.v-field__append-inner) {
@@ -620,6 +718,12 @@ onMounted(() => {
   color: rgba(255, 255, 255, 0.58);
   padding-inline-start: 12px;
   padding-inline-end: 8px;
+}
+.login-field :deep(.v-field__prepend-inner .v-icon) {
+  font-size: 16px;
+  width: 16px;
+  height: 16px;
+  opacity: 1;
 }
 .login-field :deep(.v-field) {
   background: rgba(255, 255, 255, 0.05) !important;
@@ -635,7 +739,9 @@ onMounted(() => {
   min-height: 44px;
   padding-top: 8px;
   padding-bottom: 8px;
-  padding-inline-start: 4px;
+  padding-inline-start: 12px;
+  font-size: 14px;
+  line-height: 1.35;
 }
 .login-field :deep(.v-field__outline) {
   --v-field-border-opacity: 0;
@@ -644,6 +750,13 @@ onMounted(() => {
 .login-field :deep(.v-field__input::placeholder) {
   color: rgba(255, 255, 255, 0.5);
   opacity: 1;
+  text-overflow: clip;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.login-field--token-input :deep(input::placeholder),
+.login-field--token-input :deep(.v-field__input::placeholder) {
+  font-size: 13px;
 }
 .login-field :deep(.v-label) {
   color: rgba(255, 255, 255, 0.78);
@@ -653,15 +766,15 @@ onMounted(() => {
   min-height: auto;
 }
 .login-field--hint :deep(.v-messages) {
-  margin-top: 6px;
+  margin-top: 4px;
   margin-bottom: 0;
   padding-top: 0;
   color: rgba(255, 255, 255, 0.4);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 .login-field-block--token {
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 .login-link {
   color: #60a5fa;
@@ -679,9 +792,6 @@ onMounted(() => {
   background: none;
   font: inherit;
   cursor: pointer;
-}
-.login-error--spaced {
-  margin-bottom: 24px;
 }
 .login-primary-btn--spaced {
   margin-top: 0;
@@ -757,13 +867,40 @@ onMounted(() => {
   color: rgba(255, 255, 255, 0.4);
 }
 .login-error {
-  font-size: 13px;
-  line-height: 1.45;
-  color: #f28b82;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: rgba(234, 67, 53, 0.1);
-  border: 1px solid rgba(242, 139, 130, 0.25);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 16px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.1);
+}
+.login-error__icon {
+  flex-shrink: 0;
+  color: #f87171;
+  opacity: 0.95;
+}
+.login-error__text {
+  flex: 1;
+  min-width: 0;
+}
+.login-error--dialog {
+  margin: 12px 0 0;
+}
+.login-alert-enter-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.login-alert-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.login-alert-enter-from,
+.login-alert-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 .login-setup-card {
   border: 1px solid #2e333b;

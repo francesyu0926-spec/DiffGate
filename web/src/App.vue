@@ -175,7 +175,8 @@ async function refreshAuth() {
       }
     }
   } catch {
-    /* keep cached session */
+    const cached = loadAuthSession()
+    if (cached) authSession.value = cached
   }
 }
 
@@ -188,7 +189,13 @@ async function onLogout() {
 watch(
   isLoginRoute,
   (onLogin) => {
-    if (onLogin) dismissRegressionFilterMenus()
+    if (onLogin) {
+      dismissRegressionFilterMenus()
+      return
+    }
+    const cached = loadAuthSession()
+    if (cached) authSession.value = cached
+    void refreshAuth()
   },
   { flush: 'post' },
 )
@@ -358,7 +365,12 @@ onUnmounted(() => {
           >
             新建分析
           </v-btn>
-          <v-menu v-if="authSession" location="bottom end" offset="8">
+          <v-menu
+            v-if="authSession"
+            location="bottom end"
+            :offset="8"
+            content-class="user-menu-surface"
+          >
             <template #activator="{ props: menuProps }">
               <v-btn
                 v-bind="menuProps"
@@ -376,16 +388,38 @@ onUnmounted(() => {
                 <v-icon icon="mdi-chevron-down" size="16" class="ms-1" />
               </v-btn>
             </template>
-            <v-list density="compact" class="user-menu-list" min-width="220">
-              <v-list-item :title="userMenuLabel" :subtitle="userRoleLabel" />
-              <v-divider class="my-1" />
+            <v-list class="user-menu-list" bg-color="transparent" density="comfortable" nav>
+              <div class="user-menu-profile" aria-hidden="true">
+                <v-avatar
+                  size="36"
+                  color="rgba(255, 255, 255, 0.08)"
+                  :image="authSession.avatar_url || undefined"
+                >
+                  <span v-if="!authSession.avatar_url" class="text-body-2 font-weight-bold">
+                    {{ authSession.username.slice(0, 1).toUpperCase() }}
+                  </span>
+                </v-avatar>
+                <div class="user-menu-profile__meta">
+                  <span class="user-menu-profile__name">{{ userMenuLabel }}</span>
+                  <span v-if="userRoleLabel" class="user-menu-role-chip">{{ userRoleLabel }}</span>
+                </div>
+              </div>
+              <v-divider class="user-menu-divider" />
               <v-list-item
                 v-if="isAdmin"
+                class="user-menu-action"
+                rounded="lg"
                 prepend-icon="mdi-account-group-outline"
                 title="成员与角色"
                 @click="membersOpen = true"
               />
-              <v-list-item prepend-icon="mdi-logout" title="退出登录" @click="onLogout" />
+              <v-list-item
+                class="user-menu-action user-menu-action--logout"
+                rounded="lg"
+                prepend-icon="mdi-logout"
+                title="退出登录"
+                @click="onLogout"
+              />
             </v-list>
           </v-menu>
           <v-btn
@@ -433,10 +467,6 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.user-menu-list {
-  border: 1px solid #2e333b;
-  background: #22262b !important;
 }
 .brand {
   cursor: pointer;
@@ -714,5 +744,82 @@ onUnmounted(() => {
 .engine-status-menu .engine-status-card {
   background: #2c2c2c !important;
   min-width: 260px;
+}
+.user-menu-surface {
+  border-radius: 8px !important;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.user-menu-list {
+  background: #2a2a2a !important;
+  min-width: 240px;
+  padding: 4px 0 6px !important;
+}
+.user-menu-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px 12px;
+  pointer-events: none;
+  user-select: none;
+}
+.user-menu-profile__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.user-menu-profile__name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu-role-chip {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.user-menu-divider {
+  margin: 0 12px 6px;
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+.user-menu-list .user-menu-action.v-list-item {
+  min-height: 40px;
+  padding-block: 10px;
+  padding-inline: 16px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.user-menu-list .user-menu-action .v-list-item-title {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 500;
+}
+.user-menu-list .user-menu-action .v-list-item__prepend > .v-icon {
+  font-size: 16px;
+  opacity: 0.92;
+}
+.user-menu-list .user-menu-action .v-list-item__prepend {
+  margin-inline-end: 12px;
+}
+.user-menu-list .user-menu-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.user-menu-list .user-menu-action--logout {
+  margin-top: 4px;
+}
+.user-menu-list .user-menu-action--logout:hover {
+  background: rgba(239, 68, 68, 0.12);
 }
 </style>
