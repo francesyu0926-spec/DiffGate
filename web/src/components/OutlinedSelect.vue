@@ -32,6 +32,10 @@ const props = withDefaults(
     suppressMenuWhenEmpty?: boolean
     /** 浮层菜单附加 class（如新建用例集 MD3） */
     menuSurfaceClass?: string
+    /** 仅当选项数大于该值时才展示菜单内搜索框（未设置则沿用 searchable） */
+    searchableMin?: number
+    /** 默认值（如 `.`）不显示清除；自定义值仅在悬停/聚焦时显示清除 */
+    smartClear?: boolean
   }>(),
   {
     label: '',
@@ -60,6 +64,8 @@ const labelAboveEffective = computed(() => props.labelAbove ?? specForm)
 
 const open = ref(false)
 const keyword = ref('')
+const triggerHover = ref(false)
+const triggerFocused = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
 const triggerRef = ref<HTMLElement | null>(null)
 const menuRef = ref<HTMLElement | null>(null)
@@ -99,8 +105,27 @@ const showChevron = computed(
   () => !(props.suppressMenuWhenEmpty && catalogEmpty.value && !hasValue.value),
 )
 
+const showMenuSearch = computed(() => {
+  if (!props.searchable || props.freeSolo) return false
+  const min = props.searchableMin
+  if (min == null) return props.options.length > 0
+  return props.options.length > min
+})
+
+const showClearButton = computed(() => {
+  if (!props.clearable || props.multiple || props.disabled || props.loading) return false
+  if (!hasValue.value) return false
+  if (!props.smartClear) return true
+  const v = String(props.modelValue ?? '').trim()
+  if (v === '.' || v === '') return false
+  return triggerFocused.value || triggerHover.value || open.value
+})
+
 const filteredOptions = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
+  let kw = keyword.value.trim().toLowerCase()
+  if (!kw && props.freeSolo && !props.multiple) {
+    kw = String(props.modelValue ?? '').trim().toLowerCase()
+  }
   if (!kw) return props.options
   return props.options.filter(
     (opt) =>
@@ -124,6 +149,15 @@ function updateMenuPosition() {
   }
 }
 
+function openMenu() {
+  if (props.disabled || props.loading) return
+  if (props.suppressMenuWhenEmpty && catalogEmpty.value && !hasValue.value) return
+  if (!open.value) {
+    open.value = true
+    updateMenuPosition()
+  }
+}
+
 function toggleOpen() {
   if (props.disabled || props.loading) return
   if (props.suppressMenuWhenEmpty && catalogEmpty.value && !hasValue.value) return
@@ -134,6 +168,23 @@ function toggleOpen() {
       requestAnimationFrame(() => freeInputRef.value?.focus())
     }
   }
+}
+
+function onTriggerClick() {
+  if (props.freeSolo && !props.multiple) {
+    openMenu()
+    requestAnimationFrame(() => freeInputRef.value?.focus())
+    return
+  }
+  toggleOpen()
+}
+
+function onFreeSoloFocus() {
+  openMenu()
+}
+
+function onFreeSoloInputClick() {
+  openMenu()
 }
 
 function close() {
@@ -176,13 +227,15 @@ function clearValue(e: MouseEvent) {
 function onFreeInput(e: Event) {
   const el = e.target as HTMLInputElement
   emit('update:modelValue', el.value)
+  if (!props.multiple && props.freeSolo) openMenu()
 }
 
 function onTriggerKeydown(e: KeyboardEvent) {
   if (props.disabled) return
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
-    toggleOpen()
+    if (props.freeSolo && !props.multiple) onTriggerClick()
+    else toggleOpen()
   }
   if (e.key === 'Escape') close()
 }
@@ -250,8 +303,12 @@ onUnmounted(() => {
         :aria-expanded="open"
         :aria-controls="`${menuUid}-menu`"
         :tabindex="disabled ? -1 : 0"
-        @click="toggleOpen"
+        @click="onTriggerClick"
         @keydown="onTriggerKeydown"
+        @focusin="triggerFocused = true"
+        @focusout="triggerFocused = false"
+        @mouseenter="triggerHover = true"
+        @mouseleave="triggerHover = false"
       >
         <div class="md-field-select-values">
           <template v-if="multiple">
@@ -293,12 +350,14 @@ onUnmounted(() => {
             </span>
           </template>
           <input
-            v-else-if="freeSolo && open"
+            v-else-if="freeSolo"
             ref="freeInputRef"
             type="text"
             class="md-field-select-free-input"
             :value="String(modelValue ?? '')"
-            @click.stop
+            :disabled="disabled"
+            @click.stop="onFreeSoloInputClick"
+            @focus="onFreeSoloFocus"
             @input="onFreeInput"
           />
           <span
@@ -320,9 +379,10 @@ onUnmounted(() => {
           <slot name="trigger-affix" />
           <span v-if="loading" class="md-field-select-loading" aria-hidden="true" />
           <button
-            v-if="clearable && hasValue && !multiple && !disabled && !loading"
+            v-if="showClearButton"
             type="button"
             class="md-field-select-clear"
+            :class="{ 'md-field-select-clear--smart': smartClear }"
             aria-label="清除"
             @click="clearValue"
           >
@@ -356,7 +416,7 @@ onUnmounted(() => {
         :style="menuStyle"
         :data-md-select-menu="menuUid"
       >
-        <div v-if="searchable && !freeSolo && options.length > 0" class="md-field-select-search">
+        <div v-if="showMenuSearch" class="md-field-select-search">
           <input
             v-model="keyword"
             type="text"

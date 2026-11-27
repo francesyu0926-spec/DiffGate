@@ -1,0 +1,1262 @@
+/**
+ * 仅「添加仓库」：MD3 深色 Tonal + 840dp 布局（编辑页仍用 dg-outlined-form-page）
+ */
+.repo-form-page.repo-form-page--v2.repo-form-page--create {
+  width: 100%;
+  max-width: var(--repo-md3-form-max, 840px) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-inline: 32px;
+  box-sizing: border-box;
+}
+
+.repo-form-page--create {
+  --repo-md3-bg: #111318;
+  --repo-md3-surface-low: #191c22;
+  --repo-md3-surface-lowest: #14161c;
+  --repo-md3-surface-highest: #282a31;
+  --repo-md3-primary: #a8c7fa;
+  --repo-md3-on-primary: #062e6f;
+  --repo-md3-secondary-container: #004a77;
+  --repo-md3-on-secondary: #c2e7ff;
+  --repo-md3-tonal: #233554;
+  --repo-md3-title: #e2e2e9;
+  --repo-md3-body: #c4c6d0;
+  --repo-md3-placeholder: #8e9099;
+  --repo-md3-error: #ffb4ab;
+  --repo-md3-form-max: 840px;
+
+  max-width: var(--repo-md3-form-max);
+  margin-inline: auto;
+  padding-bottom: 200px;
+  background: var(--repo-md3-bg) !important;
+  align-items: stretch;
+  min-height: calc(100vh - 64px);
+  height: auto !important;
+  transform: none !important;
+}
+
+.repo-form-page--create .repo-form-page__topbar {
+  background: rgba(17, 19, 24, 0.92);
+  backdrop-filter: blur(12px);
+  width: 100%;
+}
+
+.repo-form-page--create .repo-form-page__topbar-main {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.repo-form-page--create .repo-form-page__titles {
+  text-align: left;
+}
+
+.repo-form-page--create .repo-form-page__title {
+  color: var(--repo-md3-title);
+}
+
+.repo-form-page--create .repo-form-page__subtitle {
+  color: var(--repo-md3-body);
+  max-width: none;
+}
+
+.repo-form-page--create .repo-form-page__body {
+  gap: 20px;
+  width: 100%;
+}
+
+.repo-form-page--create .dg-form-card {
+  background: var(--repo-md3-surface-low) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  padding: 24px !important;
+  margin-bottom: 0 !important;
+}
+
+.repo-form-page--create .dg-form-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--repo-md3-title);
+}
+
+.repo-form-page--create .dg-form-card__title-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--repo-md3-primary);
+}
+
+.repo-form-page--create .dg-form-grid-3--basic-head {
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.repo-form-page--create .dg-form-grid-2--pair {
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* MD3 Filled text */
+.repo-form-page--create .md3-filled__box:not(.md3-filled__box--textarea) {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  background: var(--repo-md3-surface-highest);
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.repo-form-page--create .md3-filled--focused .md3-filled__box:not(.md3-filled__box--textarea) {
+  background: color-mix(in srgb, var(--repo-md3-surface-highest) 92%, white 8%);
+  border-bottom: 2px solid var(--repo-md3-primary);
+}
+
+.repo-form-page--create .md3-filled--error .md3-filled__box:not(.md3-filled__box--textarea) {
+  border-bottom-color: var(--repo-md3-error);
+}
+
+.repo-form-page--create .md3-filled__input {
+  width: 100%;
+  min-height: 56px;
+  padding: 22px 16px 6px;
+  border: none;
+  background: transparent;
+  color: var(--repo-md3-title);
+  font-size: 15px;
+  line-height: 1.4;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.repo-form-page--create .md3-filled__input--with-append {
+  padding-right: 44px;
+}
+
+.repo-form-page--create .md3-filled__input--with-prepend {
+  padding-left: 48px;
+}
+
+.repo-form-page--create .md3-filled--with-prepend .md3-filled__label {
+  left: 48px;
+  max-width: calc(100% - 56px);
+}
+
+.repo-form-page--create .md3-filled__prepend {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.repo-form-page--create .md3-filled__input--mono {
+  font-family: ui-monospace, Consolas, 'JetBrains Mono', monospace;
+  font-size: 14px;
+}
+
+.repo-form-page--create .md3-filled__label {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  max-width: calc(100% - 32px);
+  transform: translateY(-50%);
+  transform-origin: left center;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--repo-md3-title);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    transform 0.16s ease,
+    top 0.16s ease,
+    font-size 0.16s ease,
+    color 0.16s ease;
+}
+
+.repo-form-page--create .md3-filled--floated .md3-filled__label,
+.repo-form-page--create .md3-filled--focused .md3-filled__label {
+  top: 7px;
+  transform: translateY(0);
+  font-size: 14px;
+  font-weight: 500;
+  color: #d8dae3;
+}
+
+.repo-form-page--create .md3-filled--focused .md3-filled__label {
+  color: var(--repo-md3-primary);
+}
+
+.repo-form-page--create .md3-filled__append {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.repo-form-page--create .md3-filled__helper {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--repo-md3-body);
+}
+
+.repo-form-page--create .repo-md3-paste-btn,
+.repo-form-page--create .repo-md3-branch-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: var(--repo-md3-body);
+  background: transparent;
+  cursor: pointer;
+}
+
+.repo-form-page--create .repo-md3-paste-btn:hover {
+  background: rgba(168, 199, 250, 0.12);
+  color: var(--repo-md3-primary);
+}
+
+/* Floating MD3 selects */
+.repo-form-page--create .repo-md3-filled-field .md-field-select-trigger {
+  min-height: 56px !important;
+  height: auto !important;
+  align-items: center;
+  padding: 8px 12px 8px 16px !important;
+  background: var(--repo-md3-surface-highest);
+  border: none !important;
+  border-radius: 8px 8px 0 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22) !important;
+}
+
+.repo-form-page--create
+  .repo-md3-filled-field
+  .md-field-select--floating-label:not(.md-field--filled):not(.md-field--open)
+  .md-field-label {
+  top: 50%;
+  left: 16px;
+  transform: translateY(-50%);
+  background: transparent !important;
+  color: var(--repo-md3-title) !important;
+  font-size: 16px !important;
+}
+
+.repo-form-page--create
+  .repo-md3-filled-field
+  .md-field-select--floating-label.md-field--filled
+  .md-field-select-trigger,
+.repo-form-page--create
+  .repo-md3-filled-field
+  .md-field-select--floating-label.md-field--open
+  .md-field-select-trigger {
+  align-items: flex-end;
+  padding-top: 22px !important;
+  padding-bottom: 6px !important;
+  border-bottom-width: 2px;
+  border-bottom-color: var(--repo-md3-primary);
+}
+
+.repo-form-page--create
+  .repo-md3-filled-field
+  .md-field-select--floating-label.md-field--filled
+  .md-field-label,
+.repo-form-page--create
+  .repo-md3-filled-field
+  .md-field-select--floating-label.md-field--open
+  .md-field-label {
+  top: 7px;
+  left: 16px;
+  transform: translateY(0);
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: #d8dae3 !important;
+}
+
+.repo-form-page--create
+  .dg-form-grid-3--basic-head
+  .repo-md3-filled-field
+  .md-field-select--floating-label.md-field--filled
+  .md-field-select-values,
+.repo-form-page--create
+  .dg-form-grid-3--basic-head
+  .repo-md3-filled-field
+  .md-field-select--floating-label.md-field--open
+  .md-field-select-values {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 22px;
+  line-height: 1.35;
+}
+
+.repo-form-page--create .dg-form-grid-3--basic-head .repo-provider-chip {
+  line-height: 1.35;
+}
+
+.repo-form-page--create
+  .repo-md3-filled-field
+  .md-field-select--floating-label.md-field--open
+  .md-field-label {
+  color: var(--repo-md3-primary) !important;
+}
+
+.repo-form-page--create .md-field-select-menu--md3-create {
+  border: 1px solid #3c4049 !important;
+  border-radius: 8px !important;
+  background: #191c22 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  margin-top: 0 !important;
+}
+
+.repo-form-page--create .md-field-select-menu--md3-create .md-field-select-options {
+  padding: 4px 0;
+  max-height: 288px;
+}
+
+.repo-form-page--create .md-field-select-menu--md3-create .md-field-select-option {
+  min-height: 44px;
+  padding: 0 16px;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--repo-md3-title);
+  align-items: center;
+}
+
+.repo-form-page--create .md-field-select-menu--md3-create .md-field-select-option:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--create .md-field-select-menu--md3-create .md-field-select-option--selected {
+  background: rgba(168, 199, 250, 0.14);
+  color: #a8c7fa;
+}
+
+.repo-form-page--create .md-field-select-menu--md3-create .repo-type-select-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.repo-form-page--create .md-field-select-menu--md3-create .repo-type-select-option__icon {
+  flex-shrink: 0;
+  opacity: 0.92;
+}
+
+.repo-form-page--create .md-field-select-menu--md3-create .md-field-select-check {
+  color: #a8c7fa;
+}
+
+.repo-form-page--create .repo-provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: var(--repo-md3-title);
+}
+
+.repo-form-page--create .repo-create-auth-fields {
+  margin-top: 4px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--repo-md3-surface-lowest);
+  animation: repo-md3-auth-in 0.2s ease;
+}
+
+@keyframes repo-md3-auth-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 仓库类型 + 重新探测 */
+.repo-form-page--create .repo-repo-type-block--create-md3 {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.repo-form-page--create .repo-type-select-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.repo-form-page--create .repo-type-inline {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+}
+
+.repo-form-page--create .repo-repo-type-hint {
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--repo-md3-body);
+}
+
+.repo-form-page--create .repo-repo-type-block--create-md3 .md-field-select.md-field--open .md-field-select-trigger {
+  box-shadow: none !important;
+}
+
+.repo-form-page--create .repo-type-selection__icon--create-md3 {
+  color: #8e9099 !important;
+  opacity: 1;
+}
+
+.repo-form-page--create .repo-type-select-option__icon--create-md3 {
+  color: #8e9099 !important;
+  opacity: 1;
+}
+
+.repo-form-page--create .repo-scan-link-row {
+  margin-bottom: 16px;
+}
+
+.repo-form-page--create .md-field-select-clear--smart {
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.repo-form-page--create .md-field-select-trigger:hover .md-field-select-clear--smart,
+.repo-form-page--create .md-field-select--open .md-field-select-clear--smart {
+  opacity: 1;
+}
+
+.repo-form-page--create .repo-md3-select-affix-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  color: var(--repo-md3-body);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.repo-form-page--create .repo-md3-select-affix-btn:hover:not(:disabled) {
+  color: var(--repo-md3-primary);
+  background: rgba(168, 199, 250, 0.12);
+}
+
+.repo-form-page--create .repo-suite-menu-text-btn {
+  border: none;
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--repo-md3-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.repo-form-page--create .repo-suite-menu-text-btn:hover:not(:disabled) {
+  background: rgba(168, 199, 250, 0.08);
+}
+
+.repo-form-page--create .repo-suite-menu-footer-md3 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--create .repo-test-suite-menu-empty--md3 {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--repo-md3-body);
+}
+
+.repo-form-page--create .repo-detect-success-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #81c995;
+  background: rgba(129, 201, 149, 0.12);
+}
+
+@keyframes repo-md3-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.repo-form-page--create .repo-redetect-btn--md3-tonal__icon--spin {
+  animation: repo-md3-spin 0.85s linear infinite;
+}
+
+.repo-form-page--create .repo-type-inline .repo-type-select-outlined {
+  flex: 1;
+  min-width: 0;
+}
+
+.repo-form-page--create .repo-redetect-btn--md3-tonal {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 56px;
+  height: 56px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6e717a;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.repo-form-page--create .repo-redetect-btn--md3-tonal__icon {
+  color: inherit;
+}
+
+.repo-form-page--create .repo-redetect-btn--md3-tonal.repo-redetect-btn--md3-tonal--ready:not(:disabled) {
+  color: #a8c7fa;
+  background: #253652;
+  border-color: transparent;
+}
+
+.repo-form-page--create
+  .repo-redetect-btn--md3-tonal.repo-redetect-btn--md3-tonal--ready:not(:disabled):hover {
+  background: #2c4066;
+}
+
+.repo-form-page--create .repo-redetect-btn--md3-tonal:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.repo-form-page--create .dg-form-suite-meta--create-md3 {
+  margin-top: 6px;
+}
+
+.repo-form-page--create .repo-suite-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.repo-form-page--create .repo-suite-field-head__link {
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--repo-md3-primary);
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.repo-form-page--create .repo-suite-field-head__link:hover {
+  background: rgba(168, 199, 250, 0.1);
+}
+
+/* 高级配置 */
+.repo-form-page--create .dg-form-card--advanced {
+  width: 100%;
+}
+
+.repo-form-page--create .repo-advanced-panels--create-md3 {
+  width: 100%;
+}
+
+.repo-form-page--create .repo-advanced-panels--create-md3 :deep(.v-expansion-panel) {
+  width: 100%;
+}
+
+.repo-form-page--create .repo-advanced-panels__title--create-md3 :deep(.v-expansion-panel-title__overlay) {
+  background: transparent;
+}
+
+.repo-form-page--create .repo-advanced-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.repo-form-page--create .repo-advanced-title-row__icon {
+  color: var(--repo-md3-primary);
+  flex-shrink: 0;
+}
+
+.repo-form-page--create .repo-advanced-title-row__main {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--repo-md3-title);
+}
+
+.repo-form-page--create .repo-advanced-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.repo-form-page--create .repo-advanced-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--repo-md3-body);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--create .repo-advanced-summary-pill {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--repo-md3-body);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(280px, 42vw);
+  transition: opacity 0.18s ease;
+}
+
+.repo-form-page--create
+  .repo-advanced-panels--create-md3
+  :deep(.v-expansion-panel-title--active)
+  .repo-advanced-summary-pill {
+  display: none;
+}
+
+.repo-form-page--create .repo-advanced-panels--create-md3 :deep(.v-expansion-panel-title) {
+  padding-inline-end: 4px !important;
+}
+
+.repo-form-page--create .repo-advanced-panels--create-md3 :deep(.v-expansion-panel-title__icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-inline-start: 8px;
+  border-radius: 50%;
+  transition: background 0.15s ease;
+}
+
+.repo-form-page--create
+  .repo-advanced-panels--create-md3
+  :deep(.v-expansion-panel-title:hover .v-expansion-panel-title__icon) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.repo-form-page--create .repo-advanced-panel-body--create-md3 :deep(.v-expansion-panel-text__wrapper) {
+  padding: 0 !important;
+}
+
+.repo-form-page--create .repo-advanced-panel-body--create-md3 {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-top: 12px;
+  width: 100%;
+}
+
+.repo-form-page--create .repo-advanced-subcard {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.repo-form-page--create .repo-advanced-subcard + .repo-advanced-subcard {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.repo-form-page--create .repo-advanced-subcard__hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--repo-md3-body);
+}
+
+/* 门禁阈值三列 56dp */
+.repo-form-page--create .repo-md3-threshold-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: end;
+}
+
+@media (max-width: 780px) {
+  .repo-form-page--create .repo-md3-threshold-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.repo-form-page--create .repo-md3-filled-slot {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 2px;
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  padding: 6px 12px 2px;
+  background: var(--repo-md3-surface-highest);
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.repo-form-page--create .repo-md3-filled-slot__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.repo-form-page--create .repo-md3-filled-slot__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #d8dae3;
+}
+
+.repo-form-page--create .repo-md3-filled-slot__value-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.repo-form-page--create .repo-md3-filled-slot__value-input {
+  width: 42px;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--repo-md3-primary);
+  text-align: right;
+  outline: none;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.repo-form-page--create .repo-md3-filled-slot__value-input::-webkit-outer-spin-button,
+.repo-form-page--create .repo-md3-filled-slot__value-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.repo-form-page--create .repo-md3-filled-slot__value-suffix {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--repo-md3-primary);
+}
+
+.repo-form-page--create .repo-md3-coverage-slider {
+  margin: 0;
+  padding: 0 2px;
+  flex: 1;
+  min-height: 0;
+}
+
+.repo-form-page--create .repo-md3-coverage-slider :deep(.v-input) {
+  margin-top: -6px;
+}
+
+.repo-form-page--create .repo-md3-coverage-slider :deep(.v-slider) {
+  min-height: 16px;
+}
+
+.repo-form-page--create .repo-md3-coverage-slider :deep(.v-slider-track__fill) {
+  background: var(--repo-md3-primary) !important;
+}
+
+.repo-form-page--create .repo-md3-threshold-grid .md3-filled {
+  height: 100%;
+}
+
+.repo-form-page--create .repo-md3-threshold-grid .md3-filled {
+  align-self: end;
+}
+
+.repo-form-page--create .repo-md3-threshold-grid .md3-filled__box {
+  min-height: 56px;
+  height: 56px;
+}
+
+.repo-form-page--create .repo-md3-threshold-grid .md3-filled__footer {
+  display: none;
+}
+
+.repo-form-page--create .repo-md3-threshold-grid .md3-filled__input {
+  min-height: 56px;
+  padding-top: 22px;
+  padding-bottom: 6px;
+  -moz-appearance: textfield;
+}
+
+.repo-form-page--create
+  .repo-md3-threshold-grid
+  .md3-filled__input::-webkit-outer-spin-button,
+.repo-form-page--create
+  .repo-md3-threshold-grid
+  .md3-filled__input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.repo-form-page--create .repo-md3-stepper {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.repo-form-page--create .repo-md3-stepper button {
+  width: 22px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--repo-md3-body);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.repo-form-page--create .repo-md3-stepper button:hover {
+  color: var(--repo-md3-primary);
+  background: rgba(168, 199, 250, 0.12);
+}
+
+/* Glob 规则 */
+.repo-form-page--create .repo-md3-glob-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 720px) {
+  .repo-form-page--create .repo-md3-glob-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.repo-form-page--create .repo-md3-glob-grid .md3-filled__textarea {
+  font-family: ui-monospace, Consolas, 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  min-height: 76px;
+}
+
+.repo-form-page--create .repo-md3-glob-grid .md3-filled__box--textarea {
+  min-height: 76px;
+}
+
+.repo-form-page--create .repo-md3-glob-grid .md3-filled__footer--textarea {
+  display: none;
+}
+
+.repo-form-page--create .repo-glob-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.repo-form-page--create .repo-glob-label__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.repo-form-page--create .repo-glob-label--deny .repo-glob-label__dot {
+  background: #ffb4ab;
+  box-shadow: 0 0 0 2px rgba(255, 180, 171, 0.25);
+}
+
+.repo-form-page--create .repo-glob-label--allow .repo-glob-label__dot {
+  background: #81c995;
+  box-shadow: 0 0 0 2px rgba(129, 201, 149, 0.22);
+}
+
+/* IM 通知 */
+.repo-form-page--create .repo-notify-row--create-md3 {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.repo-form-page--create .repo-notify-row--create-md3 .md3-filled {
+  flex: 1;
+  min-width: 0;
+}
+
+.repo-form-page--create .repo-md3-notify-bell {
+  color: #8e9099;
+}
+
+.repo-form-page--create .repo-notify-row--create-md3 .repo-test-notify-btn--md3-tonal {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  height: 56px;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: 12px !important;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(232, 234, 241, 0.45);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.repo-form-page--create .repo-test-notify-btn--md3-tonal.repo-test-notify-btn--ready:not(:disabled) {
+  color: #a8c7fa;
+  background: #253652;
+  border-color: transparent;
+}
+
+.repo-form-page--create
+  .repo-test-notify-btn--md3-tonal.repo-test-notify-btn--ready:not(:disabled):hover {
+  background: #2c4066;
+}
+
+.repo-form-page--create .repo-test-notify-btn--md3-tonal:disabled {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(232, 234, 241, 0.38);
+  cursor: not-allowed;
+}
+
+.repo-form-page--create .repo-test-notify-btn--ok {
+  color: #81c995;
+  background: rgba(129, 201, 149, 0.12);
+  border-color: rgba(129, 201, 149, 0.22);
+}
+
+.repo-form-page--create .repo-notify-policy--create {
+  margin-top: 16px;
+}
+
+/* 底栏 */
+.repo-form-page--create .repo-form-page__dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 16px 24px;
+  background: rgba(17, 19, 24, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.repo-form-page--create .repo-form-page__dock-inner--create-md3 {
+  max-width: var(--repo-md3-form-max);
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.repo-form-page--create .repo-form-page__dock-switches {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  min-width: 0;
+}
+
+.repo-form-page--create .repo-form-page__dock-divider {
+  display: none;
+}
+
+.repo-form-page--create .repo-form-switch--dock :deep(.v-switch__track) {
+  background: #233554 !important;
+  opacity: 1 !important;
+}
+
+.repo-form-page--create
+  .repo-form-switch--dock
+  :deep(.v-selection-control--dirty .v-switch__track) {
+  background: #233554 !important;
+}
+
+.repo-form-page--create .repo-form-switch--dock :deep(.v-switch__thumb) {
+  background: #a8c7fa !important;
+  color: #062e6f !important;
+  box-shadow: none !important;
+}
+
+.repo-form-page--create .repo-form-switch--dock :deep(.v-label) {
+  font-size: 13px;
+  color: var(--repo-md3-body);
+}
+
+.repo-form-page--create .ts-ghost-btn {
+  border: none;
+  background: transparent;
+  color: var(--repo-md3-body);
+  font-size: 14px;
+  padding: 10px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.repo-form-page--create .ts-ghost-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--create .ts-primary-btn {
+  min-height: 40px;
+  padding: 0 24px;
+  border: none;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--repo-md3-on-primary);
+  background: var(--repo-md3-primary);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.repo-form-page--create .ts-primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.repo-form-page--create .repo-form-page__dock-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.repo-form-page--create .md-field-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--repo-md3-secondary-container);
+  color: var(--repo-md3-on-secondary);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.repo-form-page--create .md-field-select-values {
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.repo-form-page--create .repo-basic-desc-md3 {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.repo-form-page--create .md3-filled__expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: auto;
+  min-height: 40px;
+  margin-left: -12px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--repo-md3-primary);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 20px;
+  transition: background 0.15s ease;
+}
+
+.repo-form-page--create .md3-filled__expand-btn:hover {
+  background: rgba(168, 199, 250, 0.08);
+}
+
+.repo-form-page--create .md3-filled__box--textarea {
+  position: relative;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 0;
+  background: var(--repo-md3-surface-highest);
+  border-radius: 8px 8px 0 0;
+  border-bottom: none !important;
+  overflow: hidden;
+  transition: background-color 0.18s ease;
+}
+
+.repo-form-page--create .md3-filled__box--textarea::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+  transition:
+    height 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.repo-form-page--create .md3-filled--textarea:hover .md3-filled__box--textarea {
+  background: #2e313a;
+}
+
+.repo-form-page--create .md3-filled--textarea.md3-filled--focused .md3-filled__box--textarea::after {
+  height: 2px;
+  background: var(--repo-md3-primary);
+}
+
+.repo-form-page--create .md3-filled__collapse-btn {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--repo-md3-primary);
+  cursor: pointer;
+}
+
+.repo-form-page--create .md3-filled__collapse-btn:hover {
+  color: #c2d8ff;
+}
+
+.repo-form-page--create .md3-filled__textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  max-height: 168px;
+  padding: 24px 16px 10px;
+  border: none;
+  background: transparent;
+  color: var(--repo-md3-title);
+  font-size: 15px;
+  line-height: 1.5;
+  resize: none;
+  box-sizing: border-box;
+  outline: none;
+  overflow-y: hidden;
+}
+
+.repo-form-page--create .md3-filled--textarea:not(.md3-filled--floated) .md3-filled__textarea {
+  padding-top: 16px;
+  padding-bottom: 12px;
+}
+
+.repo-form-page--create .md3-filled--textarea.md3-filled--floated .md3-filled__textarea {
+  padding-top: 36px;
+  padding-right: 56px;
+}
+
+.repo-form-page--create .md3-filled--textarea .md3-filled__label {
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  transform: none;
+  max-width: calc(100% - 80px);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #c4c6d0;
+  pointer-events: none;
+}
+
+.repo-form-page--create .md3-filled--textarea.md3-filled--focused .md3-filled__label {
+  color: var(--repo-md3-primary);
+}
+
+.repo-form-page--create .md3-filled__footer--textarea {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  margin-top: 6px;
+  min-height: 0;
+}
+
+.repo-form-page--create .md3-filled__footer--textarea .md3-filled__helper {
+  display: none;
+}
+
+.repo-form-page--create .md3-filled__footer--textarea .md3-filled__counter {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #8e9099;
+  text-align: right;
+}

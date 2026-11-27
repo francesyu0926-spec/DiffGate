@@ -17,6 +17,7 @@ import 'element-plus/dist/index.css'
 /* 必须晚于 Vuetify 插件样式与 Element Plus，否则表单标签字号会被库样式压回 12px */
 import './styles/dg-form-field-spec-force.css'
 import './styles/test-suite-create-md3.css'
+import './styles/repo-form-create-md3.css'
 import App from './App.vue'
 import { installScrollOverlayScrollbar } from './utils/scrollOverlayScrollbar'
 

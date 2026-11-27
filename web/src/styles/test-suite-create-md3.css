@@ -850,6 +850,12 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-bottom: 20px;
+  border: none;
+  isolation: isolate;
+}
+
+.ts-suite-form-page--create .ts-source-inset-panel > .ts-git-origin-field__label--inset {
+  border: none;
 }
 
 .ts-suite-form-page--create .ts-git-pick-card {
@@ -936,7 +942,12 @@
 
 .ts-suite-form-page--create .ts-suite-git-pair-row--md3 {
   gap: 16px;
+  align-items: flex-start;
   margin-bottom: 20px;
+}
+
+.ts-suite-form-page--create .ts-suite-git-pair-row--md3 > .ts-suite-git-pair-row__cell {
+  align-self: stretch;
 }
 
 .ts-suite-form-page--create .ts-suite-git-branch-cell {
@@ -947,7 +958,7 @@
 
 .ts-suite-form-page--create .ts-suite-git-branch-wrap--md3 {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   width: 100%;
 }
@@ -1039,6 +1050,24 @@
   margin-bottom: 20px;
 }
 
+.ts-suite-form-page--create .ts-webhook-inset-panel .md3-filled__box {
+  background: #282a31;
+}
+
+.ts-suite-form-page--create .ts-webhook-inset-panel .md3-filled__input,
+.ts-suite-form-page--create .ts-webhook-inset-panel .md3-filled__input--mono {
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ts-suite-form-page--create .ts-webhook-inset-panel .md3-filled--focused .md3-filled__box {
+  background: color-mix(in srgb, #282a31 92%, white 8%);
+}
+
 .ts-suite-form-page--create .ts-webhook-inset-panel > .ts-webhook-inset-footer {
   margin-bottom: 0;
 }
@@ -1074,11 +1103,19 @@
 }
 
 .ts-suite-form-page--create .ts-suite-webhook-url-item .md3-filled__input--with-append {
-  padding-right: 84px;
+  padding-right: 48px;
 }
 
 .ts-suite-form-page--create .ts-suite-webhook-url-item .md3-filled__append {
-  right: 2px;
+  right: 4px;
+}
+
+.ts-suite-form-page--create .ts-md3-paste-btn--clear {
+  color: var(--ts-md3-body);
+}
+
+.ts-suite-form-page--create .ts-md3-paste-btn--clear:hover {
+  color: var(--ts-md3-title);
 }
 
 .ts-suite-form-page--create .ts-webhook-inset-footer {
@@ -1112,22 +1149,29 @@
   height: 56px;
   margin: 0;
   padding: 0;
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 12px;
-  color: var(--ts-md3-primary);
-  background: #253652;
+  color: #6e717a;
+  background: rgba(255, 255, 255, 0.03);
   cursor: pointer;
   transition:
-    background 0.15s ease,
-    opacity 0.15s ease;
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
 }
 
-.ts-suite-form-page--create .ts-md3-tonal-icon-btn:hover:not(:disabled) {
+.ts-suite-form-page--create .ts-md3-tonal-icon-btn.ts-md3-tonal-icon-btn--ready:not(:disabled) {
+  color: var(--ts-md3-primary);
+  background: #253652;
+  border-color: transparent;
+}
+
+.ts-suite-form-page--create .ts-md3-tonal-icon-btn.ts-md3-tonal-icon-btn--ready:not(:disabled):hover {
   background: #2c4066;
 }
 
 .ts-suite-form-page--create .ts-md3-tonal-icon-btn:disabled {
-  opacity: 0.45;
+  opacity: 1;
   cursor: not-allowed;
 }
 
@@ -1236,6 +1280,36 @@
 
 .ts-suite-form-page--create .ts-source-inset-panel .ts-md3-filled-field .md-field-select-placeholder {
   display: none !important;
+}
+
+.ts-suite-form-page--create
+  .ts-source-inset-panel
+  .ts-md3-filled-field
+  .md-field-select-free-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 22px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ts-md3-title);
+  font-size: 15px;
+  line-height: 1.35;
+  outline: none;
+}
+
+.ts-suite-form-page--create
+  .ts-source-inset-panel
+  .ts-md3-filled-field
+  .md-field-select--floating-label.md-field--filled
+  .md-field-select-free-input,
+.ts-suite-form-page--create
+  .ts-source-inset-panel
+  .ts-md3-filled-field
+  .md-field-select--floating-label.md-field--open
+  .md-field-select-free-input {
+  padding-top: 0;
 }
 
 .ts-suite-form-page--create .ts-source-inset-panel > .ts-git-pick-cards {

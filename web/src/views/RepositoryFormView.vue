@@ -25,6 +25,8 @@ import type {
   RepositoryPayload,
 } from '@/api/types'
 import { parseFullNameFromCloneUrl } from '@/utils/git'
+import Md3FilledTextField from '@/components/Md3FilledTextField.vue'
+import Md3FilledTextarea from '@/components/Md3FilledTextarea.vue'
 import OutlinedInput from '@/components/OutlinedInput.vue'
 import OutlinedTextarea from '@/components/OutlinedTextarea.vue'
 import OutlinedPasswordInput from '@/components/OutlinedPasswordInput.vue'
@@ -178,6 +180,18 @@ function normalizeRepoType(t?: string | null) {
 }
 
 const pageTitle = computed(() => (editingId.value ? '编辑仓库' : '添加仓库'))
+const isCreatePage = computed(() => !editingId.value)
+const md3SelectMenuClass = 'md-field-select-menu--md3-create'
+
+const PROVIDER_ICONS: Record<RepoProvider, string> = {
+  gitlab: 'mdi-gitlab',
+  github: 'mdi-github',
+  local: 'mdi-folder-outline',
+}
+
+function providerIconFor(provider: RepoProvider | string) {
+  return PROVIDER_ICONS[provider as RepoProvider] ?? 'mdi-source-repository'
+}
 
 const linkedRepoOptions = computed(() =>
   linkedRepoRows.value
@@ -356,12 +370,63 @@ function syncScanRootForRepoType(typeValue: string) {
   )
   if (match?.scan_root) repoForm.value.scan_root = match.scan_root
 }
-const advancedPanels = ref<number[]>([])
+const advancedPanels = ref<number | number[]>([])
+const isAdvancedPanelOpen = computed(() => {
+  const v = advancedPanels.value
+  if (Array.isArray(v)) return v.length > 0
+  return v === 0
+})
+const notifyTestOk = ref(false)
+
+const advancedConfigSummary = computed(() => {
+  const parts: string[] = [`覆盖率 ≥ ${repoForm.value.coverage_threshold}%`]
+  if (highRiskPathsText.value.trim()) parts.push('已配置黑名单')
+  if (lowRiskPathsText.value.trim()) parts.push('已配置白名单')
+  if (String(repoForm.value.notify_webhook_url || '').trim()) parts.push('已配置通知')
+  return parts.join(' · ')
+})
+
+function thresholdFieldDisplay(v: number | undefined) {
+  return v == null || Number.isNaN(v) ? '' : String(v)
+}
+
+function onThresholdFieldInput(raw: string, key: 'high_risk_api_threshold' | 'high_risk_symbol_threshold') {
+  const t = raw.trim()
+  if (!t) {
+    repoForm.value[key] = undefined
+    return
+  }
+  const n = Number(t)
+  repoForm.value[key] = Number.isFinite(n) ? n : undefined
+}
+
+function stepThreshold(key: 'high_risk_api_threshold' | 'high_risk_symbol_threshold', delta: number) {
+  const cur = repoForm.value[key] ?? 0
+  const next = Math.max(0, cur + delta)
+  repoForm.value[key] = next > 0 ? next : undefined
+}
+
+function clampCoverageInput() {
+  let n = Number(repoForm.value.coverage_threshold)
+  if (!Number.isFinite(n)) n = 80
+  repoForm.value.coverage_threshold = Math.min(100, Math.max(0, Math.round(n)))
+}
 
 const notifyWebhookFilled = computed(() =>
   Boolean(String(repoForm.value.notify_webhook_url || repoForm.value.webhook_notify_url || '').trim()),
 )
-const testNotifyDisabled = computed(() => !notifyWebhookFilled.value || notifyTesting.value)
+const notifyWebhookTestable = computed(() => {
+  const u = String(repoForm.value.notify_webhook_url || repoForm.value.webhook_notify_url || '')
+    .trim()
+    .toLowerCase()
+  return u.startsWith('http://') || u.startsWith('https://')
+})
+const testNotifyDisabled = computed(() => !notifyWebhookTestable.value || notifyTesting.value)
+const showRepoTypeSelectionIcon = computed(
+  () =>
+  !(isCreatePage.value && repoForm.value.repo_type === AUTO_REPO_TYPE) &&
+    Boolean(selectedRepoTypeDisplay.value.icon),
+)
 const highRiskPathsText = ref('')
 const lowRiskPathsText = ref('')
 const notifyTesting = ref(false)
@@ -479,14 +544,30 @@ async function runRepoDetect() {
 }
 
 async function onCloneUrlBlur() {
-  if (!(fullNameManual.value && editingId.value)) {
+  if (!fullNameManual.value && !editingId.value) {
     const parsed = parseFullNameFromCloneUrl(repoForm.value.clone_url || '')
-    if (parsed) {
+    const nameEmpty = !String(repoForm.value.full_name || '').trim()
+    if (parsed && nameEmpty) {
       repoForm.value.full_name = parsed
-      fullNameManual.value = false
     }
   }
   await runRepoDetect()
+}
+
+async function pasteCloneUrl() {
+  try {
+    const text = (await navigator.clipboard.readText()).trim()
+    if (!text) return
+    repoForm.value.clone_url = text
+    if (!fullNameManual.value && !editingId.value) {
+      const parsed = parseFullNameFromCloneUrl(text)
+      const nameEmpty = !String(repoForm.value.full_name || '').trim()
+      if (parsed && nameEmpty) repoForm.value.full_name = parsed
+    }
+    await onCloneUrlBlur()
+  } catch {
+    notify('无法读取剪贴板', 'error')
+  }
 }
 
 let cloneUrlDetectDebounce: number | undefined
@@ -711,9 +792,14 @@ async function sendTestNotify() {
     return
   }
   notifyTesting.value = true
+  notifyTestOk.value = false
   try {
     const r = await testRepositoryNotify(url)
     notify(r.message || '测试消息已发送')
+    notifyTestOk.value = true
+    window.setTimeout(() => {
+      notifyTestOk.value = false
+    }, 3200)
   } catch (err) {
     notify(readApiError(err, '测试发送失败'), 'error')
   } finally {
@@ -913,7 +999,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="repo-form-page repo-form-page--v2 dg-outlined-form-page">
+  <div
+    class="repo-form-page repo-form-page--v2"
+    :class="isCreatePage ? 'repo-form-page--create' : 'dg-outlined-form-page'"
+  >
     <header class="repo-form-page__topbar">
       <div class="repo-form-page__topbar-main">
         <v-btn
@@ -943,35 +1032,81 @@ onMounted(async () => {
       @submit.prevent="submit"
     >
       <section class="dg-form-card">
-        <h2 class="dg-form-card__title">基础信息</h2>
+        <h2 class="dg-form-card__title">
+          <svg
+            v-if="isCreatePage"
+            class="dg-form-card__title-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M3 7a2 2 0 012-2h5l2 2h9a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+            />
+          </svg>
+          基础信息
+        </h2>
 
         <div
           class="dg-form-grid-3 grid-layout dg-form-grid-3--strict dg-form-grid-3--basic-head"
           :class="{ 'dg-form-grid-3--local grid-layout--local': isLocalProvider }"
         >
-          <div class="dg-form-item form-group md-field-item">
+          <div
+            class="dg-form-item form-group md-field-item"
+            :class="{ 'repo-md3-filled-field': isCreatePage }"
+          >
             <OutlinedSelect
               id="repo-form-provider"
               v-model="repoForm.provider"
-              label-above
+              :label-above="!isCreatePage"
+              :menu-surface-class="isCreatePage ? md3SelectMenuClass : ''"
               :options="providerSelectOptions"
             >
               <template #label>
                 来源 <span class="dg-form-required required-star" aria-hidden="true">*</span>
               </template>
+              <template v-if="isCreatePage" #selection>
+                <span class="repo-provider-chip">
+                  <v-icon :icon="providerIconFor(repoForm.provider)" size="18" aria-hidden="true" />
+                  {{ providerItems.find((p) => p.value === repoForm.provider)?.title }}
+                </span>
+              </template>
             </OutlinedSelect>
           </div>
-          <div v-if="!isLocalProvider" class="dg-form-item form-group md-field-item">
+          <div
+            v-if="!isLocalProvider"
+            class="dg-form-item form-group md-field-item"
+            :class="{ 'repo-md3-filled-field': isCreatePage }"
+          >
             <OutlinedSelect
               id="repo-form-auth"
               v-model="repoForm.auth_method"
-              label-above
+              :label-above="!isCreatePage"
+              :menu-surface-class="isCreatePage ? md3SelectMenuClass : ''"
               label="认证方式"
               :options="authSelectOptions"
             />
           </div>
           <div class="dg-form-item form-group md-field-item">
+            <Md3FilledTextField
+              v-if="isCreatePage"
+              id="repo-form-branch"
+              v-model="repoForm.default_branch"
+              label="默认分支"
+              mono
+            >
+              <template #append>
+                <span class="repo-md3-branch-icon" aria-hidden="true">
+                  <v-icon icon="mdi-source-branch" size="20" />
+                </span>
+              </template>
+            </Md3FilledTextField>
             <OutlinedInput
+              v-else
               id="repo-form-branch"
               v-model="repoForm.default_branch"
               label-above
@@ -983,7 +1118,18 @@ onMounted(async () => {
 
         <div class="dg-form-grid-2 dg-form-grid-2--pair">
           <div class="dg-form-item form-group md-field-item">
+            <Md3FilledTextField
+              v-if="isCreatePage"
+              id="repo-form-full-name"
+              v-model="repoForm.full_name"
+              @update:model-value="fullNameManual = true"
+            >
+              <template #label>
+                名称 <span class="dg-form-required required-star" aria-hidden="true">*</span>
+              </template>
+            </Md3FilledTextField>
             <OutlinedInput
+              v-else
               id="repo-form-full-name"
               v-model="repoForm.full_name"
               label-above
@@ -995,7 +1141,33 @@ onMounted(async () => {
             </OutlinedInput>
           </div>
           <div class="dg-form-item form-group md-field-item">
+            <Md3FilledTextField
+              v-if="isCreatePage"
+              id="repo-form-clone-url"
+              v-model="repoForm.clone_url"
+              mono
+              :placeholder="isLocalProvider ? '' : 'https://gitlab.com'"
+              :helper-text="cloneUrlPlaceholder"
+              @blur="onCloneUrlBlur"
+            >
+              <template #label>
+                <span>{{ isLocalProvider ? '本地路径 / Clone URL' : 'Clone URL' }}</span>
+                <span class="dg-form-required required-star" aria-hidden="true">*</span>
+              </template>
+              <template #append>
+                <button
+                  type="button"
+                  class="repo-md3-paste-btn"
+                  title="从剪贴板粘贴"
+                  aria-label="从剪贴板粘贴 Clone URL"
+                  @click.stop="pasteCloneUrl"
+                >
+                  <v-icon icon="mdi-content-paste" size="20" aria-hidden="true" />
+                </button>
+              </template>
+            </Md3FilledTextField>
             <OutlinedInput
+              v-else
               id="repo-form-clone-url"
               v-model="repoForm.clone_url"
               label-above
@@ -1012,8 +1184,21 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="dg-form-item dg-form-item--full form-group md-field-item">
+        <div class="dg-form-item dg-form-item--full form-group md-field-item repo-basic-desc-md3">
+          <Md3FilledTextarea
+            v-if="isCreatePage"
+            id="repo-form-desc"
+            :model-value="repoForm.description ?? ''"
+            :maxlength="200"
+            placeholder="补充说明该仓库的业务边界或接入注意事项…"
+            @update:model-value="(v) => (repoForm.description = v)"
+          >
+            <template #label>
+              描述<span class="md-field-label-sub">（可选）</span>
+            </template>
+          </Md3FilledTextarea>
           <OutlinedTextarea
+            v-else
             id="repo-form-desc"
             v-model="repoForm.description"
             label-above
@@ -1028,11 +1213,12 @@ onMounted(async () => {
         <div
           v-if="repoForm.auth_method === 'token'"
           class="dg-form-item dg-form-item--full form-group md-field-item"
+          :class="{ 'repo-create-auth-fields': isCreatePage }"
         >
           <OutlinedPasswordInput
             id="repo-form-access-token"
             v-model="accessToken"
-            label-above
+            :label-above="!isCreatePage"
             label="Access Token"
             allow-paste
             :helper-text="accessTokenHelper"
@@ -1041,11 +1227,12 @@ onMounted(async () => {
         <div
           v-else-if="repoForm.auth_method === 'ssh'"
           class="dg-form-item dg-form-item--full form-group md-field-item"
+          :class="{ 'repo-create-auth-fields': isCreatePage }"
         >
           <OutlinedTextarea
             id="repo-form-ssh-key"
             v-model="sshPrivateKey"
-            label-above
+            :label-above="!isCreatePage"
             label="SSH 私钥"
             :rows="6"
             allow-file-import
@@ -1057,7 +1244,24 @@ onMounted(async () => {
       </section>
 
       <section class="dg-form-card">
-        <h2 class="dg-form-card__title">扫描与联动</h2>
+        <h2 class="dg-form-card__title">
+          <svg
+            v-if="isCreatePage"
+            class="dg-form-card__title-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M21 21l-4.35-4.35M11 18a7 7 0 100-14 7 7 0 000 14z"
+            />
+          </svg>
+          扫描与联动
+        </h2>
         <div v-if="monorepoHint" class="dg-form-item dg-form-item--full">
           <v-alert type="info" variant="tonal" density="compact" class="repo-monorepo-hint">
             {{ monorepoHint }}
@@ -1072,45 +1276,62 @@ onMounted(async () => {
           />
         </div>
 
-        <div class="dg-form-item form-group md-field-item dg-md-outlined-item--repo-type">
+        <div
+          class="dg-form-item"
+          :class="
+            isCreatePage
+              ? 'repo-repo-type-block--create-md3'
+              : 'form-group md-field-item dg-md-outlined-item--repo-type'
+          "
+        >
           <div class="repo-type-inline">
-            <OutlinedSelect
-              id="repo-form-repo-type"
-              v-model="repoForm.repo_type"
-              label-above
-              label="仓库类型"
-              :options="repoTypeSelectOptions"
-              :disabled="detectLoading"
-              :loading="detectLoading"
-              searchable
-              class="repo-type-select-outlined"
-              @update:model-value="onRepoTypePicked"
+            <div
+              class="repo-type-select-outlined-wrap"
+              :class="{ 'repo-md3-filled-field repo-type-select-wrap': isCreatePage }"
             >
-              <template #selection>
-                <span class="repo-type-selection">
-                  <v-icon
-                    v-if="selectedRepoTypeDisplay.icon"
-                    :icon="selectedRepoTypeDisplay.icon"
-                    size="18"
-                    color="primary"
-                    class="repo-type-selection__icon"
-                  />
-                  <span class="repo-type-selection__text">{{ selectedRepoTypeDisplay.title }}</span>
-                </span>
-              </template>
-              <template #option="{ option }">
-                <div class="md-field-select-option__main repo-type-select-option">
-                  <v-icon
-                    :icon="repoTypeIconFor(option.value)"
-                    size="18"
-                    color="primary"
-                    class="repo-type-select-option__icon"
-                  />
-                  <span class="md-field-select-option__label">{{ option.label }}</span>
-                </div>
-              </template>
-            </OutlinedSelect>
+              <OutlinedSelect
+                id="repo-form-repo-type"
+                v-model="repoForm.repo_type"
+                :label-above="!isCreatePage"
+                :menu-surface-class="isCreatePage ? md3SelectMenuClass : ''"
+                label="仓库类型"
+                :options="repoTypeSelectOptions"
+                :disabled="detectLoading"
+                :loading="detectLoading"
+                :searchable="!isCreatePage"
+                :searchable-min="8"
+                class="repo-type-select-outlined"
+                @update:model-value="onRepoTypePicked"
+              >
+                <template #selection>
+                  <span class="repo-type-selection">
+                    <v-icon
+                      v-if="showRepoTypeSelectionIcon"
+                      :icon="selectedRepoTypeDisplay.icon"
+                      size="16"
+                      :color="isCreatePage ? undefined : 'primary'"
+                      class="repo-type-selection__icon"
+                      :class="{ 'repo-type-selection__icon--create-md3': isCreatePage }"
+                    />
+                    <span class="repo-type-selection__text">{{ selectedRepoTypeDisplay.title }}</span>
+                  </span>
+                </template>
+                <template #option="{ option }">
+                  <div class="md-field-select-option__main repo-type-select-option">
+                    <v-icon
+                      :icon="repoTypeIconFor(option.value)"
+                      size="16"
+                      :color="isCreatePage ? undefined : 'primary'"
+                      class="repo-type-select-option__icon"
+                      :class="{ 'repo-type-select-option__icon--create-md3': isCreatePage }"
+                    />
+                    <span class="md-field-select-option__label">{{ option.label }}</span>
+                  </div>
+                </template>
+              </OutlinedSelect>
+            </div>
             <v-tooltip
+              v-if="!isCreatePage"
               location="top"
               :text="canTriggerRepoDetect ? '根据地址重新识别仓库类型与扫描目录' : '请先在上方填写 Clone URL 或本地路径'"
             >
@@ -1129,18 +1350,133 @@ onMounted(async () => {
                 </v-btn>
               </template>
             </v-tooltip>
+            <button
+              v-else
+              type="button"
+              class="repo-redetect-btn--md3-tonal"
+              :class="{
+                'repo-redetect-btn--md3-tonal--loading': detectLoading,
+                'repo-redetect-btn--md3-tonal--ready': canTriggerRepoDetect && !detectLoading,
+              }"
+              :disabled="detectLoading || !canTriggerRepoDetect"
+              :title="canTriggerRepoDetect ? '根据地址重新识别仓库类型与扫描目录' : '请先在上方填写 Clone URL 或本地路径'"
+              @click="runRepoDetect"
+            >
+              <v-icon
+                icon="mdi-refresh"
+                size="18"
+                class="repo-redetect-btn--md3-tonal__icon"
+                :class="{ 'repo-redetect-btn--md3-tonal__icon--spin': detectLoading }"
+                aria-hidden="true"
+              />
+              {{ detectLoading ? '探测中…' : '重新探测' }}
+            </button>
           </div>
-          <p v-if="!canTriggerRepoDetect" class="dg-form-hint dg-form-hint--spaced">
+          <p
+            v-if="isCreatePage && autoDetectLabel && repoForm.repo_type === AUTO_REPO_TYPE"
+            class="repo-detect-success-pill"
+          >
+            <span aria-hidden="true">✓</span>
+            已自动识别为 {{ autoDetectLabel }} 项目
+          </p>
+          <p
+            v-else-if="isCreatePage"
+            class="repo-repo-type-hint"
+          >
+            填写上方 Clone URL 后可自动探测，或点击「重新探测」
+          </p>
+          <p v-else-if="!canTriggerRepoDetect" class="dg-form-hint dg-form-hint--spaced">
             填写上方 Clone URL 后可自动探测，或点击「重新探测」
           </p>
           <p
-            v-else-if="autoDetectLabel && repoForm.repo_type === AUTO_REPO_TYPE"
+            v-else-if="!isCreatePage && autoDetectLabel && repoForm.repo_type === AUTO_REPO_TYPE"
             class="dg-form-hint dg-form-hint--success dg-form-hint--spaced"
           >
             已自动识别为：{{ autoDetectLabel }}
           </p>
         </div>
 
+        <div
+          v-if="isCreatePage"
+          class="dg-form-grid-2 dg-form-grid-2--pair repo-scan-link-row"
+        >
+          <div class="dg-form-item form-group md-field-item repo-md3-filled-field">
+            <OutlinedSelect
+              id="repo-form-scan-root"
+              v-model="repoForm.scan_root"
+              :label-above="false"
+              :menu-surface-class="md3SelectMenuClass"
+              label="源码根目录"
+              :options="scanRootSelectOptions"
+              searchable
+              free-solo
+              clearable
+              smart-clear
+              :helper-text="lastDetect ? undefined : scanRootPlaceholder"
+            />
+          </div>
+          <div class="dg-form-item form-group md-field-item dg-form-suite-field repo-md3-filled-field">
+            <OutlinedSelect
+              id="repo-form-test-suite"
+              v-model="repoForm.test_suite_id"
+              :label-above="false"
+              :menu-surface-class="md3SelectMenuClass"
+              label="关联用例集"
+              :options="testSuiteSelectOptions"
+              placeholder=""
+              :disabled="testSuiteOptionsLoading"
+              :loading="testSuiteOptionsLoading"
+              searchable
+              clearable
+              class="repo-form-test-suite-outlined"
+            >
+              <template #trigger-affix>
+                <button
+                  type="button"
+                  class="repo-md3-select-affix-btn"
+                  aria-label="刷新用例集列表"
+                  title="刷新列表"
+                  :disabled="testSuiteOptionsLoading"
+                  @click.stop="loadTestSuiteOptions"
+                >
+                  <v-icon icon="mdi-refresh" size="18" aria-hidden="true" />
+                </button>
+              </template>
+              <template #empty>
+                <div class="repo-test-suite-menu-empty repo-test-suite-menu-empty--md3">
+                  暂无已启用用例集
+                  <button type="button" class="repo-suite-menu-text-btn" @click.stop="goTestSuitesAdmin">
+                    新建用例集 ↗
+                  </button>
+                </div>
+              </template>
+              <template #menu-footer>
+                <div class="repo-suite-menu-footer-md3">
+                  <button type="button" class="repo-suite-menu-text-btn" @click.stop="goTestSuitesAdmin">
+                    新建用例集 ↗
+                  </button>
+                  <button
+                    type="button"
+                    class="repo-suite-menu-text-btn"
+                    :disabled="testSuiteOptionsLoading"
+                    @click.stop="loadTestSuiteOptions"
+                  >
+                    刷新列表
+                  </button>
+                </div>
+              </template>
+            </OutlinedSelect>
+            <div class="dg-form-suite-meta dg-form-suite-meta--hint-only dg-form-suite-meta--create-md3">
+              <p v-if="testSuiteStatusHint" class="dg-form-hint">{{ testSuiteStatusHint }}</p>
+              <p v-else-if="inheritedTestSuiteHint" class="dg-form-hint">{{ inheritedTestSuiteHint }}</p>
+              <p v-else-if="!testSuiteOptionsLoading && !testSuiteOptions.length" class="dg-form-hint">
+                在用例集管理中登记并启用后，将出现在此下拉列表。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <template v-else>
         <div class="dg-form-item form-group md-field-item dg-form-item--full">
           <v-tooltip
             location="top"
@@ -1166,19 +1502,20 @@ onMounted(async () => {
         </div>
 
         <div class="dg-form-item form-group md-field-item dg-form-item--full dg-form-suite-field">
-          <OutlinedSelect
-            id="repo-form-test-suite"
-            v-model="repoForm.test_suite_id"
-            label-above
-            label="关联用例集"
-            :options="testSuiteSelectOptions"
-            :placeholder="testSuitePlaceholder"
-            :disabled="testSuiteOptionsLoading"
-            :loading="testSuiteOptionsLoading"
-            searchable
-            clearable
-            class="repo-form-test-suite-outlined"
-          >
+          <div>
+            <OutlinedSelect
+              id="repo-form-test-suite"
+              v-model="repoForm.test_suite_id"
+              label-above
+              label="关联用例集"
+              :options="testSuiteSelectOptions"
+              :placeholder="testSuitePlaceholder"
+              :disabled="testSuiteOptionsLoading"
+              :loading="testSuiteOptionsLoading"
+              searchable
+              clearable
+              class="repo-form-test-suite-outlined"
+            >
             <template #trigger-affix>
               <button
                 type="button"
@@ -1214,8 +1551,12 @@ onMounted(async () => {
                 <span class="repo-test-suite-menu-footer-btn__sub">新建 / 编辑后点此刷新列表</span>
               </button>
             </template>
-          </OutlinedSelect>
-          <div class="dg-form-suite-meta dg-form-suite-meta--hint-only">
+            </OutlinedSelect>
+          </div>
+          <div
+            class="dg-form-suite-meta dg-form-suite-meta--hint-only"
+            :class="{ 'dg-form-suite-meta--create-md3': isCreatePage }"
+          >
             <p v-if="testSuiteStatusHint" class="dg-form-hint">{{ testSuiteStatusHint }}</p>
             <p v-else-if="inheritedTestSuiteHint" class="dg-form-hint">{{ inheritedTestSuiteHint }}</p>
             <p v-else-if="!testSuiteOptionsLoading && !testSuiteOptions.length" class="dg-form-hint">
@@ -1223,6 +1564,7 @@ onMounted(async () => {
             </p>
           </div>
         </div>
+        </template>
 
         <div v-if="isFrontendRepo" class="dg-form-grid-2 dg-form-grid-2--pair">
           <div class="dg-form-item form-group md-field-item">
@@ -1247,17 +1589,22 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div class="dg-form-item form-group md-field-item dg-form-item--full">
+        <div
+          class="dg-form-item form-group md-field-item dg-form-item--full"
+          :class="{ 'repo-md3-filled-field': isCreatePage }"
+        >
           <OutlinedSelect
             id="repo-form-linked"
             v-model="repoForm.linked_repo_ids"
-            label-above
+            :label-above="!isCreatePage"
+            :menu-surface-class="isCreatePage ? md3SelectMenuClass : ''"
+            :menu-checkboxes="isCreatePage"
             label="关联上下游仓库"
             :options="linkedRepoSelectOptions"
             multiple
             searchable
             clearable
-            placeholder="选择需要联动的上下游仓库（可选）"
+            :placeholder="isCreatePage ? '' : '选择需要联动的上下游仓库（可选）'"
             class="repo-form-linked-outlined"
           >
             <template #empty>
@@ -1276,12 +1623,207 @@ onMounted(async () => {
               v-model="advancedPanels"
               variant="accordion"
               class="repo-advanced-panels repo-advanced-panels--form-tail"
+              :class="{ 'repo-advanced-panels--create-md3': isCreatePage }"
             >
               <v-expansion-panel elevation="0">
-                <v-expansion-panel-title class="repo-advanced-panels__title text-body-2">
-                  高级配置（门禁阈值 / 高危目录 / 通知）
+                <v-expansion-panel-title
+                  class="repo-advanced-panels__title text-body-2"
+                  :class="{ 'repo-advanced-panels__title--create-md3': isCreatePage }"
+                >
+                  <template v-if="isCreatePage">
+                    <div class="repo-advanced-title-row">
+                      <v-icon icon="mdi-cog-outline" size="20" class="repo-advanced-title-row__icon" />
+                      <span class="repo-advanced-title-row__main">高级配置</span>
+                      <span class="repo-advanced-tags" aria-hidden="true">
+                        <span class="repo-advanced-tag">门禁阈值</span>
+                        <span class="repo-advanced-tag">高危目录</span>
+                        <span class="repo-advanced-tag">通知</span>
+                      </span>
+                      <span
+                        v-if="!isAdvancedPanelOpen"
+                        class="repo-advanced-summary-pill"
+                      >
+                        {{ advancedConfigSummary }}
+                      </span>
+                    </div>
+                  </template>
+                  <template v-else>
+                    高级配置（门禁阈值 / 高危目录 / 通知）
+                  </template>
                 </v-expansion-panel-title>
-                <v-expansion-panel-text class="repo-advanced-panel-body">
+                <v-expansion-panel-text
+                  class="repo-advanced-panel-body"
+                  :class="{ 'repo-advanced-panel-body--create-md3': isCreatePage }"
+                >
+                  <template v-if="isCreatePage">
+                    <section class="repo-advanced-subcard">
+                      <div class="repo-md3-threshold-grid">
+                        <div class="repo-md3-filled-slot repo-md3-coverage-slot">
+                          <div class="repo-md3-filled-slot__head">
+                            <span class="repo-md3-filled-slot__label">增量覆盖率阈值</span>
+                            <label class="repo-md3-filled-slot__value-wrap">
+                              <input
+                                id="repo-form-coverage"
+                                v-model.number="repoForm.coverage_threshold"
+                                class="repo-md3-filled-slot__value-input"
+                                type="number"
+                                min="0"
+                                max="100"
+                                inputmode="numeric"
+                                @blur="clampCoverageInput"
+                              />
+                              <span class="repo-md3-filled-slot__value-suffix">%</span>
+                            </label>
+                          </div>
+                          <v-slider
+                            v-model="repoForm.coverage_threshold"
+                            class="repo-md3-coverage-slider"
+                            :min="0"
+                            :max="100"
+                            step="1"
+                            color="#A8C7FA"
+                            track-color="#353842"
+                            track-size="4"
+                            thumb-size="18"
+                            hide-details
+                            thumb-label="never"
+                          />
+                        </div>
+                        <Md3FilledTextField
+                          id="repo-form-api-threshold"
+                          :model-value="thresholdFieldDisplay(repoForm.high_risk_api_threshold)"
+                          placeholder="不限制 · 默认 5"
+                          @update:model-value="(v) => onThresholdFieldInput(v, 'high_risk_api_threshold')"
+                        >
+                          <template #label>高危 API 数量阈值</template>
+                          <template #append>
+                            <span class="repo-md3-stepper" aria-hidden="true">
+                              <button type="button" aria-label="减少" @click.stop="stepThreshold('high_risk_api_threshold', -1)">
+                                −
+                              </button>
+                              <button type="button" aria-label="增加" @click.stop="stepThreshold('high_risk_api_threshold', 1)">
+                                +
+                              </button>
+                            </span>
+                          </template>
+                        </Md3FilledTextField>
+                        <Md3FilledTextField
+                          id="repo-form-symbol-threshold"
+                          :model-value="thresholdFieldDisplay(repoForm.high_risk_symbol_threshold)"
+                          placeholder="不限制 · 默认 8"
+                          @update:model-value="(v) => onThresholdFieldInput(v, 'high_risk_symbol_threshold')"
+                        >
+                          <template #label>高危符号数量阈值</template>
+                          <template #append>
+                            <span class="repo-md3-stepper" aria-hidden="true">
+                              <button type="button" aria-label="减少" @click.stop="stepThreshold('high_risk_symbol_threshold', -1)">
+                                −
+                              </button>
+                              <button type="button" aria-label="增加" @click.stop="stepThreshold('high_risk_symbol_threshold', 1)">
+                                +
+                              </button>
+                            </span>
+                          </template>
+                        </Md3FilledTextField>
+                      </div>
+                    </section>
+
+                    <section class="repo-advanced-subcard">
+                      <div class="repo-md3-glob-grid">
+                        <Md3FilledTextarea
+                          id="repo-form-high-risk"
+                          v-model="highRiskPathsText"
+                          default-expanded
+                          hide-collapse
+                          :maxlength="2000"
+                          :min-height-px="76"
+                          :max-height-px="200"
+                          placeholder="app/payment/**&#10;**/auth.py"
+                        >
+                          <template #label>
+                            <span class="repo-glob-label repo-glob-label--deny">
+                              <span class="repo-glob-label__dot" aria-hidden="true" />
+                              高危路径黑名单<span class="md-field-label-sub">（禁止合入）</span>
+                            </span>
+                          </template>
+                        </Md3FilledTextarea>
+                        <Md3FilledTextarea
+                          id="repo-form-low-risk"
+                          v-model="lowRiskPathsText"
+                          default-expanded
+                          hide-collapse
+                          :maxlength="2000"
+                          :min-height-px="76"
+                          :max-height-px="200"
+                          placeholder="tests/**&#10;app/utils/**"
+                        >
+                          <template #label>
+                            <span class="repo-glob-label repo-glob-label--allow">
+                              <span class="repo-glob-label__dot" aria-hidden="true" />
+                              低危路径白名单<span class="md-field-label-sub">（忽略拦截）</span>
+                            </span>
+                          </template>
+                        </Md3FilledTextarea>
+                      </div>
+                      <p class="repo-advanced-subcard__hint">
+                        每行一条 glob 规则；命中黑名单直接触发高危拦截，命中白名单不计入数量阈值。
+                      </p>
+                    </section>
+
+                    <section class="repo-advanced-subcard">
+                      <div class="repo-notify-row repo-notify-row--create-md3">
+                        <Md3FilledTextField
+                          id="diffgate-notify-webhook-url"
+                          v-model="repoForm.notify_webhook_url"
+                          placeholder="支持飞书 / 钉钉 / 企业微信机器人 Webhook URL"
+                        >
+                          <template #label>IM 门禁通知 Webhook 地址</template>
+                          <template #prepend>
+                            <v-icon icon="mdi-bell-outline" size="20" class="repo-md3-notify-bell" aria-hidden="true" />
+                          </template>
+                        </Md3FilledTextField>
+                        <button
+                          type="button"
+                          class="repo-test-notify-btn--md3-tonal"
+                          :class="{
+                            'repo-test-notify-btn--ready': notifyWebhookTestable && !notifyTestOk,
+                            'repo-test-notify-btn--ok': notifyTestOk,
+                          }"
+                          :disabled="testNotifyDisabled && !notifyTesting"
+                          @click="sendTestNotify"
+                        >
+                          <v-icon
+                            :icon="notifyTestOk ? 'mdi-check' : 'mdi-send'"
+                            size="18"
+                            class="me-2"
+                            aria-hidden="true"
+                          />
+                          {{
+                            notifyTesting
+                              ? '发送中…'
+                              : notifyTestOk
+                                ? '已发送 √'
+                                : '发送测试消息'
+                          }}
+                        </button>
+                      </div>
+                      <div
+                        v-if="notifyWebhookFilled"
+                        class="repo-md3-filled-field repo-notify-policy--create"
+                      >
+                        <OutlinedSelect
+                          id="repo-form-notify-policy"
+                          v-model="repoForm.notify_policy"
+                          :label-above="false"
+                          :menu-surface-class="md3SelectMenuClass"
+                          label="门禁通知策略"
+                          :options="notifyPolicySelectOptions"
+                        />
+                      </div>
+                    </section>
+                  </template>
+
+                  <template v-else>
                   <section class="dg-advanced-block repo-threshold-block">
                     <h3 class="dg-advanced-section-title">门禁阈值</h3>
                     <div class="dg-form-grid-3 dg-advanced-threshold-grid">
@@ -1388,7 +1930,10 @@ onMounted(async () => {
                   <section class="dg-advanced-block repo-notify-block">
                     <h3 class="dg-advanced-section-title">IM 门禁通知</h3>
                     <div class="dg-form-item form-group dg-md-outlined-item repo-notify-url-wrap">
-                      <div class="repo-notify-row repo-notify-row--v2">
+                      <div
+                        class="repo-notify-row repo-notify-row--v2"
+                        :class="{ 'repo-notify-row--create-md3': isCreatePage }"
+                      >
                         <v-text-field
                           v-model="repoForm.notify_webhook_url"
                           id="diffgate-notify-webhook-url"
@@ -1406,6 +1951,7 @@ onMounted(async () => {
                           class="repo-form-field repo-notify-url-field"
                         />
                       <v-btn
+                        v-if="!isCreatePage"
                         class="text-none repo-test-notify-btn repo-test-notify-btn--v2"
                         variant="outlined"
                         prepend-icon="mdi-send"
@@ -1415,6 +1961,16 @@ onMounted(async () => {
                       >
                         发送测试消息
                       </v-btn>
+                      <button
+                        v-else
+                        type="button"
+                        class="repo-test-notify-btn--md3-tonal"
+                        :disabled="testNotifyDisabled || notifyTesting"
+                        @click="sendTestNotify"
+                      >
+                        <v-icon icon="mdi-send" size="18" class="me-2" aria-hidden="true" />
+                        {{ notifyTesting ? '发送中…' : '发送测试消息' }}
+                      </button>
                       </div>
                     </div>
                     <div v-if="notifyWebhookFilled" class="dg-form-item form-group md-field-item dg-notify-policy">
@@ -1428,6 +1984,7 @@ onMounted(async () => {
                       />
                     </div>
                   </section>
+                  </template>
                 </v-expansion-panel-text>
               </v-expansion-panel>
             </v-expansion-panels>
@@ -1435,7 +1992,10 @@ onMounted(async () => {
     </v-form>
 
     <footer class="repo-form-page__dock">
-      <div class="repo-form-page__dock-inner">
+      <div
+        class="repo-form-page__dock-inner"
+        :class="{ 'repo-form-page__dock-inner--create-md3': isCreatePage }"
+      >
         <div class="repo-form-page__dock-switches">
           <v-switch
             v-model="repoForm.enabled"
@@ -1465,18 +2025,31 @@ onMounted(async () => {
             class="repo-form-switch repo-form-switch--dock"
           />
         </div>
-        <v-divider class="repo-form-page__dock-divider" vertical inset />
+        <v-divider v-if="!isCreatePage" class="repo-form-page__dock-divider" vertical inset />
         <div class="repo-form-page__dock-actions">
-          <v-btn class="repo-dialog-cancel text-none" variant="text" @click="goBack"> 取消 </v-btn>
-          <v-btn
-            class="repo-dialog-submit text-none"
-            variant="flat"
-            color="primary"
-            :loading="submitLoading"
-            @click="submit"
-          >
-            {{ submitButtonLabel }}
-          </v-btn>
+          <template v-if="isCreatePage">
+            <button type="button" class="ts-ghost-btn" @click="goBack">取消</button>
+            <button
+              type="button"
+              class="ts-primary-btn"
+              :disabled="submitLoading"
+              @click="submit"
+            >
+              {{ submitButtonLabel }}
+            </button>
+          </template>
+          <template v-else>
+            <v-btn class="repo-dialog-cancel text-none" variant="text" @click="goBack"> 取消 </v-btn>
+            <v-btn
+              class="repo-dialog-submit text-none"
+              variant="flat"
+              color="primary"
+              :loading="submitLoading"
+              @click="submit"
+            >
+              {{ submitButtonLabel }}
+            </v-btn>
+          </template>
         </div>
       </div>
     </footer>

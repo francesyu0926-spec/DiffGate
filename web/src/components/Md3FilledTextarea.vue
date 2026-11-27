@@ -12,6 +12,10 @@ const props = withDefaults(
     maxlength?: number
     minHeightPx?: number
     maxHeightPx?: number
+    /** 默认展开（用于规则录入等非可选描述场景） */
+    defaultExpanded?: boolean
+    /** 不展示「收起」按钮（规则录入等常显多行） */
+    hideCollapse?: boolean
   }>(),
   {
     modelValue: '',
@@ -21,6 +25,8 @@ const props = withDefaults(
     maxlength: 200,
     minHeightPx: 72,
     maxHeightPx: 168,
+    defaultExpanded: false,
+    hideCollapse: false,
   },
 )
 
@@ -30,14 +36,16 @@ const emit = defineEmits<{
 
 const attrs = useAttrs()
 const focused = ref(false)
-const expanded = ref(false)
+const expanded = ref(props.defaultExpanded)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 
 const textLen = computed(() => String(props.modelValue ?? '').length)
 const hasValue = computed(() => textLen.value > 0)
 const floated = computed(() => focused.value || hasValue.value)
 const counterText = computed(() => `${textLen.value} / ${props.maxlength}`)
-const showCollapse = computed(() => expanded.value && !hasValue.value)
+const showCollapse = computed(
+  () => !props.hideCollapse && expanded.value && !hasValue.value,
+)
 
 watch(
   hasValue,

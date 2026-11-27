@@ -43,9 +43,12 @@ const inputClass = computed(() => [
   'md3-filled__input',
   {
     'md3-filled__input--mono': props.mono,
+    'md3-filled__input--with-prepend': Boolean(slots.prepend),
     'md3-filled__input--with-append': Boolean(slots.append),
   },
 ])
+
+const hasPrepend = computed(() => Boolean(slots.prepend))
 
 function onInput(e: Event) {
   const el = e.target as HTMLInputElement

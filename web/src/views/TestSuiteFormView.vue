@@ -264,6 +264,18 @@ const gitBranchSelectOptions = computed((): OutlinedSelectOption[] =>
   })),
 )
 
+const canFetchGitBranches = computed(() => {
+  if (form.value.source_type !== 'git') return false
+  if (gitRepoPick.value === 'reuse') {
+    return Boolean(String(form.value.git_reuse_repository_id || '').trim())
+  }
+  return Boolean(String(form.value.git_url || '').trim())
+})
+
+const triggerWebhookUrlFilled = computed(() =>
+  Boolean(String(form.value.trigger_webhook_url || '').trim()),
+)
+
 const frameworkFieldModel = computed({
   get: () => form.value.framework ?? '',
   set: (v: string | string[]) => {
@@ -583,18 +595,7 @@ function scheduleFetchGitBranches() {
   }, 320)
 }
 
-const WEBHOOK_URL_EXAMPLE = 'https://ci.example.com/hooks/diffgate'
-
 const webhookPingLoading = ref(false)
-
-async function copyWebhookExample() {
-  try {
-    await navigator.clipboard.writeText(WEBHOOK_URL_EXAMPLE)
-    notify('已复制示例 Webhook URL')
-  } catch {
-    notify('无法访问剪贴板', 'error')
-  }
-}
 
 async function pasteWebhookUrl() {
   try {
@@ -604,6 +605,10 @@ async function pasteWebhookUrl() {
   } catch {
     notify('无法读取剪贴板，请手动粘贴', 'error')
   }
+}
+
+function clearWebhookUrl() {
+  form.value.trigger_webhook_url = ''
 }
 
 async function sendWebhookPing() {
@@ -1223,6 +1228,7 @@ onMounted(() => {
                     v-model="form.git_branch"
                     :label-above="!isCreatePage"
                     label="目标分支"
+                    placeholder="例如 main"
                     :options="gitBranchSelectOptions"
                     searchable
                     free-solo
@@ -1230,15 +1236,28 @@ onMounted(() => {
                     :menu-surface-class="isCreatePage ? 'md-field-select-menu--md3-create' : ''"
                     :disabled="gitBranchesLoading"
                     :helper-text="isCreatePage ? undefined : gitBranchesHint || undefined"
-                  />
+                  >
+                    <template v-if="isCreatePage" #empty>
+                      暂无分支缓存，点击右侧刷新拉取或直接输入
+                    </template>
+                  </OutlinedSelect>
                   <button
                     type="button"
-                    :class="
+                    :class="[
                       isCreatePage
                         ? 'ts-md3-tonal-icon-btn ts-suite-branch-refresh-btn--md3'
-                        : 'ts-icon-btn ts-suite-branch-refresh-btn'
+                        : 'ts-icon-btn ts-suite-branch-refresh-btn',
+                      {
+                        'ts-md3-tonal-icon-btn--ready':
+                          isCreatePage && canFetchGitBranches && !gitBranchesLoading,
+                      },
+                    ]"
+                    :disabled="gitBranchesLoading || !canFetchGitBranches"
+                    :title="
+                      canFetchGitBranches
+                        ? '刷新分支列表'
+                        : '请先填写测试仓库地址'
                     "
-                    :disabled="gitBranchesLoading"
                     aria-label="刷新分支列表"
                     @click="fetchGitBranches(true)"
                   >
@@ -1441,53 +1460,47 @@ onMounted(() => {
                 id="ts-form-trigger-url"
                 v-model="form.trigger_webhook_url"
                 mono
-                placeholder="例如：https://ci.example.com/hooks/diffgate"
+                placeholder="https://ci.example.com/hooks/diffgate"
               >
                 <template #label>调度触发 Webhook URL</template>
                 <template #append>
-                  <div class="ts-md3-field-affix-group">
-                    <button
-                      type="button"
-                      class="ts-md3-paste-btn"
-                      title="复制示例 URL"
-                      aria-label="复制示例 Webhook URL"
-                      @click.stop="copyWebhookExample"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" width="20" height="20" aria-hidden="true">
-                        <path
-                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                          stroke="currentColor"
-                          stroke-width="1.75"
-                          stroke-linejoin="round"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      class="ts-md3-paste-btn"
-                      title="从剪贴板粘贴"
-                      aria-label="粘贴 Webhook URL"
-                      @click.stop="pasteWebhookUrl"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" width="20" height="20" aria-hidden="true">
-                        <path
-                          d="M8 4v2h8V4a2 2 0 00-2-2h-4a2 2 0 00-2 2zM6 6h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2z"
-                          stroke="currentColor"
-                          stroke-width="1.75"
-                          stroke-linejoin="round"
-                        />
-                      </svg>
-                    </button>
-                  </div>
+                  <button
+                    v-if="!triggerWebhookUrlFilled"
+                    type="button"
+                    class="ts-md3-paste-btn"
+                    title="从剪贴板粘贴"
+                    aria-label="粘贴 Webhook URL"
+                    @click.stop="pasteWebhookUrl"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" width="20" height="20" aria-hidden="true">
+                      <path
+                        d="M8 4v2h8V4a2 2 0 00-2-2h-4a2 2 0 00-2 2zM6 6h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V8a2 2 0 012-2z"
+                        stroke="currentColor"
+                        stroke-width="1.75"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    v-else
+                    type="button"
+                    class="ts-md3-paste-btn ts-md3-paste-btn--clear"
+                    title="清除"
+                    aria-label="清除 Webhook URL"
+                    @click.stop="clearWebhookUrl"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" width="20" height="20" aria-hidden="true">
+                      <path
+                        d="M18 6L6 18M6 6l12 12"
+                        stroke="currentColor"
+                        stroke-width="1.75"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </button>
                 </template>
                 <template #helper>
-                  例如
-                  <code class="ts-md3-code-badge">{{ WEBHOOK_URL_EXAMPLE }}</code>；
-                  精准回归时将
-                  <code class="ts-md3-code-badge">POST</code>
-                  <code class="ts-md3-code-badge">api_list</code>
-                  与
-                  <code class="ts-md3-code-badge">job_id</code>
+                  精准回归时将向此地址发送 POST 请求（携带 api_list 与 job_id）
                 </template>
               </Md3FilledTextField>
               <OutlinedInput
@@ -1504,28 +1517,16 @@ onMounted(() => {
                 </template>
               </OutlinedInput>
             </div>
-            <div class="dg-form-item form-group md-field-item ts-md3-filled-field">
+            <div class="dg-form-item form-group md-field-item ts-md3-filled-field ts-suite-external-ref-item">
               <Md3FilledTextField
                 v-if="isCreatePage"
                 id="ts-form-external-ref"
                 :model-value="form.external_ref ?? ''"
                 placeholder="Jenkins Job / 流水线 ID"
                 @update:model-value="(v) => (form.external_ref = v)"
-                helper-text="可选：Jenkins Job / 流水线 ID"
               >
                 <template #label>外部平台引用 ID</template>
-                <template #append>
-                  <span class="ts-md3-link-affix" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" width="20" height="20">
-                      <path
-                        d="M10 13a5 5 0 007.54.54l2.92-2.92a5 5 0 00-7.07-7.07l-1.42 1.41M14 11a5 5 0 00-7.54-.54L3.54 13.38a5 5 0 007.07 7.07l1.42-1.41"
-                        stroke="currentColor"
-                        stroke-width="1.75"
-                        stroke-linecap="round"
-                      />
-                    </svg>
-                  </span>
-                </template>
+                <template #helper>可选：Jenkins Job / 流水线 ID</template>
               </Md3FilledTextField>
               <OutlinedInput
                 v-else
