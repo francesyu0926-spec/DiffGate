@@ -48,6 +48,8 @@ const menuProps = computed(() => {
     maxWidth: w,
     maxHeight: 320,
     location: 'bottom start' as const,
+    offset: 6,
+    scrollStrategy: 'reposition' as const,
   }
 })
 
@@ -291,33 +293,66 @@ onMounted(async () => {
 <style>
 .repo-autocomplete-menu {
   max-height: 320px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+  background: #2c2c2c !important;
+  color-scheme: dark;
+  overflow: hidden;
 }
 .repo-autocomplete-menu .v-list {
   max-height: 320px;
   overflow-y: auto;
+  background: #2c2c2c !important;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 6px 4px;
+}
+.repo-autocomplete-menu .v-sheet {
+  background: #2c2c2c !important;
 }
 .repo-menu-subheader {
   min-height: 32px;
   padding-top: 8px;
-  color: rgba(241, 243, 245, 0.72);
+  color: rgba(241, 243, 245, 0.55) !important;
   letter-spacing: 0.02em;
 }
 .repo-menu-divider {
   border-color: rgba(255, 255, 255, 0.08);
+}
+.repo-menu-item {
+  min-height: 40px !important;
+  padding: 10px 16px !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  background: transparent !important;
+}
+.repo-menu-item .v-list-item__overlay,
+.repo-menu-item .v-list-item__underlay {
+  opacity: 0 !important;
+}
+.repo-menu-item:hover:not(.repo-menu-item--selected) {
+  background: rgba(255, 255, 255, 0.08) !important;
 }
 .repo-menu-item .v-list-item-title {
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.9);
 }
-.repo-menu-item--selected {
-  background: rgba(138, 180, 248, 0.12) !important;
+.repo-menu-item--selected,
+.repo-menu-item--selected:hover {
+  background: rgba(138, 180, 248, 0.14) !important;
 }
 .repo-menu-item .v-list-item__append {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
+  min-width: 56px;
+}
+.repo-menu-check {
+  opacity: 0.75;
+  flex-shrink: 0;
 }
 .repo-block-badge {
   min-width: 18px;

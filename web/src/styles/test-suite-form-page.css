@@ -1,0 +1,2243 @@
+/* 用例集新建/编辑全页表单 — 表单项 Outlined 与「添加仓库」一致，见 repo-form-page.css */
+
+.ts-suite-form-page.repo-form-page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0 32px 96px;
+  min-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  box-sizing: border-box;
+  background: #0d1117;
+}
+
+.ts-suite-form-page .repo-form-page__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 0 16px;
+  margin: 0 -32px;
+  padding-inline: 32px;
+  background: rgba(13, 17, 23, 0.94);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ts-suite-form-page .repo-form-page__topbar-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ts-suite-form-page .repo-form-page__titles {
+  min-width: 0;
+}
+
+.ts-suite-form-page .repo-form-page__back {
+  margin-top: 4px;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+
+.ts-suite-form-page .repo-form-page__title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.ts-suite-form-page .repo-form-page__subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.5;
+  max-width: 72ch;
+}
+
+.ts-suite-form-page .repo-form-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* 卡片内：标题 / 标签 / 输入 / 单选左缘与上卡对齐 */
+.ts-suite-form-page .dg-form-card {
+  padding: 24px;
+  overflow: clip;
+  overflow: hidden;
+  max-height: none;
+  height: auto;
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+  --dg-form-card-bg: #18181b;
+  --card-bg: #18181b;
+}
+
+.ts-suite-form-page .dg-form-card .dg-form-card__title {
+  margin: 0 0 20px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: normal;
+}
+
+/* —— 用例集页视觉 token：40px 控件 + MD Outlined 凹槽 —— */
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-control,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-select-trigger {
+  background-color: #1e1e24 !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.ts-suite-form-page:not(.dg-outlined-form-page) .dg-form-card .md-field-control,
+.ts-suite-form-page:not(.dg-outlined-form-page) .dg-form-card .md-field-select-trigger {
+  min-height: 44px;
+  height: 44px;
+  background-color: rgba(255, 255, 255, 0.04) !important;
+  border-width: 1px;
+  border-color: #333333;
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.ts-suite-form-page .dg-form-card input.md-field-control {
+  padding-top: 10px;
+  padding-bottom: 8px;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card input.md-field-control::placeholder,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card textarea.md-field-control::placeholder {
+  color: rgba(255, 255, 255, 0.35) !important;
+  font-size: 14px !important;
+}
+
+/* 仅凹槽模式（labelAbove=false）；顶置标签走 dg-form-field-spec */
+.ts-suite-form-page .dg-form-card .md-field:not(.md-field--label-above) .md-field-label {
+  font-size: 12px;
+  padding: 0 4px;
+  color: rgba(255, 255, 255, 0.6);
+  background-color: #18181b;
+}
+
+.ts-suite-form-page .dg-form-card .md-field-helper {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ts-suite-form-page .dg-form-card .md-field-control:focus,
+.ts-suite-form-page .dg-form-card .md-field-select.md-field--open .md-field-select-trigger {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.ts-suite-form-page .dg-form-card input.md-field-control,
+.ts-suite-form-page .dg-form-card textarea.md-field-control {
+  padding-left: 12px;
+}
+
+.ts-suite-form-page .dg-form-card textarea.md-field-control.md-field-control--textarea {
+  min-height: 80px;
+  height: auto;
+  padding: 12px;
+}
+
+.ts-suite-form-page .ts-suite-branch-refresh-btn--outlined {
+  margin-top: 10px;
+}
+
+.ts-suite-form-page .ts-bind-repos-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-helper {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ts-suite-form-page .ts-enable-label__main {
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.ts-suite-form-page .ts-enable-label__sub {
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ts-suite-form-page .ts-suite-form-switch.v-input :deep(.v-switch__thumb) {
+  color: #ffffff !important;
+}
+
+.ts-suite-form-page .ts-suite-form-switch.v-input :deep(.v-switch__track) {
+  opacity: 1 !important;
+  background-color: #3f3f46 !important;
+}
+
+.ts-suite-form-page .ts-suite-form-switch.v-input.v-input--dirty :deep(.v-switch__track) {
+  background-color: #3b82f6 !important;
+}
+
+/* 代码库位置：标准表单项（标签在上，无外框） */
+.ts-suite-form-page .ts-git-origin-field {
+  width: 100%;
+  margin: 0 0 20px;
+  padding: 0;
+}
+
+.ts-suite-form-page .ts-git-origin-field__label {
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #ffffff;
+}
+
+.ts-suite-form-page .ts-git-origin-field .ts-git-pick-radio {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-git-pick-radio--inline :deep(.v-selection-control-group) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.ts-suite-form-page .ts-git-pick-radio--inline :deep(.v-selection-control) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin-inline: 0 !important;
+}
+
+.ts-suite-form-page .ts-git-pick-radio--inline :deep(.v-label) {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.8);
+  opacity: 1;
+}
+
+.ts-suite-form-page .ts-suite-framework-only {
+  margin-top: 20px;
+  margin-bottom: 0;
+}
+
+.ts-suite-form-page .ts-source-block {
+  margin-bottom: 0;
+}
+
+.ts-suite-form-page .ts-git-config-stack {
+  margin-top: 24px;
+}
+
+.ts-suite-form-page .ts-git-config-stack > .ts-git-origin-field + .dg-form-item--full {
+  margin-top: 0;
+}
+
+.ts-suite-form-page .ts-suite-card--source {
+  padding-bottom: 28px;
+}
+
+.ts-suite-form-page .ts-suite-card--advanced {
+  margin-top: 0;
+}
+
+.ts-suite-form-page .ts-git-pick-radio--compact :deep(.v-label) {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.ts-suite-form-page .ts-control-16 :deep(.v-selection-control__input) {
+  width: 16px;
+  height: 16px;
+}
+
+.ts-suite-form-page .ts-control-16 :deep(.v-selection-control) {
+  gap: 8px;
+  min-height: 40px;
+  align-items: center;
+}
+
+.ts-suite-form-page .ts-auth-reuse-hint {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ts-suite-form-page .ts-auth-advanced-row__credential:only-child {
+  flex: 1 1 100%;
+}
+
+/* 底边距包住「启用」开关，避免卡片底边横穿控件 */
+.ts-suite-form-page .dg-form-card:first-of-type {
+  padding-bottom: 40px;
+}
+
+.ts-suite-form-page .dg-form-card > * {
+  margin-inline: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ts-suite-form-page .dg-form-card .dg-md-outlined-item,
+.ts-suite-form-page .dg-form-card .dg-field-external-label,
+.ts-suite-form-page .dg-form-card .ts-source-block,
+.ts-suite-form-page .dg-form-card .ts-form-grid-2,
+.ts-suite-form-page .dg-form-card .dg-form-grid-2,
+.ts-suite-form-page .dg-form-card .ts-suite-auth-panels {
+  padding-inline: 0;
+}
+
+.ts-suite-form-page .dg-md3-form .v-radio-group.v-input,
+.ts-suite-form-page .dg-md3-form .v-checkbox.v-input {
+  padding-inline: 0 !important;
+  margin-inline: 0 !important;
+  width: 100%;
+  max-width: 100%;
+}
+
+.ts-suite-form-page .dg-form-card .ts-git-config-stack,
+.ts-suite-form-page .dg-form-card .ts-source-config-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+}
+
+.ts-suite-form-page .dg-form-card .ts-git-config-stack {
+  margin-top: 24px;
+}
+
+.ts-suite-form-page .dg-form-card .ts-git-config-stack > *,
+.ts-suite-form-page .dg-form-card .ts-source-config-stack > * {
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+  max-width: 100%;
+}
+
+.ts-suite-form-page .dg-form-card .ts-git-config-stack .dg-field-external-label,
+.ts-suite-form-page .dg-form-card .ts-source-config-stack .dg-field-external-label {
+  padding-inline: 0;
+}
+
+.ts-suite-form-page .ts-source-config-stack .dg-md-outlined-item + .dg-md-outlined-item {
+  margin-top: 20px;
+}
+
+.ts-suite-form-page .ts-git-pick-radio.v-radio-group .v-input__control,
+.ts-suite-form-page .ts-git-auth-radio.v-radio-group .v-input__control {
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-git-pick-radio.v-radio-group .v-selection-control-group,
+.ts-suite-form-page .ts-git-auth-radio.v-radio-group .v-selection-control-group {
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+  padding-inline-start: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels.v-expansion-panels {
+  justify-content: flex-start !important;
+  width: 100% !important;
+  padding: 0 !important;
+  margin-inline: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels :deep(.v-expansion-panel--active) {
+  margin: 0 !important;
+}
+
+.ts-suite-form-page .repo-form-page__dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 16px 24px;
+  background: #121212;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.ts-suite-form-page .ts-suite-form-dock__inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ts-suite-form-page .ts-suite-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-suite-form-page .ts-form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 720px) {
+  .ts-suite-form-page .ts-form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .ts-suite-form-page .ts-suite-card--advanced .ts-auth-advanced-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ts-suite-form-page .repo-form-page__topbar {
+    margin: 0 -20px;
+    padding-inline: 20px;
+  }
+
+  .ts-suite-form-page.repo-form-page {
+    padding-inline: 20px;
+  }
+}
+
+.ts-suite-form-page .ts-form-grid-2--pair,
+.ts-suite-form-page .dg-form-grid-2--pair {
+  align-items: flex-start;
+  margin-bottom: 24px;
+  gap: 24px;
+}
+
+.ts-suite-form-page .dg-form-grid-2--pair > .md-field-item {
+  min-width: 0;
+  overflow: visible;
+  margin-bottom: 0;
+}
+
+.ts-suite-form-page .dg-form-item.md-field-item {
+  margin-bottom: 24px;
+}
+
+.ts-suite-form-page .dg-form-grid-2--pair > .md-field-item,
+.ts-suite-form-page .ts-suite-enable-row--after-bind {
+  margin-bottom: 0;
+}
+
+/* 关联仓库：顶置标签模式下与下一项统一 24px（由 dg-outlined-form-page 承担） */
+.ts-suite-form-page:not(.dg-outlined-form-page) .ts-suite-bind-repos-block.md-field-item {
+  margin-bottom: 20px;
+  overflow: visible;
+  z-index: 1;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .ts-suite-bind-repos-block.md-field-item {
+  margin-bottom: 24px !important;
+  overflow: visible;
+  z-index: 1;
+}
+
+.ts-suite-form-page .ts-suite-card--basic {
+  overflow: visible;
+}
+
+.ts-suite-form-page .ts-suite-bind-repos-block .md-field-select.md-field--open {
+  position: relative;
+  z-index: 2;
+}
+
+.ts-suite-form-page .ts-suite-bind-repos-block .md-field-label {
+  z-index: 6;
+  background-color: #18181b !important;
+  padding: 0 4px;
+}
+
+/* —— 纯 Outlined 栈：废弃 Vuetify 表单控件 —— */
+.ts-suite-form-page--pure .ts-suite-form {
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-suite-enable-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ts-suite-form-page .ts-m3-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: #3f3f46;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.ts-suite-form-page .ts-m3-switch--on {
+  background: #3b82f6;
+}
+
+.ts-suite-form-page .ts-m3-switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: transform 0.2s ease;
+}
+
+.ts-suite-form-page .ts-m3-switch--on .ts-m3-switch__thumb {
+  transform: translateX(16px);
+}
+
+.ts-suite-form-page .ts-source-segment {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  padding: 3px;
+  gap: 0;
+  border-radius: 10px;
+  background: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-sizing: border-box;
+}
+
+.ts-suite-form-page .ts-source-segment__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 34px;
+  margin: 0;
+  padding: 0 8px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.55);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.ts-suite-form-page .ts-source-segment__btn:hover:not(.ts-source-segment__btn--active) {
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ts-suite-form-page .ts-source-segment__btn--active {
+  color: #ffffff;
+  font-weight: 500;
+  background: #3b82f6;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+.ts-suite-form-page .ts-native-radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+}
+
+.ts-suite-form-page .ts-native-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ts-suite-form-page .ts-native-radio input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.ts-suite-form-page .ts-native-radio__dot {
+  position: relative;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.ts-suite-form-page .ts-native-radio input:checked + .ts-native-radio__dot {
+  border-color: #3b82f6;
+}
+
+.ts-suite-form-page .ts-native-radio input:checked + .ts-native-radio__dot::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+  transform: translate(-50%, -50%);
+}
+
+.ts-suite-form-page .ts-native-radio__text {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.ts-suite-form-page .ts-native-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ts-suite-form-page .ts-native-checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ts-suite-form-page .ts-native-checkbox__box {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.ts-suite-form-page .ts-native-checkbox input:checked + .ts-native-checkbox__box {
+  border-color: #3b82f6;
+  background: #3b82f6;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2' d='M3 8l3 3 7-7'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 12px;
+}
+
+.ts-suite-form-page .ts-native-checkbox__text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.35;
+}
+
+.ts-suite-form-page .ts-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-top: 10px;
+  padding: 0;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.ts-suite-form-page .ts-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ts-suite-form-page .ts-outlined-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: 14px;
+  color: #93c5fd;
+  background: transparent;
+  border: 1px solid rgba(59, 130, 246, 0.55);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ts-suite-form-page .ts-outlined-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ts-suite-form-page .ts-page-back-btn,
+.ts-suite-form-page .ts-ghost-btn {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.ts-suite-form-page .ts-page-back-btn:hover,
+.ts-suite-form-page .ts-ghost-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ts-suite-form-page .ts-primary-btn {
+  min-height: 40px;
+  padding: 0 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  background: #3b82f6;
+  cursor: pointer;
+}
+
+.ts-suite-form-page .ts-primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ts-suite-form-page .ts-manual-info-box {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: none !important;
+  border-radius: 10px;
+}
+
+.ts-suite-form-page .ts-manual-info-box .ts-manual-source-panel__title {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ts-suite-form-page .ts-suite-framework-only {
+  width: calc(50% - 12px);
+  max-width: 100%;
+}
+
+@media (max-width: 720px) {
+  .ts-suite-form-page .ts-suite-framework-only {
+    width: 100%;
+  }
+}
+
+.ts-suite-form-page .ts-suite-probe-panel__icon--ok {
+  color: #22c55e;
+  font-weight: 700;
+}
+
+.ts-suite-form-page .ts-suite-probe-panel__icon--err {
+  color: #f87171;
+  font-weight: 700;
+}
+
+/* 顶置标签页：helper 与下一项间距由表单项 margin-bottom 统一，不需额外 padding */
+.ts-suite-form-page:not(.dg-outlined-form-page) .dg-form-item:has(.md-field-helper) + .dg-form-item.md-field-item {
+  padding-top: 4px;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-item:has(.md-field-helper) + .dg-form-item.md-field-item {
+  padding-top: 0;
+}
+
+.ts-suite-form-page .ts-git-config-stack > .dg-form-item--full + .ts-suite-git-pair-row,
+.ts-suite-form-page .ts-git-config-stack > .ts-form-hint--parse + .ts-suite-git-pair-row,
+.ts-suite-form-page .ts-git-config-stack > .ts-suite-framework-only,
+.ts-suite-form-page .ts-git-config-stack > .ts-suite-git-pair-row + .ts-suite-git-pair-row,
+.ts-suite-form-page .ts-git-config-stack > .ts-suite-git-pair-row--top + .ts-suite-git-pair-row,
+.ts-suite-form-page .ts-git-config-stack > .ts-form-hint--parse + .ts-suite-git-pair-row,
+.ts-suite-form-page .ts-git-config-stack > .ts-suite-git-pair-row--top + .ts-form-hint--parse + .ts-suite-git-pair-row {
+  margin-top: 20px;
+}
+
+.ts-suite-form-page .ts-git-config-stack .ts-suite-git-pair-row__cell:has(.md-field-helper) + .ts-suite-git-pair-row__cell,
+.ts-suite-form-page .ts-git-config-stack > .ts-suite-git-pair-row + .ts-suite-git-pair-row .md-field-root--label-above {
+  margin-top: 0;
+}
+
+.ts-suite-form-page .md-field-item .md-field {
+  margin-bottom: 0;
+}
+
+.ts-suite-git-branch-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.ts-suite-git-branch-wrap .md-field-root {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ts-suite-branch-refresh-btn--outlined {
+  flex-shrink: 0;
+  margin-top: 12px;
+}
+
+.ts-suite-form-page .ts-suite-bind-repos-block .md-field-select-menu {
+  z-index: 3100;
+}
+
+.ts-suite-form-page .ts-form-label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.ts-suite-form-page .ts-form-required {
+  color: #f87171;
+  font-weight: 600;
+}
+
+.ts-suite-form-page .ts-form-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ts-suite-form-page .ts-form-hint--slug {
+  margin: 8px 0 0;
+}
+
+.ts-suite-form-page .ts-form-hint--block {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+/* 卡片分区标题（色条 + 底边） */
+.ts-suite-form-page .dg-form-card__section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid #1f2937;
+}
+
+.ts-suite-form-page .dg-form-card__section-head .dg-form-card__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ts-suite-form-page .dg-form-card__section-bar {
+  flex-shrink: 0;
+  width: 6px;
+  height: 16px;
+  border-radius: 999px;
+  background: #3b82f6;
+}
+
+.ts-suite-form-page .dg-form-card__section-head--emerald .dg-form-card__section-bar {
+  background: #10b981;
+}
+
+.ts-suite-form-page .ts-suite-card--basic {
+  gap: 20px;
+}
+
+.ts-suite-form-page .ts-suite-card--source {
+  gap: 0;
+}
+
+/* 用例来源：三列模式卡片 */
+.ts-suite-form-page .ts-source-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0 0 24px;
+  width: 100%;
+}
+
+@media (max-width: 860px) {
+  .ts-suite-form-page .ts-source-mode-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ts-suite-form-page .ts-source-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  margin: 0;
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  background: rgba(22, 30, 46, 0.7);
+  border: 1px solid #2a3447;
+  border-radius: 12px;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.ts-suite-form-page .ts-source-mode-card:focus {
+  outline: none;
+}
+
+.ts-suite-form-page .ts-source-mode-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.ts-suite-form-page .ts-source-mode-card:hover {
+  border-color: #475569;
+}
+
+.ts-suite-form-page .ts-source-mode-card--active {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.ts-suite-form-page .ts-source-mode-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ts-suite-form-page .ts-source-mode-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ts-suite-form-page .ts-source-mode-card--active .ts-source-mode-card__title {
+  color: #60a5fa;
+}
+
+.ts-suite-form-page .ts-source-mode-card__badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 999px;
+}
+
+.ts-suite-form-page .ts-source-mode-card__desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #94a3b8;
+}
+
+.ts-suite-form-page .ts-git-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 18px;
+  padding: 0;
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-git-section-divider::before,
+.ts-suite-form-page .ts-git-section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ts-suite-form-page .ts-git-section-divider__label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: none;
+}
+
+.ts-suite-form-page .ts-git-origin-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  background: rgba(22, 30, 46, 0.6);
+  border: 1px solid #263042;
+  border-radius: 10px;
+}
+
+.ts-suite-form-page .ts-git-origin-bar__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+}
+
+.ts-suite-form-page .ts-git-origin-bar .ts-git-pick-radio {
+  margin: 0 !important;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ts-suite-form-page .ts-suite-git-pair-row--top {
+  margin-top: 0;
+}
+
+.ts-suite-form-page .ts-auth-advanced-block {
+  margin: 20px 0 0;
+  padding: 0;
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-auth-advanced-block__lead {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.ts-suite-form-page .ts-auth-advanced-block__sub {
+  font-weight: 400;
+  color: #94a3b8;
+}
+
+.ts-suite-form-page .ts-auth-advanced-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px 24px;
+}
+
+.ts-suite-form-page .ts-auth-advanced-row__credential {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.ts-suite-form-page .ts-auth-advanced-row__ssl {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: flex-end;
+  align-self: flex-end;
+  min-height: 40px;
+  padding-top: 0;
+  margin-top: 0;
+  padding-bottom: 2px;
+}
+
+.ts-suite-form-page .ts-suite-card--advanced .ts-auth-advanced-row {
+  align-items: flex-end;
+}
+
+.ts-suite-form-page .ts-suite-probe-callout {
+  margin-top: 4px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.ts-suite-form-page .ts-suite-probe-callout__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.ts-suite-form-page .ts-suite-probe-callout__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ts-suite-form-page .ts-suite-card--advanced .ts-auth-advanced-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+
+.ts-suite-form-page .ts-suite-card--advanced .ts-auth-advanced-row__credential,
+.ts-suite-form-page .ts-suite-card--advanced .ts-auth-advanced-row__ssl {
+  min-width: 0;
+}
+
+.ts-suite-form-page .ts-suite-git-pair-row {
+  column-gap: 24px;
+}
+
+.ts-suite-form-page .ts-credential-inherit-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ts-suite-form-page .ts-suite-probe-callout .ts-suite-probe-panel {
+  margin-top: 14px;
+}
+
+.ts-suite-form-page .ts-manual-source-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 28px 20px;
+  text-align: center;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+}
+
+.ts-suite-form-page .ts-manual-source-panel__icon {
+  flex-shrink: 0;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.ts-suite-form-page .ts-manual-source-panel__title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ts-suite-form-page .ts-manual-source-panel__desc {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ts-suite-form-page .ts-webhook-stack {
+  margin-top: 24px;
+}
+
+/* 用例来源：主分段（MD3 Segmented，无单键描边） — 保留供旧类名兼容 */
+.ts-suite-form-page .ts-source-block {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.ts-suite-form-page .ts-source-block > .ts-form-label {
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.ts-suite-form-page .ts-source-track {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ts-suite-form-page .m3-segmented.ts-source-segment {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: stretch !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 40px;
+  gap: 0;
+  padding: 3px;
+  margin: 0;
+  background-color: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.ts-suite-form-page .m3-segmented.ts-source-segment :deep(.v-btn) {
+  flex: 1 1 0% !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  height: 36px !important;
+  min-height: 36px !important;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.55) !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  font-weight: 500;
+  padding-inline: 10px !important;
+  white-space: nowrap;
+}
+
+.ts-suite-form-page .m3-segmented :deep(.v-btn__overlay),
+.ts-suite-form-page .m3-segmented :deep(.v-btn__underlay) {
+  opacity: 0 !important;
+}
+
+.ts-suite-form-page .m3-segmented :deep(.v-btn__content) {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+.ts-suite-form-page .m3-segmented :deep(.v-btn:not(.v-btn--active):not(.v-btn--selected)) {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.ts-suite-form-page .m3-segmented :deep(.v-btn:hover:not(.v-btn--active):not(.v-btn--selected)) {
+  background-color: rgba(255, 255, 255, 0.06) !important;
+  color: rgba(255, 255, 255, 0.82) !important;
+}
+
+.ts-suite-form-page .m3-segmented :deep(.v-btn.v-btn--active),
+.ts-suite-form-page .m3-segmented :deep(.v-btn--selected),
+.ts-suite-form-page .m3-segmented :deep(.v-btn.v-btn--selected) {
+  background-color: #3b82f6 !important;
+  color: #ffffff !important;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+  opacity: 1 !important;
+}
+
+.ts-suite-form-page .m3-segmented :deep(.v-btn.v-btn--active .v-btn__content),
+.ts-suite-form-page .m3-segmented :deep(.v-btn--selected .v-btn__content) {
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.ts-suite-form-page .m3-segmented.ts-source-segment.v-btn-group {
+  margin-inline: 0 !important;
+  max-width: 100%;
+}
+
+/* Git 子选项：轻量单选（主次分离） */
+.ts-suite-form-page .ts-git-pick-radio {
+  margin: 0 0 16px !important;
+  padding: 0 !important;
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control-group) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control) {
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control__wrapper) {
+  margin-inline: 0 !important;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-input__control) {
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control) {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 32px;
+  gap: 8px;
+  align-items: center;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control__wrapper) {
+  align-items: center;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control--dirty .v-selection-control__input .v-icon),
+.ts-suite-form-page .ts-git-auth-radio :deep(.v-selection-control--dirty .v-selection-control__input .v-icon) {
+  color: #3b82f6 !important;
+  opacity: 1;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-label) {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.8);
+  opacity: 1;
+  padding-inline-start: 0;
+  transition: color 0.15s ease;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control:hover .v-label),
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control--dirty .v-label) {
+  color: #ffffff;
+  font-weight: 400;
+}
+
+.ts-suite-form-page .ts-ssl-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  line-height: 1.35;
+}
+
+.ts-suite-form-page .ts-ssl-label__main {
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.ts-suite-form-page .ts-ssl-label__sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox.v-input--dirty .ts-ssl-label__main {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox.v-input--dirty .ts-ssl-label__sub {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* 全局样式表勿用 :deep()，否则浏览器会忽略整条规则 */
+.ts-suite-form-page .ts-suite-ssl-checkbox.v-checkbox .v-label,
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-selection-control .v-label {
+  font-size: inherit !important;
+  font-weight: 400 !important;
+  line-height: 1.35 !important;
+  color: inherit !important;
+  opacity: 1 !important;
+  padding-inline-start: 0 !important;
+  letter-spacing: normal !important;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control__input > .v-icon) {
+  opacity: 1;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control:not(.v-selection-control--dirty) .v-selection-control__input .v-icon) {
+  color: rgba(255, 255, 255, 0.38) !important;
+}
+
+.ts-suite-form-page .ts-git-pick-radio :deep(.v-selection-control--dirty .v-selection-control__input .v-icon) {
+  color: #3b82f6 !important;
+}
+
+/* 表单项 Outlined：沿用 repo-form-page.css（48px、紫色描边、凹槽标签） */
+
+.ts-suite-form-page .ts-suite-link-card {
+  overflow: visible;
+  padding: 24px;
+}
+
+/* 关联业务仓库：无浮动 label，框内提示与「说明（可选）」空态一致，48px */
+.ts-suite-form-page .ts-suite-bind-repos-block {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow: visible;
+  gap: 0;
+}
+
+/* 等同 MUI helperText：显示在控件下方，与「标识」副文案对齐 */
+.ts-suite-form-page .ts-suite-bind-repos-block .ts-bind-repos-select .v-input__details {
+  display: flex !important;
+  align-items: flex-start;
+  min-height: 0 !important;
+  padding: 6px 0 0 !important;
+  margin: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-bind-repos-block .ts-bind-repos-select .v-messages {
+  min-height: 0 !important;
+  opacity: 1 !important;
+}
+
+.ts-suite-form-page .ts-bind-repos-hint {
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ts-suite-form-page .ts-suite-bind-repos-block .ts-bind-repos-select {
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-suite-bind-repos-block .ts-bind-repos-select.v-input--focused {
+  z-index: 2;
+}
+
+
+.ts-suite-form-page .ts-link-repos-mono {
+  font-family: ui-monospace, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+
+.ts-suite-form-page .ts-suite-enable-row {
+  margin: 12px 0 0;
+  padding: 0;
+  padding-inline: 0 !important;
+  border-top: none;
+}
+
+.ts-suite-form-page:not(.dg-outlined-form-page) .ts-suite-enable-row--after-bind {
+  margin-top: 16px;
+  padding-top: 0;
+  padding-bottom: 4px;
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .ts-suite-enable-row--after-bind {
+  margin-top: 24px !important;
+  padding: 0;
+}
+
+.ts-suite-form-page .ts-suite-enable-row .ts-suite-form-switch.v-input {
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-enable-row .ts-suite-form-switch {
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-suite-enable-row .ts-suite-form-switch .v-selection-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin-inline: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-enable-label,
+.ts-suite-form-page .ts-enable-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  line-height: 1.35;
+}
+
+.ts-suite-form-page .ts-enable-label__main {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.ts-suite-form-page .ts-enable-label__sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* 关联仓库下拉浮层（挂 body，见 tsLinkedRepoMenuProps） */
+.dg-md3-select-menu.ts-linked-repo-menu.v-overlay__content {
+  z-index: 3100 !important;
+  background: #282828 !important;
+  border-radius: 8px !important;
+  border: 1px solid #334155 !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+  overflow: hidden;
+}
+
+.dg-md3-select-menu.ts-linked-repo-menu .v-list {
+  max-height: 200px !important;
+  overflow-y: auto !important;
+  padding: 4px !important;
+}
+
+.ts-linked-menu-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+
+.ts-linked-menu-empty--compact {
+  gap: 10px;
+  padding: 24px 16px 20px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.md-field-select-menu .ts-linked-menu-empty--compact {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ts-linked-menu-empty__icon {
+  flex-shrink: 0;
+  margin-bottom: 2px;
+  color: rgba(255, 255, 255, 0.5) !important;
+  opacity: 1;
+}
+
+.ts-linked-menu-empty__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.88);
+  text-align: center;
+}
+
+.md-field-select-menu .ts-linked-menu-empty__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.ts-linked-menu-empty__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  max-width: 300px;
+}
+
+.md-field-select-menu .ts-linked-menu-empty__hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ts-linked-menu-empty__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #60a5fa;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  border-radius: 6px;
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.md-field-select-menu .ts-linked-menu-empty__link {
+  margin-top: 8px;
+}
+
+.ts-linked-menu-empty__link:hover {
+  color: #93c5fd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dg-md3-select-menu.ts-linked-repo-menu .v-list-item--title {
+  padding: 0 !important;
+}
+
+.ts-suite-form-page .ts-form-hint--git-url,
+.ts-suite-form-page .ts-form-hint--inherit {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ts-suite-form-page .ts-form-hint--inherit strong {
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 600;
+}
+
+.ts-suite-form-page .ts-form-hint--credential-chain {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ts-suite-form-page .ts-credential-info {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+  padding: 10px 16px 10px 40px;
+  border-radius: 6px;
+  box-sizing: border-box;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.12);
+  position: relative;
+}
+
+.ts-suite-form-page .ts-credential-info::before {
+  content: 'i';
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(96, 165, 250, 0.55);
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 14px;
+  text-align: center;
+}
+
+.ts-suite-form-page .ts-credential-info__lead {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.ts-suite-form-page .ts-form-hint--credential-chain .ts-credential-kw {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  background: none;
+  color: #60a5fa;
+  font-family: ui-monospace, Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: inherit;
+}
+
+.ts-suite-form-page .ts-form-hint--parse {
+  margin: 6px 0 0;
+  color: rgba(138, 180, 248, 0.88);
+}
+
+.ts-suite-form-page .ts-form-hint--credential-chain + .ts-form-hint--parse {
+  margin-top: 6px;
+}
+
+.ts-suite-form-page .ts-form-hint--credential-chain + .ts-suite-ssl-row,
+.ts-suite-form-page .ts-form-hint--credential-chain + .ts-form-hint--parse + .ts-suite-ssl-row,
+.ts-suite-form-page .ts-form-hint--parse + .ts-suite-ssl-row {
+  margin-top: 16px;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels {
+  margin: 0 0 24px;
+  background: transparent !important;
+}
+
+.ts-suite-form-page .ts-suite-ssl-row + .ts-suite-auth-panels {
+  margin-top: 0;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels :deep(.v-expansion-panel) {
+  background: #1a1a1a !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px !important;
+  overflow: hidden;
+  flex: 1 1 100% !important;
+  max-width: 100% !important;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels :deep(.v-expansion-panel__shadow) {
+  display: none !important;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels :deep(.v-expansion-panel-title) {
+  min-height: 44px !important;
+  padding: 0 16px !important;
+  font-size: 14px !important;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82) !important;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels :deep(.v-expansion-panel-title__icon) {
+  color: rgba(255, 255, 255, 0.55) !important;
+  margin-inline-start: auto;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels :deep(.v-expansion-panel-text__wrapper) {
+  padding: 24px !important;
+  background: #161618 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ts-suite-form-page .ts-suite-auth-panels__body .dg-md-outlined-item {
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+.ts-suite-form-page .ts-suite-auth-panels__badge {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #93c5fd;
+}
+
+.ts-suite-form-page .ts-git-auth-radio {
+  margin: 0 0 14px;
+  padding: 0;
+}
+
+.ts-suite-form-page .ts-git-auth-radio :deep(.v-selection-control-group) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+}
+
+.ts-suite-form-page .ts-git-auth-radio :deep(.v-input__control) {
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-git-auth-radio :deep(.v-selection-control) {
+  flex: 0 0 auto;
+  min-height: 36px;
+  gap: 8px;
+  align-items: center;
+}
+
+.ts-suite-form-page .ts-git-auth-radio :deep(.v-selection-control__wrapper) {
+  align-items: center;
+}
+
+.ts-suite-form-page .ts-git-auth-radio :deep(.v-label) {
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+  opacity: 1;
+  padding-inline-start: 8px;
+}
+
+.ts-suite-form-page .ts-git-auth-radio :deep(.v-selection-control--dirty .v-label) {
+  color: #ffffff;
+}
+
+.ts-suite-form-page .ts-suite-auth-credential-slot {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.ts-suite-form-page .ts-suite-ssh-wrap {
+  margin-bottom: 0;
+}
+
+/* Git 双行栅格：space-y-4 + 每行 grid 2 列 items-start（对齐 MUI margin=none） */
+.ts-suite-form-page .ts-suite-git-pair-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 100%;
+  margin: 24px 0 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.ts-suite-form-page .ts-suite-git-pair-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+  row-gap: 0;
+  align-items: start;
+  justify-items: stretch;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.ts-suite-form-page .ts-suite-git-pair-row--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ts-suite-form-page .ts-suite-git-pair-row__cell,
+.ts-suite-form-page .ts-suite-git-pair-row__cell.dg-form-item.form-group {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0;
+}
+
+.ts-suite-form-page .ts-suite-git-pair-row__cell .v-text-field.v-input,
+.ts-suite-form-page .ts-suite-git-pair-row__cell .v-select.v-input,
+.ts-suite-form-page .ts-suite-git-pair-row__cell .v-combobox.v-input,
+.ts-suite-form-page .ts-suite-git-pair-row__cell .repo-form-field {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-git-pair-row__cell .v-text-field .v-input__control,
+.ts-suite-form-page .ts-suite-git-pair-row__cell .v-select .v-input__control,
+.ts-suite-form-page .ts-suite-git-pair-row__cell .v-combobox .v-input__control {
+  width: 100% !important;
+}
+
+/* Git 区双栅格表单项与基础信息 / Webhook 共用 repo-form-page--v2 的 48px Outlined */
+.ts-suite-form-page.repo-form-page--v2 .ts-suite-git-pair-stack .dg-form-item.form-group {
+  margin-bottom: 0;
+}
+
+.ts-suite-form-page .ts-suite-git-credential-select .v-input__details {
+  display: flex !important;
+  align-items: flex-start;
+  min-height: 0 !important;
+  padding: 6px 0 0 !important;
+  margin: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-git-credential-select .v-messages {
+  min-height: 0 !important;
+  opacity: 1 !important;
+}
+
+.ts-suite-form-page .ts-credential-inherit-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.ts-suite-form-page .ts-credential-inherit-hint .ts-suite-auth-panels__badge {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: baseline;
+}
+
+@media (max-width: 720px) {
+  .ts-suite-form-page .ts-suite-git-pair-row {
+    grid-template-columns: 1fr;
+    row-gap: 16px;
+  }
+}
+
+/* 独立凭证子面板：挂在「独立凭证」下拉下方（右列视觉归属） */
+.ts-suite-form-page .ts-suite-auth-subpanel {
+  width: 100%;
+  margin: 0;
+  padding: 14px;
+  box-sizing: border-box;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+}
+
+@media (min-width: 721px) {
+  .ts-suite-form-page .ts-suite-auth-subpanel {
+    width: calc(50% - 8px);
+    margin-left: auto;
+    margin-right: 0;
+  }
+}
+
+.ts-suite-form-page .ts-suite-auth-subpanel__title {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: none;
+}
+
+.ts-suite-form-page .ts-suite-auth-subpanel__field {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.ts-suite-form-page .ts-suite-git-token-field .v-input__details {
+  display: flex !important;
+  padding: 6px 0 0 !important;
+  margin: 0 !important;
+  min-height: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-token-security-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.ts-suite-form-page .ts-suite-field-icon-btn {
+  color: rgba(255, 255, 255, 0.55) !important;
+  opacity: 1;
+}
+
+.ts-suite-form-page .ts-suite-field-icon-btn:hover {
+  color: #93c5fd !important;
+}
+
+.ts-suite-form-page .ts-suite-ssh-key-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+}
+
+.ts-suite-form-page .ts-suite-ssh-key-block__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.ts-suite-form-page .ts-suite-ssh-import-btn {
+  min-height: 28px !important;
+  height: 28px !important;
+  padding-inline: 8px !important;
+  font-size: 12px !important;
+  letter-spacing: 0;
+}
+
+.ts-suite-form-page .ts-suite-ssh-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ts-suite-form-page .ts-suite-ssh-key-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.ts-suite-form-page .ts-suite-ssh-key-hint code {
+  font-size: 11px;
+  color: rgba(147, 197, 253, 0.85);
+}
+
+.ts-suite-form-page .ts-suite-git-branch-combobox .v-input__details {
+  display: flex !important;
+  min-height: 0 !important;
+  padding: 6px 0 0 !important;
+  margin: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-git-branch-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.ts-suite-form-page .ts-suite-branch-refresh-btn {
+  opacity: 0.85;
+}
+
+.ts-suite-form-page .ts-branch-default-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #93c5fd;
+}
+
+.ts-suite-form-page .ts-suite-ssl-row {
+  margin: 16px 0 24px;
+  padding: 0;
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+  width: 100%;
+  max-width: 100%;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox {
+  width: 100%;
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-input__control {
+  width: auto;
+  max-width: 100%;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-selection-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin-inline: 0 !important;
+  padding-inline: 0 !important;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-selection-control__wrapper {
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-selection-control__input {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-selection-control__input .v-icon {
+  font-size: 20px !important;
+  width: 20px !important;
+  height: 20px !important;
+  opacity: 1 !important;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-selection-control:not(.v-selection-control--dirty) .v-selection-control__input .v-icon {
+  color: rgba(255, 255, 255, 0.38) !important;
+  border-radius: 4px;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-selection-control--dirty .v-selection-control__input .v-icon {
+  color: #ffffff !important;
+}
+
+.ts-suite-form-page .ts-suite-ssl-checkbox .v-selection-control--dirty .v-selection-control__input {
+  color: #3b82f6 !important;
+  background-color: #3b82f6;
+  border-radius: 4px;
+}
+
+.ts-suite-form-page .ts-suite-framework-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+.ts-suite-form-page .ts-suite-framework-select.v-select--active-menu,
+.ts-suite-form-page .ts-suite-framework-select.v-input--focused {
+  position: relative;
+  z-index: 6;
+}
+
+.ts-suite-form-page .ts-suite-probe-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 12px;
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-suite-probe-row--inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.ts-suite-form-page .ts-suite-probe-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 12px;
+}
+
+.ts-suite-form-page .ts-suite-probe-panel {
+  margin-top: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: min(100%, 720px);
+}
+
+.ts-suite-form-page .ts-suite-probe-panel--success {
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(22, 101, 52, 0.12);
+}
+
+.ts-suite-form-page .ts-suite-probe-panel--error {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(100%, 640px);
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ts-suite-form-page .ts-suite-probe-panel__error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ts-suite-form-page .ts-suite-probe-retry {
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #93c5fd;
+  font-size: 13px;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.ts-suite-form-page .ts-suite-probe-retry:hover:not(:disabled) {
+  color: #bfdbfe;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ts-suite-form-page .ts-suite-probe-retry:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ts-suite-form-page .ts-suite-probe-panel__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #bbf7d0;
+}
+
+.ts-suite-form-page .ts-suite-probe-panel__icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.ts-suite-form-page .ts-suite-probe-samples {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ts-suite-form-page .ts-suite-probe-samples li {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.ts-suite-form-page .ts-suite-probe-samples__route {
+  color: #93c5fd;
+}
+
+.ts-suite-form-page .ts-suite-probe-samples__sep {
+  margin: 0 6px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.ts-suite-form-page .ts-suite-probe-panel__amber {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: rgba(120, 53, 15, 0.25);
+  font-size: 12px;
+  line-height: 1.45;
+  color: #fde68a;
+}
+
+.ts-suite-form-page .ts-suite-probe-panel__warnings {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ts-suite-form-page .ts-suite-probe-row--auth {
+  margin-top: 16px;
+}
+
+.ts-suite-form-page .ts-suite-probe-btn {
+  align-self: flex-start;
+  min-height: 36px !important;
+  height: 36px !important;
+  padding-inline: 20px !important;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  color: #93c5fd !important;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.ts-suite-form-page .ts-suite-probe-btn :deep(.v-btn__content) {
+  justify-content: center;
+  width: 100%;
+}
+
+.ts-suite-form-page .ts-form-hint--probe {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: none;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  align-self: flex-start;
+}
+
+.ts-suite-form-page .ts-form-hint--probe-error {
+  color: #f87171;
+}

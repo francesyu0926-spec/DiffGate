@@ -44,12 +44,22 @@ def should_send_im(repo: Repository | None, gate: str) -> bool:
     return g == "BLOCK"
 
 
+def webhook_vendor_from_url(url: str) -> str:
+    u = (url or "").lower()
+    if "feishu" in u or "lark" in u or "larksuite" in u:
+        return "feishu"
+    if "dingtalk" in u or "oapi.dingtalk.com" in u:
+        return "dingtalk"
+    if "qyapi.weixin.qq.com" in u or "weixin.qq.com/cgi-bin/webhook" in u:
+        return "wecom"
+    return "custom"
+
+
 def _pick_webhook(repo: Repository | None) -> tuple[str, str]:
     settings = get_settings()
     custom = repo_notify_webhook(repo)
     if custom:
-        vendor = "feishu" if "feishu" in custom or "lark" in custom else "custom"
-        return custom, vendor
+        return custom, webhook_vendor_from_url(custom)
     if settings.feishu_webhook_url:
         return settings.feishu_webhook_url, "feishu"
     if settings.dingtalk_webhook_url:

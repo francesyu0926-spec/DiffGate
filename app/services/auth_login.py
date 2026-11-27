@@ -119,7 +119,17 @@ def perform_login(db: Session, request: Request, body: LoginRequest) -> dict[str
         )
         apply_global_role_from_grants(db, user)
 
-    token = create_session(db, user)
+    pat = (body.access_token or "").strip() or None
+    gl_base = None
+    if body.provider == "gitlab":
+        gl_base = identity.get("gitlab_base_url") or body.gitlab_base_url
+    token = create_session(
+        db,
+        user,
+        platform_access_token=pat if body.provider not in ("local",) else None,
+        gitlab_base_url=gl_base,
+        platform_provider=identity["provider"] if body.provider != "local" else None,
+    )
     db.commit()
     actor = actor_from_user(user)
     payload = user_to_actor_payload(user, can_override=actor.can_override)

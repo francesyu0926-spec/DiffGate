@@ -20,6 +20,7 @@ from app.services.quality_gate import (
     reconcile_gates_for_jobs,
     reconciled_coverage_stats,
 )
+from app.services.testcase_recall import build_precision_recall
 from app.utils.time_format import as_utc_iso
 
 router = APIRouter(prefix="/regression", tags=["regression"])
@@ -141,7 +142,11 @@ def _filter_jobs(
 ) -> list[AnalysisJob]:
     stmt = (
         select(AnalysisJob)
-        .where(AnalysisJob.status.in_(("completed", "failed")))
+        .where(
+            AnalysisJob.status.in_(
+                ("completed", "failed", "awaiting_probe", "timeout", "env_mismatch")
+            )
+        )
         .order_by(AnalysisJob.created_at.desc())
         .limit(limit)
     )
@@ -283,6 +288,9 @@ def regression_batch_detail(
                 "line": p.get("line"),
                 "covered": p.get("covered"),
                 "prefix": p.get("prefix") or "+",
+                "ignored": bool(p.get("ignored")),
+                "filter_reason": p.get("filter_reason"),
+                "branch_partial": bool(p.get("branch_partial")),
             }
             for p in stored_probes
             if isinstance(p, dict)
@@ -323,10 +331,52 @@ def regression_batch_detail(
         f"批次 {job.id[:8]} · 门禁 BLOCK\n{share_url}"
     )
 
+    diff_lines_total = gr.get("diff_lines_total")
+    executable_changed_lines = gr.get("executable_changed_lines")
+    lines_filtered = gr.get("lines_filtered")
+    coverage_not_required = gr.get("coverage_not_required")
+    if executable_changed_lines is None and line_ranges:
+        from pathlib import Path
+
+        from app.services.coverage_denom_clean import clean_changed_lines
+        from app.services.coverage_probe import repo_dir_for_job
+
+        scan_root = (repo.scan_root if repo and repo.scan_root else ".") or "."
+        repo_dir: Path | None = None
+        try:
+            rd = repo_dir_for_job(job)
+            if rd.is_dir():
+                repo_dir = rd
+        except Exception:
+            repo_dir = None
+        denom = clean_changed_lines(
+            line_ranges,
+            repo_dir=repo_dir,
+            scan_root=scan_root,
+            repo=repo,
+        )
+        diff_lines_total = denom.diff_lines_total
+        executable_changed_lines = denom.executable_changed_lines
+        lines_filtered = denom.lines_filtered
+        coverage_not_required = denom.coverage_not_required
+
+    meta = job.job_metadata or {}
+    probe_hint = gr.get("probe_ui_hint") or gr.get("probe_timeout_hint")
+    if not probe_hint and job.status == "awaiting_probe":
+        from app.services.job_execution_state import PROBE_UI_HINTS
+
+        probe_hint = PROBE_UI_HINTS["awaiting_probe"]
+
+    precision_recall = build_precision_recall(db, job)
+
     return {
         "job_id": job.id,
         "repo": job.repo_full_name,
         "commit": job.head_sha,
+        "precision_recall": precision_recall,
+        "execution_status": job.status,
+        "execution_phase_label": meta.get("execution_phase_label"),
+        "probe_ui_hint": probe_hint,
         "gate": gate,
         "gate_label": gr.get("gate_label") or gate,
         "block_reason": gr.get("block_reason"),
@@ -347,6 +397,10 @@ def regression_batch_detail(
         "incremental_coverage_pct": cov,
         "changed_lines": changed_lines,
         "covered_lines": covered_lines,
+        "diff_lines_total": diff_lines_total,
+        "executable_changed_lines": executable_changed_lines,
+        "lines_filtered": lines_filtered,
+        "coverage_not_required": bool(coverage_not_required),
     }
 
 
@@ -397,8 +451,13 @@ def manual_override_batch(
     return {"ok": True, "job_id": job_id, "gate_result": gate}
 
 
-@router.post("/batches/{job_id}/run-coverage")
-def run_coverage_for_batch(
+@router.get("/batches/{job_id}/precision-recall")
+def regression_precision_recall(job_id: str, db: Session = Depends(get_db)) -> dict:
+    """受影响 API 指纹 → 索引用例命中 / 缺口 / 执行指令。"""
+    job = db.get(AnalysisJob, job_id)
+    if not job:
+        raise HTTPException(404, "批次不存在")
+    return build_precision_recall(db, job)
     job_id: str,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),

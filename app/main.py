@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, dashboard, dispatch, jobs, regression, repositories, system, webhooks
+from app.api import auth, dashboard, dispatch, jobs, probe_control, regression, repositories, system, test_suites, webhooks
 from app.config import get_settings
 from app.db.session import init_db
 
@@ -19,6 +19,9 @@ async def lifespan(_app: FastAPI):
     from app.services.job_recovery import recover_stuck_jobs
 
     recover_stuck_jobs()
+    from app.services.probe_timeout import fuse_stale_probe_returns
+
+    fuse_stale_probe_returns()
     yield
 
 
@@ -35,9 +38,7 @@ def create_app() -> FastAPI:
     app.include_router(webhooks.router, prefix="/api/v1")
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(repositories.router, prefix="/api/v1")
-    app.include_router(auth.router, prefix="/api/v1")
-    app.include_router(system.router, prefix="/api/v1")
-    app.include_router(dashboard.router, prefix="/api/v1")
+    app.include_router(test_suites.router, prefix="/api/v1")
     app.include_router(regression.router, prefix="/api/v1")
     app.include_router(dispatch.router, prefix="/api/v1")
 

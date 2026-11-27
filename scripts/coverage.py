@@ -35,7 +35,26 @@ def main() -> int:
         action="store_true",
         help="写库后再 POST gate-report（默认仅写库）",
     )
+    parser.add_argument(
+        "--coverage-data-dir",
+        default=None,
+        help="CI 已落盘的 .coverage 目录（将 combine 后解析，不重复冒烟）",
+    )
+    parser.add_argument(
+        "--reset-coverage",
+        action="store_true",
+        help="探针前清空 coverage 数据目录",
+    )
     args = parser.parse_args()
+
+    if args.coverage_data_dir:
+        import os
+
+        os.environ["DIFFGATE_COVERAGE_DATA_DIR"] = args.coverage_data_dir
+    if args.reset_coverage:
+        import os
+
+        os.environ["DIFFGATE_COVERAGE_RESET"] = "1"
 
     settings = get_settings()
     result = run_coverage_probe_for_job_id(args.job_id)

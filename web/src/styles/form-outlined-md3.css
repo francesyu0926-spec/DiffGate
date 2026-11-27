@@ -1,0 +1,338 @@
+/**
+ * Material Design 3 — Outlined Text Field（标签在边框凹槽）
+ * 用法：在 <v-form> / 弹窗内容上加 class="dg-md3-form dg-dark-form"
+ */
+
+.dg-md3-form,
+.dg-form-dialog.dg-md3-form {
+  --form-border-default: #8b7fd4;
+  --form-border-hover: #a699e8;
+  --form-border-focus: #b6a5ff;
+  --form-shadow-focus: 0 0 0 3px rgba(139, 123, 232, 0.32);
+  --dg-outlined-border-width: 3px;
+}
+
+/* Vuetify outlined 真实线宽由 --v-field-border-width 控制（默认 1px / 聚焦 2px） */
+.dg-md3-form :deep(.v-field--variant-outlined .v-field__outline),
+.dg-md3-form :deep(.v-field--variant-outlined.v-field--focused .v-field__outline) {
+  --v-field-border-width: var(--dg-outlined-border-width, 3px) !important;
+  --v-field-border-opacity: 1 !important;
+}
+
+/* 悬停时 Vuetify 会用 on-surface 高亮把描边变成白，此处强制保持紫色系 */
+.dg-md3-form :deep(.v-field--variant-outlined:hover:not(.v-field--disabled) .v-field__outline) {
+  color: var(--form-border-hover) !important;
+  --v-field-border-opacity: 1 !important;
+}
+
+.dg-md3-form :deep(.v-field--variant-outlined.v-field--focused .v-field__outline),
+.dg-md3-form :deep(.v-input--focused .v-field--variant-outlined .v-field__outline) {
+  color: var(--form-border-focus) !important;
+  --v-field-border-opacity: 1 !important;
+}
+
+.dg-md3-form :deep(.v-field--variant-outlined .v-field__outline__start),
+.dg-md3-form :deep(.v-field--variant-outlined .v-field__outline__end) {
+  border-color: currentColor !important;
+  opacity: 1 !important;
+}
+
+.dg-md3-form :deep(.v-field--variant-outlined .v-field__outline__notch::before),
+.dg-md3-form :deep(.v-field--variant-outlined .v-field__outline__notch::after) {
+  border-color: currentColor !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .v-field--active.v-field--variant-outlined .v-field__outline__notch::before {
+  opacity: 0 !important;
+}
+
+.dg-md3-form :deep(.v-field--variant-outlined.v-field--focused .v-field__outline__start),
+.dg-md3-form :deep(.v-field--variant-outlined.v-field--focused .v-field__outline__end),
+.dg-md3-form :deep(.v-input--focused .v-field--variant-outlined .v-field__outline__start),
+.dg-md3-form :deep(.v-input--focused .v-field--variant-outlined .v-field__outline__end) {
+  border-color: var(--form-border-focus) !important;
+  opacity: 1 !important;
+}
+
+.dg-md3-form :deep(.v-field--variant-outlined.v-field--focused .v-field__outline__notch::before),
+.dg-md3-form :deep(.v-field--variant-outlined.v-field--focused .v-field__outline__notch::after),
+.dg-md3-form :deep(.v-input--focused .v-field--variant-outlined .v-field__outline__notch::before),
+.dg-md3-form :deep(.v-input--focused .v-field--variant-outlined .v-field__outline__notch::after) {
+  border-color: var(--form-border-focus) !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .v-field--active.v-field--variant-outlined.v-field--focused .v-field__outline__notch::before,
+.repo-form-page--v2 .dg-md3-form .v-input--focused .v-field--active.v-field--variant-outlined .v-field__outline__notch::before {
+  opacity: 0 !important;
+}
+
+.dg-md3-form .repo-form-field,
+.dg-md3-form .dg-form-field {
+  margin-bottom: 0;
+}
+
+/* 取消旧版「外部 label + 填充底」对 outlined 的覆盖 */
+.repo-dialog-form.dg-dark-form.dg-md3-form .repo-form-field :deep(.v-field) {
+  margin-top: 0 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.repo-dialog-form.dg-dark-form.dg-md3-form .repo-form-field :deep(.v-field__outline),
+.dg-md3-form .repo-form-field :deep(.v-field__outline),
+.dg-md3-form .dg-form-field :deep(.v-field__outline) {
+  display: block !important;
+  opacity: 1 !important;
+  color: var(--form-border-default) !important;
+  --v-field-border-opacity: 1;
+}
+
+.repo-dialog-form.dg-dark-form.dg-md3-form .repo-form-field :deep(.v-field__overlay),
+.dg-md3-form .repo-form-field :deep(.v-field__overlay) {
+  display: none !important;
+}
+
+.dg-md3-form .repo-form-field :deep(.v-field--variant-outlined),
+.dg-md3-form .dg-form-field :deep(.v-field--variant-outlined) {
+  border-radius: 8px !important;
+  color: var(--form-text);
+}
+
+/* 仓库全页：MD Outlined 紫色描边 */
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field--variant-outlined .v-field__outline),
+.repo-form-page--v2 .dg-md3-form .repo-form-field.dg-control :deep(.v-field--variant-outlined .v-field__outline) {
+  color: var(--form-border-default, #8b7fd4) !important;
+}
+
+.repo-form-page--v2 .dg-md3-form :deep(.v-input__details) {
+  display: none !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.dg-md3-form .repo-form-field :deep(.v-field--variant-outlined:hover:not(.v-field--disabled) .v-field__outline),
+.dg-md3-form .dg-form-field :deep(.v-field--variant-outlined:hover:not(.v-field--disabled) .v-field__outline) {
+  color: var(--form-border-hover) !important;
+}
+
+.dg-md3-form .repo-form-field :deep(.v-field--variant-outlined.v-field--focused .v-field__outline),
+.dg-md3-form .dg-form-field :deep(.v-field--variant-outlined.v-field--focused .v-field__outline),
+.dg-md3-form .repo-form-field :deep(.v-input--focused .v-field--variant-outlined .v-field__outline),
+.dg-md3-form .dg-form-field :deep(.v-input--focused .v-field--variant-outlined .v-field__outline) {
+  color: var(--form-border-focus) !important;
+  --v-field-border-opacity: 1 !important;
+}
+
+.dg-md3-form .repo-form-field :deep(.v-field--variant-outlined.v-field--error .v-field__outline),
+.dg-md3-form .dg-form-field :deep(.v-field--variant-outlined.v-field--error .v-field__outline) {
+  color: var(--form-border-error) !important;
+}
+
+.dg-md3-form .repo-form-field :deep(.v-field--variant-outlined.v-field--focused .v-label),
+.dg-md3-form .dg-form-field :deep(.v-field--variant-outlined.v-field--focused .v-label),
+.dg-md3-form .repo-form-field :deep(.v-field--variant-outlined.v-field--focused .v-label.v-field-label--floating),
+.dg-md3-form .dg-form-field :deep(.v-field--variant-outlined.v-field--focused .v-label.v-field-label--floating) {
+  color: var(--form-border-focus) !important;
+}
+
+.dg-md3-form .repo-form-field :deep(.v-field--variant-outlined .v-field__input),
+.dg-md3-form .dg-form-field :deep(.v-field--variant-outlined .v-field__input),
+.dg-md3-form .repo-form-field :deep(input),
+.dg-md3-form .repo-form-field :deep(textarea) {
+  color: var(--form-text);
+  font-size: 14px;
+}
+
+.dg-md3-form .repo-form-field :deep(input::placeholder),
+.dg-md3-form .repo-form-field :deep(textarea::placeholder) {
+  color: var(--form-placeholder) !important;
+  opacity: 1;
+}
+
+.dg-md3-form .repo-form-field--mono :deep(input),
+.dg-md3-form .repo-form-field--mono :deep(textarea) {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 13px;
+}
+
+.dg-md3-form .repo-form-field--desc :deep(textarea) {
+  min-height: 80px;
+}
+
+/* 外部标签（标签在输入框上方，非边框凹槽） */
+.dg-md3-form .dg-field-external-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dg-md3-form .dg-field-external-label .dg-form-label-row {
+  margin-bottom: 0;
+}
+
+.dg-md3-form .dg-field-external-label .repo-form-field :deep(.v-label.v-field-label) {
+  display: none !important;
+}
+
+.dg-md3-form .dg-field-external-label .repo-form-field.dg-control :deep(.v-field) {
+  min-height: 40px !important;
+}
+
+/* 外部 label + dg-control：保留 Vuetify outlined 描边框 */
+.dg-md3-form .dg-field-external-label .repo-form-field.dg-control :deep(.v-field--variant-outlined),
+.dg-md3-form .ts-dialog-field.repo-form-field.dg-control :deep(.v-field--variant-outlined) {
+  margin-top: 0 !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.dg-md3-form .dg-field-external-label .repo-form-field.dg-control :deep(.v-field__overlay),
+.dg-md3-form .ts-dialog-field :deep(.v-field__overlay) {
+  display: none !important;
+}
+
+.dg-md3-form .dg-field-external-label .repo-form-field.dg-control :deep(.v-field__outline),
+.dg-md3-form .ts-dialog-field :deep(.v-field__outline) {
+  display: block !important;
+  opacity: 1 !important;
+  color: var(--form-border-default, #8b7fd4) !important;
+  --v-field-border-opacity: 1;
+}
+
+.dg-md3-form .dg-field-external-label .repo-form-field.dg-control
+  :deep(.v-field--variant-outlined:hover:not(.v-field--disabled) .v-field__outline),
+.dg-md3-form .ts-dialog-field :deep(.v-field--variant-outlined:hover:not(.v-field--disabled) .v-field__outline) {
+  color: var(--form-border-hover, #a699e8) !important;
+}
+
+.dg-md3-form .dg-field-external-label .repo-form-field.dg-control
+  :deep(.v-field--variant-outlined.v-field--focused .v-field__outline),
+.dg-md3-form .ts-dialog-field :deep(.v-field--variant-outlined.v-field--focused .v-field__outline) {
+  color: var(--form-border-focus, #b6a5ff) !important;
+}
+
+.dg-md3-form .dg-field-external-label .repo-form-field.dg-control
+  :deep(.v-field--variant-outlined.v-field--focused),
+.dg-md3-form .ts-dialog-field :deep(.v-field--variant-outlined.v-field--focused) {
+  box-shadow: var(--form-shadow-focus) !important;
+}
+
+.dg-md3-form .dg-field-external-label .repo-form-field.dg-control
+  :deep(.v-field--variant-outlined.v-field--error .v-field__outline),
+.dg-md3-form .ts-dialog-field :deep(.v-field--variant-outlined.v-field--error .v-field__outline) {
+  color: var(--form-border-error, #ef4444) !important;
+}
+
+.dg-md3-form .repo-form-field--single-line :deep(.v-field) {
+  max-height: 48px;
+}
+
+.dg-md3-form .repo-form-field--single-line :deep(input) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dg-md3-form .v-messages__message {
+  color: var(--form-error-text) !important;
+  font-size: 12px;
+}
+
+.dg-form-dialog.dg-md3-form {
+  --v-theme-surface: var(--dg-surface-modal, #1e1e1e);
+}
+
+.dg-md3-form .form-group {
+  gap: 0;
+}
+
+/* —— 下拉浮层：提亮 + 阴影 + 与触发框等宽（需 menu-props: dgMd3SelectMenuProps）—— */
+.dg-md3-select-menu.v-overlay__content {
+  background: #2c2c2c !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  overflow: hidden;
+  opacity: 1 !important;
+}
+
+.dg-md3-select-menu .v-list {
+  background: transparent !important;
+  padding: 4px !important;
+}
+
+.dg-md3-select-menu .v-list-item {
+  position: relative;
+  min-height: 40px !important;
+  padding: 10px 16px !important;
+  padding-inline-end: 40px !important;
+  border-radius: 6px !important;
+  margin-inline: 2px;
+  color: rgba(255, 255, 255, 0.8) !important;
+  overflow: visible !important;
+}
+
+.dg-md3-select-menu .v-list-item .v-list-item__overlay,
+.dg-md3-select-menu .v-list-item .v-list-item__underlay {
+  opacity: 0 !important;
+}
+
+.dg-md3-select-menu .v-list-item .v-list-item__content {
+  position: relative;
+  z-index: 1;
+  overflow: visible !important;
+}
+
+.dg-md3-select-menu .v-list-item-title {
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.8) !important;
+  font-size: 14px;
+  line-height: 1.35;
+  opacity: 1 !important;
+  overflow: visible !important;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.dg-md3-select-menu .v-list-item-subtitle {
+  color: rgba(255, 255, 255, 0.45) !important;
+  opacity: 1 !important;
+}
+
+.dg-md3-select-menu .v-list-item:hover:not(.v-list-item--disabled) {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.dg-md3-select-menu .v-list-item--active:not(.v-list-item--disabled) {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+
+.dg-md3-select-menu .v-list-item--active:not(.v-list-item--disabled) .v-list-item-title {
+  color: #ffffff !important;
+}
+
+.dg-md3-select-menu .v-list-item--active:not(.v-list-item--disabled)::after {
+  content: '✓';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #8ab4f8;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.dg-md3-select-menu .v-list-item--disabled {
+  opacity: 0.42 !important;
+}
+
+.dg-md3-select-menu .v-divider {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}

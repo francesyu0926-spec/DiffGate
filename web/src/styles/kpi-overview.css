@@ -15,7 +15,11 @@
   padding: 20px 20px 22px 22px !important;
 }
 .kpi-title {
-  opacity: 0.72;
+  opacity: 0.82;
+}
+.kpi-footnote {
+  color: rgba(255, 255, 255, 0.6) !important;
+  opacity: 1 !important;
 }
 .kpi-metric-row {
   display: flex;
@@ -26,12 +30,14 @@
 .kpi-metric {
   font-family: var(--diffgate-kpi);
   font-size: 1.75rem;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
 .kpi-metric--gate {
   font-size: 1.35rem;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.95);
 }
 .kpi-inline-badge {
   font-size: 11px;
@@ -61,8 +67,8 @@
   background: rgba(239, 68, 68, 0.1);
 }
 .kpi-card.m3-surface-card {
-  background-color: rgb(var(--v-theme-surface)) !important;
-  border: 1px solid rgb(var(--v-theme-outline));
+  background-color: #1e1e1e !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .kpi-card.m3-elevated,
 .m3-surface-card.m3-elevated.kpi-card {

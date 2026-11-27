@@ -44,15 +44,25 @@ class Settings(BaseSettings):
 
     # Webhook 同分支防抖窗口（秒）；0 表示关闭
     webhook_debounce_seconds: int = 20
+    # 分析完成后仍未收到 gate-report 的探针回传超时（分钟）
+    probe_return_timeout_minutes: int = 30
     # 分析使用 git worktree 沙箱（多分支并发）
     use_job_worktree: bool = True
     # Vue/TS tree-sitter 全栈追溯 + 跨仓 HTTP Client 扫描
     use_fullstack_trace: bool = True
 
+    # 可选：企业级 Java 静态分析 CLI（diffgate-java-analyzer.jar）
+    java_analyzer_jar: str = ""
+
+    # 可选：Go 静态分析 CLI（diffgate-go-ast）
+    go_analyzer_bin: str = ""
+
     # 平台状态回写 / IM
     github_token: str = ""
     github_pr_comments: bool = True
     gitlab_token: str = ""
+    # 内网 / 非标准端口 GitLab 默认放宽 SSL（可被仓库/用例集 skip_ssl_verify 覆盖）
+    git_skip_ssl_verify_internal: bool = True
     feishu_webhook_url: str = ""
     dingtalk_webhook_url: str = ""
     wecom_webhook_url: str = ""

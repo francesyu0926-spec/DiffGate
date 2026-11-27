@@ -6,6 +6,8 @@ import ImpactChainAccordion, { type AccordionDiffPick } from '@/components/Impac
 import CodeDiffDrawer from '@/components/CodeDiffDrawer.vue'
 import { fetchJob, fetchJobGraph, humanizeJobError, refreshJobFullstack, retryJob } from '@/api/client'
 import type { CallPath, JobDetail, JobGraph, SuspectFunction } from '@/api/types'
+import { isJobAnalysisReady } from '@/api/types'
+import { jobExecutionBadgeClass, jobExecutionLabel, jobExecutionToken } from '@/utils/statusTokens'
 import { cleanRepoRelativePath, splitRepoPath } from '@/utils/repoPath'
 import { forceUnlockPageScroll, syncPageScrollLock } from '@/utils/scrollLock'
 
@@ -836,19 +838,22 @@ function openDrawerFromCallPath(row: (typeof callPathRows.value)[number]) {
   drawerOpen.value = true
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  pending: '排队中',
-  running: '分析中',
-  debouncing: '合并推送',
-  superseded: '已取代',
-  completed: '已完成',
-  failed: '失败',
-}
-
 const statusLabel = computed(() => {
   const s = job.value?.status
   if (!s) return '—'
-  return STATUS_LABEL[s] ?? s
+  return jobExecutionLabel(s)
+})
+
+const statusBadgeClass = computed(() => {
+  const s = job.value?.status
+  if (!s) return 'job-status-badge dg-badge dg-badge--job dg-badge--job-pending'
+  return `job-status-badge ${jobExecutionBadgeClass(s)}`
+})
+
+const statusBadgeTitle = computed(() => {
+  const s = job.value?.status
+  if (!s) return undefined
+  return jobExecutionToken(s).hint
 })
 
 const jobInProgress = computed(() => {
@@ -876,7 +881,7 @@ const suspectEmptyMinHeightResolved = computed(() => {
 
 const isZeroTopLevelApiImpact = computed(
   () =>
-    job.value?.status === 'completed' &&
+    isJobAnalysisReady(job.value?.status) &&
     apis.value.length === 0 &&
     callPathRows.value.length === 0 &&
     !selectedApiKey.value,
@@ -956,7 +961,7 @@ const metaChangedLineCount = computed(() => {
 
 const isEmptyImpact = computed(() => {
   const j = job.value
-  return Boolean(j && j.status === 'completed' && !jobHasImpact(j))
+  return Boolean(j && isJobAnalysisReady(j.status) && !jobHasImpact(j))
 })
 
 const emptyImpactNotice = computed(() => {
@@ -980,10 +985,10 @@ const graphEmptyTitle = computed(() => {
 
 const graphEmptyDesc = computed(() => {
   if (showAnalyzingUi.value) return analyzingDetail.value
-  if (job.value?.status === 'completed' && showTopologyCompactEmpty.value) {
+  if (isJobAnalysisReady(job.value?.status) && showTopologyCompactEmpty.value) {
     return ''
   }
-  if (job.value?.status === 'completed') return '当前任务未生成可展示的调用链子图'
+  if (isJobAnalysisReady(job.value?.status)) return '当前任务未生成可展示的调用链子图'
   if (!isEmptyImpact.value) return '任务完成后生成变更影响拓扑'
   const ds = job.value?.changed_symbols?.diff_summary
   if (ds && ds.python_files === 0) {
@@ -1041,7 +1046,7 @@ const suspectPanelEmptyCopy = computed(() => {
 /** 已完成、有底层变更但无 API/调用链：拓扑区折叠为轻量提示条 */
 const showTopologyCompactEmpty = computed(() => {
   if (showAnalyzingUi.value) return false
-  if (job.value?.status !== 'completed') return false
+  if (!isJobAnalysisReady(job.value?.status)) return false
   if (graphReady(graph.value)) return false
   if (callPathRows.value.length > 0 || apis.value.length > 0) return false
   return true
@@ -1094,7 +1099,7 @@ async function load(silent = false) {
   if (!silent) loading.value = true
   try {
     job.value = await fetchJob(props.id)
-    if (job.value.status === 'completed') {
+    if (isJobAnalysisReady(job.value.status)) {
       const apiCount = job.value.affected_apis?.count ?? 0
       const fs = job.value.changed_symbols?.fullstack_impact
       const feCalls = fs?.frontend_api_calls?.length ?? 0
@@ -1170,7 +1175,7 @@ onUnmounted(clearPoll)
         </template>
       </el-page-header>
       <button
-        v-if="job?.status === 'completed'"
+        v-if="isJobAnalysisReady(job?.status)"
         type="button"
         class="job-regression-cta text-none"
         @click="goRegression"
@@ -1195,11 +1200,8 @@ onUnmounted(clearPoll)
       aria-label="任务摘要"
     >
       <span
-        class="job-status-badge job-meta-strip__status"
-        :class="[
-          job?.status ? `job-status-badge--${job.status}` : 'job-status-badge--pending',
-          showAnalyzingUi && 'job-status-badge--live',
-        ]"
+        :class="[statusBadgeClass, 'job-meta-strip__status', showAnalyzingUi && 'job-status-badge--live']"
+        :title="statusBadgeTitle"
       >
         <span
           v-if="job?.status === 'completed'"

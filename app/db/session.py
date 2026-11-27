@@ -34,14 +34,27 @@ def init_db() -> None:
     from app.db.migrate_sqlite import (
         ensure_analysis_job_columns,
         ensure_analysis_job_extra_columns,
+        ensure_auth_session_columns,
         ensure_diffgate_user_columns,
         ensure_repository_columns,
+        ensure_repository_slot_index,
+        ensure_test_suite_columns,
     )
 
     ensure_repository_columns()
+    ensure_repository_slot_index()
     ensure_analysis_job_columns()
     ensure_analysis_job_extra_columns()
     ensure_diffgate_user_columns()
+    ensure_auth_session_columns()
+    ensure_test_suite_columns()
+    from app.services.test_suite_seed import seed_default_test_suites
+
+    db = SessionLocal()
+    try:
+        seed_default_test_suites(db)
+    finally:
+        db.close()
 
 
 def get_db():

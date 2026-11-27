@@ -11,6 +11,8 @@ from app.config import get_settings
 from app.db.models import AnalysisJob, Repository
 from app.db.session import SessionLocal
 from app.services.analysis_runner import schedule_analyze_merge
+from app.services.job_execution_state import mark_cancelled
+from app.services.probe_timeout import fuse_stale_probe_returns
 from app.services.webhook_debounce import branch_key, supersede_branch_stale_jobs
 
 logger = logging.getLogger(__name__)
@@ -98,8 +100,11 @@ def recover_stuck_jobs(*, max_pending: int = 50) -> dict:
     finally:
         db.close()
 
+    probe_timeouts = fuse_stale_probe_returns()
+
     return {
         "recovered_pending": recovered_pending,
         "recovered_debouncing": recovered_debouncing,
         "skipped_no_clone_url": skipped,
+        "probe_timeouts": probe_timeouts,
     }

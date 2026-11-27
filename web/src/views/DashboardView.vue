@@ -3,6 +3,7 @@ import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchDashboardOverview, fetchJobAnalysisStats, fetchJobs } from '@/api/client'
 import type { JobAnalysisStats, JobListItem, JobStatus } from '@/api/types'
+import { jobExecutionBadgeClass, jobExecutionLabel, jobExecutionToken } from '@/utils/statusTokens'
 import RepoAutocompleteFilter, { type RepoGateStat } from '@/components/RepoAutocompleteFilter.vue'
 import Md3LoadState from '@/components/Md3LoadState.vue'
 import { formatLocalDateTime } from '@/utils/datetime'
@@ -127,24 +128,15 @@ const overviewCards = computed(() => {
 })
 
 function statusLabel(status: JobStatus) {
-  const map: Record<JobStatus, string> = {
-    completed: '已完成',
-    running: '分析中',
-    pending: '排队中',
-    failed: '失败',
-    debouncing: '合并推送',
-    superseded: '已取代',
-  }
-  return map[status] ?? status
+  return jobExecutionLabel(status)
 }
 
 function statusChipClass(status: JobStatus) {
-  if (status === 'completed') return 'status-chip--done'
-  if (status === 'failed') return 'status-chip--fail'
-  if (status === 'running') return 'status-chip--run'
-  if (status === 'superseded') return 'status-chip--muted'
-  if (status === 'debouncing') return 'status-chip--debounce'
-  return 'status-chip--wait'
+  return jobExecutionBadgeClass(status)
+}
+
+function statusChipTitle(status: JobStatus) {
+  return jobExecutionToken(status).hint
 }
 
 function formatTime(iso: string | null) {
@@ -357,8 +349,9 @@ onMounted(load)
             size="x-small"
             variant="flat"
             rounded="lg"
-            class="status-chip"
+            class="status-chip dg-badge dg-badge--job"
             :class="statusChipClass(job.status)"
+            :title="statusChipTitle(job.status)"
           >
             {{ statusLabel(job.status) }}
           </v-chip>
@@ -709,34 +702,8 @@ onMounted(load)
   user-select: none;
 }
 .status-chip {
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: 0.02em;
-}
-.status-chip--done {
-  background: rgba(16, 185, 129, 0.15) !important;
-  color: #34d399 !important;
-}
-.status-chip--fail {
-  background: rgba(239, 68, 68, 0.14) !important;
-  color: #f87171 !important;
-}
-.status-chip--run {
-  background: rgba(138, 180, 248, 0.12) !important;
-  color: #93c5fd !important;
-}
-.status-chip--wait {
-  background: rgba(142, 146, 153, 0.12) !important;
-  color: rgba(255, 255, 255, 0.45) !important;
-}
-.status-chip--debounce {
-  background: rgba(251, 191, 36, 0.1) !important;
-  color: #fbbf24 !important;
-}
-.status-chip--muted {
-  background: rgba(255, 255, 255, 0.04) !important;
-  color: rgba(255, 255, 255, 0.35) !important;
-}
-@media (max-width: 959px) {
   .job-row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:

@@ -8,6 +8,70 @@ class Base(DeclarativeBase):
     pass
 
 
+class TestSuite(Base):
+    """平台可关联的精准回归 / API 用例集目录。"""
+
+    __tablename__ = "test_suites"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    external_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # git | webhook | manual
+    source_type: Mapped[str] = mapped_column(String(16), default="manual")
+    git_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    git_branch: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    case_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    framework: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    git_reuse_repository_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    git_auth_method: Mapped[str] = mapped_column(String(16), default="inherit")
+    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ssh_private_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skip_ssl_verify: Mapped[bool] = mapped_column(Boolean, default=False)
+    trigger_webhook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    indexed_api_count: Mapped[int] = mapped_column(Integer, default=0)
+    case_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class IndexedTestCase(Base):
+    """用例集内单条可执行用例（case_uid 唯一）。"""
+
+    __tablename__ = "indexed_test_cases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    suite_id: Mapped[str] = mapped_column(String(36), index=True)
+    case_uid: Mapped[str] = mapped_column(String(512), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    run_selector: Mapped[str] = mapped_column(String(512))
+    source_framework: Mapped[str] = mapped_column(String(32), default="yaml")
+    file_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class IndexedCaseApiBinding(Base):
+    """一条用例可绑定多个 HTTP 契约（多步骤场景）。"""
+
+    __tablename__ = "indexed_case_api_bindings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[str] = mapped_column(String(36), index=True)
+    http_method: Mapped[str] = mapped_column(String(16))
+    raw_route: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    normalized_route: Mapped[str] = mapped_column(String(512), index=True)
+    contract_key: Mapped[str] = mapped_column(String(512), index=True)
+
+
 class Repository(Base):
     __tablename__ = "repositories"
 
@@ -97,6 +161,9 @@ class AuthSession(Base):
     user_id: Mapped[str] = mapped_column(String(36), index=True)
     token: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
+    platform_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    gitlab_base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    platform_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

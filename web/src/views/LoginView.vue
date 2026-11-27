@@ -225,7 +225,7 @@ onMounted(() => {
 
       <main class="login-shell__main">
         <div class="login-panel-wrap">
-        <section class="login-panel" aria-labelledby="login-mode-tabs">
+        <section class="login-panel dg-md3-form dg-dark-form" aria-labelledby="login-mode-tabs">
           <div id="login-mode-tabs" class="login-mode-tabs" role="tablist">
             <button
               type="button"

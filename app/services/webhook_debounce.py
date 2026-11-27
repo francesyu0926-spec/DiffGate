@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.db.models import AnalysisJob
 from app.db.session import SessionLocal
 from app.services.analysis_runner import schedule_analyze_merge
+from app.services.job_execution_state import mark_cancelled
 
 logger = logging.getLogger(__name__)
 
@@ -36,25 +37,47 @@ def branch_key(repo_full_name: str, ref: str) -> str:
 _branch_key = branch_key
 
 
+def _job_pr_number(job: AnalysisJob) -> int | None:
+    meta = job.job_metadata or {}
+    raw = meta.get("pr_number")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _same_analysis_stream(a: AnalysisJob, b: AnalysisJob) -> bool:
+    """同仓库 + 同分支，或同 MR pr_number。"""
+    if a.repo_full_name != b.repo_full_name:
+        return False
+    pra, prb = _job_pr_number(a), _job_pr_number(b)
+    if pra is not None and prb is not None:
+        return pra == prb
+    return branch_key(a.repo_full_name, a.ref) == branch_key(b.repo_full_name, b.ref)
+
+
 def supersede_branch_stale_jobs(db: Session, *, repo_full_name: str, ref: str, keep_job_id: str) -> int:
-    """同分支上除 keep_job_id 外的 pending/debouncing 标为 superseded。"""
-    key = branch_key(repo_full_name, ref)
+    """同分支/MR 上除 keep_job_id 外的 pending/debouncing/running 标为 superseded。"""
+    keep = db.get(AnalysisJob, keep_job_id)
+    if not keep:
+        return 0
     n = 0
     from sqlalchemy import select
 
     rows = db.scalars(
         select(AnalysisJob).where(
             AnalysisJob.repo_full_name == repo_full_name,
-            AnalysisJob.status.in_(("pending", "debouncing")),
+            AnalysisJob.status.in_(("pending", "debouncing", "running", "awaiting_probe")),
         )
     ).all()
     for j in rows:
         if j.id == keep_job_id:
             continue
-        if branch_key(j.repo_full_name, j.ref) != key:
+        if not _same_analysis_stream(keep, j):
             continue
-        j.status = "superseded"
-        j.error_message = "被同分支更新的 Push 取代（防抖合并）"
+        mark_cancelled(j)
         n += 1
     if n:
         db.commit()
@@ -65,9 +88,8 @@ def _cancel_superseded(job_id: str) -> None:
     db = SessionLocal()
     try:
         job = db.get(AnalysisJob, job_id)
-        if job and job.status in ("pending", "debouncing"):
-            job.status = "superseded"
-            job.error_message = "被同分支更新的 Push 取代（防抖合并）"
+        if job and job.status in ("pending", "debouncing", "running", "awaiting_probe"):
+            mark_cancelled(job)
             db.commit()
     finally:
         db.close()
@@ -81,7 +103,7 @@ def _fire(key: str, params: dict[str, Any]) -> None:
     db = SessionLocal()
     try:
         job = db.get(AnalysisJob, slot.job_id)
-        if not job or job.status == "superseded":
+        if not job or job.status in ("superseded", "cancelled"):
             return
         if job.head_sha != slot.head_sha:
             return

@@ -57,6 +57,7 @@ def _job_list_item(job: AnalysisJob) -> dict:
         "trigger_label": _trigger_label(job.provider),
         "commit_message": commit_message or None,
         "created_at": as_utc_iso(job.created_at),
+        "execution_phase_label": (job.job_metadata or {}).get("execution_phase_label"),
     }
 
 
@@ -123,7 +124,10 @@ def list_jobs(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     repo: str | None = Query(None, description="仓库 full_name"),
-    status: str | None = Query(None, description="pending|running|completed|failed"),
+    status: str | None = Query(
+        None,
+        description="pending|running|awaiting_probe|completed|failed|cancelled|timeout|env_mismatch",
+    ),
 ) -> dict:
     count_stmt = select(func.count(AnalysisJob.id))
     count_stmt = _jobs_list_filters(count_stmt, repo, status)
@@ -262,13 +266,49 @@ def refresh_job_fullstack(job_id: str, db: Session = Depends(get_db)) -> dict:
 @router.post("/{job_id}/gate-report")
 def report_job_gate(job_id: str, body: GateReportIn, db: Session = Depends(get_db)) -> dict:
     """CI / 精准回归调度中心回传覆盖率与用例结果。"""
+    from app.services.coverage_path_norm import normalize_probe_dicts
+    from app.services.runtime_commit import sha_matches_target
+
     job = db.get(AnalysisJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     repo = db.scalar(select(Repository).where(Repository.full_name == job.repo_full_name))
+    target_sha = (job.head_sha or "").strip()
+    if body.coverage_probes is not None and target_sha:
+        running = (body.running_commit_sha or "").strip()
+        if not running:
+            raise HTTPException(
+                status_code=400,
+                detail="提交 coverage_probes 时必须附带 running_commit_sha",
+            )
+        if not sha_matches_target(running, target_sha):
+            from app.services.job_execution_state import mark_env_mismatch
+
+            mark_env_mismatch(job, running=running, target=target_sha)
+            db.commit()
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "runtime_commit_mismatch",
+                    "message": (
+                        f"环境与版本不一致（Running: {running[:8]}, Target: {target_sha[:8]}）"
+                    ),
+                    "running_commit_sha": running,
+                    "target_commit_sha": target_sha,
+                },
+            )
     probes = (
         [p.model_dump() for p in body.coverage_probes] if body.coverage_probes is not None else None
     )
+    if probes is not None:
+        line_ranges = (job.changed_symbols or {}).get("line_ranges") or []
+        candidates = {
+            str(b.get("path") or "").replace("\\", "/").lstrip("./")
+            for b in line_ranges
+            if isinstance(b, dict) and b.get("path")
+        }
+        scan_root = (repo.scan_root if repo and repo.scan_root else ".") or "."
+        probes = normalize_probe_dicts(probes, scan_root=scan_root, candidate_paths=candidates)
     gate = apply_gate_result(
         job,
         repo,
@@ -276,7 +316,11 @@ def report_job_gate(job_id: str, body: GateReportIn, db: Session = Depends(get_d
         tests_passed=body.tests_passed,
         coverage_probes=probes,
         branch_coverage_pct=body.branch_coverage_pct,
+        running_commit_sha=body.running_commit_sha,
     )
+    from app.services.job_execution_state import mark_completed_after_probe
+
+    mark_completed_after_probe(job)
     db.commit()
     from app.services.platform_notify import notify_platform
 

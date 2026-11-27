@@ -5,6 +5,8 @@ import * as echarts from 'echarts'
 import { fetchDashboardOverview, resolveHotspotJob } from '@/api/client'
 import { formatRelativeTime } from '@/utils/datetime'
 import RepoAutocompleteFilter from '@/components/RepoAutocompleteFilter.vue'
+import { gateVerdictListLabel, gateVerdictToken } from '@/utils/statusTokens'
+import CodeDiffDrawer from '@/components/CodeDiffDrawer.vue'
 
 const router = useRouter()
 const openWebhookHelp = inject<() => void>('openWebhookHelp', () => {})
@@ -19,6 +21,15 @@ const loadError = ref(false)
 const hotspotCodeBusy = ref(false)
 const hotspotToast = ref('')
 const hotspotToastOpen = ref(false)
+const hotspotDrawerOpen = ref(false)
+const hotspotDrawerPick = ref<{
+  jobId: string
+  file: string
+  startLine: number
+  endLine: number
+  title: string
+  repo?: string
+} | null>(null)
 const loadErrorDismissed = ref(false)
 const loadErrorVisible = computed(() => loadError.value && !loadErrorDismissed.value)
 const dashboard = ref<Awaited<ReturnType<typeof fetchDashboardOverview>> | null>(null)
@@ -59,9 +70,11 @@ function flowGateChipIcon(gate: string) {
 }
 
 function flowGateChipClass(gate: string) {
-  if (gate === 'PASS') return 'gate-status-chip--pass'
-  if (gate === 'BLOCK') return 'gate-status-chip--block'
-  return 'gate-status-chip--pending'
+  const key = (gate || 'PENDING').toUpperCase()
+  if (key === 'PASS') return 'gate-status-chip gate-status-chip--pass'
+  if (key === 'BLOCK') return 'gate-status-chip gate-status-chip--block'
+  if (key === 'OVERRIDDEN') return 'gate-status-chip gate-status-chip--override'
+  return 'gate-status-chip gate-status-chip--pending'
 }
 
 function coverageBarColor(coverage: number | null) {
@@ -231,11 +244,11 @@ const donutIsEmpty = computed(() => {
 const DONUT_COLORS = ['rgba(234, 139, 130, 0.78)', 'rgba(251, 191, 36, 0.7)', 'rgba(253, 214, 99, 0.62)'] as const
 
 const CHART = {
-  axis: 'rgba(255, 255, 255, 0.5)',
-  axisLines: 'rgba(255, 255, 255, 0.6)',
-  axisPct: 'rgba(138, 180, 248, 0.88)',
+  axis: 'rgba(255, 255, 255, 0.62)',
+  axisLines: 'rgba(255, 255, 255, 0.68)',
+  axisPct: 'rgba(138, 180, 248, 0.92)',
   axisDim: '#8E9299',
-  grid: 'rgba(255, 255, 255, 0.08)',
+  grid: 'rgba(255, 255, 255, 0.045)',
   line: '#8AB4F8',
   lineNode: '#1A1D21',
   lineNodeBorder: '#8AB4F8',
@@ -376,14 +389,19 @@ async function openHotspotCode(row: HotspotRow) {
   try {
     const resolved = await resolveHotspotJobId(row)
     const file = resolved.path ?? row.path
-    const query: Record<string, string> = { file }
-    const startLine = resolved.start_line ?? row.start_line
-    const endLine = resolved.end_line ?? row.end_line
-    if (startLine != null && startLine > 0) {
-      query.start = String(startLine)
-      query.end = String(endLine ?? startLine)
+    const startRaw = resolved.start_line ?? row.start_line ?? 1
+    const endRaw = resolved.end_line ?? row.end_line ?? startRaw
+    const startLine = startRaw > 0 ? Math.floor(startRaw) : 1
+    const endLine = Math.max(startLine, endRaw > 0 ? Math.floor(endRaw) : startLine)
+    hotspotDrawerPick.value = {
+      jobId: resolved.job_id,
+      file,
+      startLine,
+      endLine,
+      title: splitHotspotPath(file).name,
+      repo: row.repo ?? undefined,
     }
-    await router.push({ name: 'job-detail', params: { id: resolved.job_id }, query })
+    hotspotDrawerOpen.value = true
   } catch {
     hotspotToast.value =
       '未找到包含该文件的分析任务。请重启 API 后刷新页面，或到变更影响中打开对应任务查看代码'
@@ -424,10 +442,11 @@ function onKpiNavigate(action?: 'trend' | 'flows' | 'intercept' | 'regression') 
 
 function flowGateChipLabel(gate: string) {
   if (gate === 'PENDING') return '待处理'
-  if (gate === 'PASS') return '通过'
-  if (gate === 'OVERRIDDEN') return '人工豁免'
-  if (gate === 'BLOCK') return '已拦截'
-  return gate
+  return gateVerdictListLabel(gate)
+}
+
+function flowGateChipTitle(gate: string) {
+  return gateVerdictToken(gate).hint
 }
 
 function resizeCharts() {
@@ -743,15 +762,16 @@ function renderCharts() {
                   yAxisIndex: 1,
                   connectNulls: false,
                   smooth: false,
-                  showSymbol: true,
+                  showSymbol: false,
                   symbol: 'circle',
-                  symbolSize: 8,
+                  symbolSize: 7,
                   lineStyle: { width: 2.5, color: trendActive ? CHART.line : 'rgba(138, 180, 248, 0.35)' },
                   z: 3,
                   data: coverageSeriesData,
                   emphasis: {
                     scale: true,
                     focus: 'series',
+                    showSymbol: true,
                     symbolSize: 9,
                     itemStyle: {
                       color: CHART.lineNode,
@@ -968,7 +988,7 @@ watch([days, repoFilter], load)
                   {{ card.trendPill }}
                 </span>
               </div>
-              <p class="text-caption text-medium-emphasis mt-3 mb-0">{{ card.sub }}</p>
+              <p class="text-caption kpi-footnote mt-3 mb-0">{{ card.sub }}</p>
             </v-card-text>
           </v-card>
         </v-col>
@@ -1227,7 +1247,7 @@ watch([days, repoFilter], load)
                         </span>
                       </button>
                       <button type="button" class="hotspot-view-code" @click.stop="openHotspotCode(row)">
-                        ↗ 查看代码
+                        查看代码
                       </button>
                     </div>
                   </td>
@@ -1377,33 +1397,39 @@ watch([days, repoFilter], load)
             </div>
           </div>
 
-          <div class="flow-row-impact d-none d-sm-flex align-center">
-            <v-chip size="x-small" variant="flat" rounded="pill" class="impact-chip">{{ item.changed_files }} 文件</v-chip>
-            <v-tooltip :text="flowApiImpactHint(item)" :disabled="!flowApiImpactHint(item)" location="top">
-              <template #activator="{ props: apiTip }">
-                <v-chip
-                  v-bind="apiTip"
-                  size="x-small"
-                  variant="flat"
-                  rounded="pill"
-                  class="impact-chip impact-chip--accent"
-                  :class="{ 'impact-chip--suspect': flowApiImpactHint(item) }"
-                >
-                  {{ item.api_impact }} API
-                </v-chip>
-              </template>
-            </v-tooltip>
+          <div class="flow-row-metrics">
+            <div class="flow-row-impact">
+              <span class="flow-metric flow-metric--files"
+                ><span class="mono">{{ item.changed_files }}</span> 文件</span
+              >
+              <v-tooltip :text="flowApiImpactHint(item)" :disabled="!flowApiImpactHint(item)" location="top">
+                <template #activator="{ props: apiTip }">
+                  <span
+                    v-bind="apiTip"
+                    class="flow-metric flow-metric--api"
+                    :class="{ 'flow-metric--suspect': flowApiImpactHint(item) }"
+                  >
+                    <span class="mono">{{ item.api_impact }}</span> API
+                  </span>
+                </template>
+              </v-tooltip>
+            </div>
+            <div class="flow-row-progress">
+              <div class="gate-progress-wrap" role="presentation">
+                <v-progress-linear
+                  :model-value="item.coverage ?? 0"
+                  :color="flowCoverageBarColor(item)"
+                  height="8"
+                  rounded
+                  class="gate-progress"
+                  bg-opacity="0"
+                />
+              </div>
+              <span class="mono text-caption gate-pct">{{ flowCoveragePctLabel(item) }}</span>
+            </div>
           </div>
 
-          <div class="flow-row-gate">
-            <v-progress-linear
-              :model-value="item.coverage ?? 0"
-              :color="flowCoverageBarColor(item)"
-              height="8"
-              rounded
-              class="gate-progress"
-            />
-            <span class="mono text-caption gate-pct">{{ flowCoveragePctLabel(item) }}</span>
+          <div class="flow-row-right">
             <div class="gate-status-slot" :class="{ 'gate-status-slot--stack': item.gate === 'BLOCK' }">
               <v-tooltip
                 :text="flowGateTooltip(item)"
@@ -1436,9 +1462,8 @@ watch([days, repoFilter], load)
                 {{ flowBlockReasonText(item) }}
               </span>
             </div>
-          </div>
 
-          <div class="flow-row-actions d-flex align-center justify-end">
+            <div class="flow-row-actions d-flex align-center justify-end">
             <v-tooltip text="需关联分析任务" location="top start" :disabled="!!item.job_id">
               <template #activator="{ props: tipProps }">
                 <v-btn
@@ -1463,6 +1488,7 @@ watch([days, repoFilter], load)
               aria-label="代码明细"
               @click="openCoverage(item)"
             />
+            </div>
           </div>
             </article>
           </div>
@@ -1502,6 +1528,18 @@ watch([days, repoFilter], load)
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <CodeDiffDrawer
+      v-if="hotspotDrawerPick"
+      v-model:open="hotspotDrawerOpen"
+      :job-id="hotspotDrawerPick.jobId"
+      :title="hotspotDrawerPick.title"
+      :file="hotspotDrawerPick.file"
+      :start-line="hotspotDrawerPick.startLine"
+      :end-line="hotspotDrawerPick.endLine"
+      node-type="changed"
+      :repo="hotspotDrawerPick.repo"
+    />
 
     <v-snackbar v-model="hotspotToastOpen" :timeout="4200" location="bottom" color="#2a2a2a">
       {{ hotspotToast }}
@@ -1950,10 +1988,11 @@ watch([days, repoFilter], load)
   }
 }
 .gate-status-slot {
-  width: 92px;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 148px;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
 }
 .gate-status-chip-icon {
   margin-right: 3px;
@@ -2221,12 +2260,12 @@ watch([days, repoFilter], load)
   max-width: 280px !important;
 }
 .dashboard-filters .filter-select-float :deep(.v-field) {
-  min-height: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background-color: rgb(var(--v-theme-surface)) !important;
+  min-height: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04) !important;
   font-size: 13px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: none;
 }
 .dashboard-filters .filter-select-float :deep(.v-field__outline),
@@ -2234,7 +2273,7 @@ watch([days, repoFilter], load)
   opacity: 0 !important;
 }
 .dashboard-filters .filter-select-float :deep(.v-field__input) {
-  min-height: 40px;
+  min-height: 36px;
   padding-top: 0;
   padding-bottom: 0;
   padding-inline: 2px 8px;
@@ -2253,12 +2292,12 @@ watch([days, repoFilter], load)
   border-radius: 9999px;
   padding: 2px;
   box-shadow: none;
-  height: 40px;
+  height: 36px;
   gap: 2px;
 }
 .dashboard-filters .m3-segmented :deep(.v-btn) {
-  height: 34px !important;
-  min-height: 34px;
+  height: 30px !important;
+  min-height: 30px;
   font-size: 13px;
   letter-spacing: 0;
   text-transform: none;
@@ -2283,9 +2322,10 @@ watch([days, repoFilter], load)
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .dashboard-filters .filter-refresh-md {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 8px !important;
   color: rgba(255, 255, 255, 0.78);
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.04) !important;
@@ -2312,62 +2352,111 @@ watch([days, repoFilter], load)
 .dashboard-head {
   letter-spacing: -0.01em;
 }
-.impact-chip {
-  background: #24282e !important;
-  color: rgb(var(--v-theme-secondary)) !important;
+.flow-metric {
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.72);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.impact-chip--accent {
-  color: rgb(var(--v-theme-primary)) !important;
+.flow-metric .mono {
+  font-variant-numeric: tabular-nums;
 }
-.impact-chip--suspect {
-  border: 1px dashed rgba(251, 146, 60, 0.55) !important;
-  color: #fdba74 !important;
+.flow-metric--files {
+  flex-shrink: 0;
+  min-width: 4.5em;
+  text-align: right;
+}
+.flow-metric--api {
+  flex-shrink: 0;
+  min-width: 3.5em;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.78);
+}
+.flow-metric--suspect {
+  color: #fdba74;
 }
 .gate-status-chip--pass {
-  background: rgba(34, 197, 94, 0.1) !important;
-  color: #22c55e !important;
-  border: 1px solid rgba(34, 197, 94, 0.32) !important;
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: #6ee7b7 !important;
+  border: none !important;
 }
 .gate-status-chip--block {
-  background: rgba(239, 68, 68, 0.1) !important;
-  color: #ef4444 !important;
-  border: 1px solid rgba(239, 68, 68, 0.32) !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #fca5a5 !important;
+  border: none !important;
 }
 .gate-status-chip--pending {
-  background: rgba(234, 179, 8, 0.1) !important;
-  color: #eab308 !important;
-  border: 1px solid rgba(234, 179, 8, 0.32) !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #fcd34d !important;
+  border: none !important;
 }
 .gate-status-chip {
   flex-shrink: 0;
-  padding-inline: 8px !important;
-  width: 100%;
+  padding-inline: 10px !important;
+  width: auto;
   min-width: 0;
   justify-content: center;
   font-weight: 600;
   font-size: 12px !important;
   letter-spacing: 0;
+  border-radius: 6px !important;
 }
 .repo-link--title {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
+  color: #ffffff;
+}
+.source-sub {
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.gate-progress-wrap {
+  flex: 1 1 112px;
+  width: 112px;
+  max-width: 140px;
+  min-width: 96px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  position: relative;
 }
 .gate-progress {
-  flex: 1 1 64px;
-  max-width: 88px;
-  min-width: 56px;
+  width: 100%;
+  height: 8px !important;
+  min-width: 0;
+}
+.gate-progress :deep(.v-progress-linear__background),
+.gate-progress :deep(.v-progress-linear__buffer) {
+  opacity: 0 !important;
+}
+.gate-progress :deep(.v-progress-linear__determinate),
+.gate-progress :deep(.v-progress-linear__indeterminate) {
+  border-radius: 999px;
 }
 .flow-row-actions {
   gap: 8px;
   flex-shrink: 0;
 }
 .flow-action-btn {
-  width: 40px !important;
-  height: 40px !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
   border-radius: 50% !important;
+  color: rgba(255, 255, 255, 0.82) !important;
+}
+.flow-action-btn :deep(.v-icon) {
+  opacity: 0.92;
 }
 .flow-action-btn:hover:not(:disabled) {
-  background: rgba(138, 180, 248, 0.12) !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+}
+.flow-action-btn:hover:not(:disabled) :deep(.v-icon) {
+  opacity: 1;
 }
 .chart-row {
   align-items: stretch;
@@ -2389,7 +2478,7 @@ watch([days, repoFilter], load)
   min-height: 48px;
 }
 .flow-panel-body {
-  padding: 0 24px 20px !important;
+  padding: 0 0 8px !important;
 }
 .flow-panel-body--empty {
   padding: 0 24px 16px !important;
@@ -2411,26 +2500,25 @@ watch([days, repoFilter], load)
 .flow-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 .flow-row-card {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1.15fr) auto minmax(200px, 1fr) auto;
+  grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
   column-gap: 16px;
   row-gap: 8px;
-  padding: 14px 16px;
-  background: rgb(var(--v-theme-surface));
-  border: 1px solid rgb(var(--v-theme-outline));
-  border-radius: 16px;
+  padding: 16px 24px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 0;
   box-shadow: none;
-  transition:
-    background-color 0.18s ease,
-    border-color 0.18s ease;
+  transition: background-color 0.18s ease;
 }
 .flow-row-card:hover {
-  background: #24282e;
-  border-color: #343a42;
+  background: rgba(255, 255, 255, 0.04);
 }
 .flow-status-avatar {
   width: 36px;
@@ -2440,6 +2528,8 @@ watch([days, repoFilter], load)
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  grid-column: 1;
+  align-self: start;
 }
 .flow-status-avatar--pass {
   background: rgba(52, 168, 83, 0.16);
@@ -2454,20 +2544,65 @@ watch([days, repoFilter], load)
   color: #8e9299;
 }
 .flow-row-source {
+  grid-column: 2;
+  min-width: 0;
+}
+.flow-row-metrics {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
   min-width: 0;
 }
 .flow-row-impact {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
+  gap: 16px;
+  flex-shrink: 0;
 }
-.flow-row-gate {
+.flow-row-progress {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  flex: 1 1 160px;
   min-width: 0;
-  flex-wrap: nowrap;
+  max-width: 220px;
+}
+.flow-row-right {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 12px;
+  min-width: 0;
+}
+.gate-pct {
+  flex-shrink: 0;
+  width: 44px;
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.88);
+}
+@media (min-width: 960px) {
+  .flow-row-card {
+    grid-template-columns: 40px minmax(0, 30%) minmax(240px, 40%) minmax(0, 30%);
+  }
+  .flow-row-source,
+  .flow-row-metrics,
+  .flow-row-right {
+    grid-column: auto;
+  }
+  .flow-status-avatar {
+    align-self: center;
+  }
+  .flow-row-metrics {
+    gap: 20px;
+  }
+  .flow-row-right {
+    justify-self: stretch;
+  }
 }
 .gate-status-slot--stack {
   display: flex;
@@ -2484,16 +2619,10 @@ watch([days, repoFilter], load)
   max-width: 100%;
   text-align: right;
 }
-.gate-pct {
-  flex-shrink: 0;
-  color: rgb(var(--v-theme-on-surface));
-  opacity: 0.88;
-}
 .flow-row-actions {
-  opacity: 0.55;
+  opacity: 0.82;
   transition: opacity 0.18s ease;
-  gap: 8px;
-  margin-left: 4px;
+  gap: 4px;
 }
 .flow-row-card:hover .flow-row-actions {
   opacity: 1;
@@ -2602,7 +2731,7 @@ watch([days, repoFilter], load)
   padding-left: 4px !important;
 }
 .hotspot-th--num {
-  text-align: right !important;
+  text-align: center !important;
   width: 80px;
   padding-inline: 10px !important;
 }
@@ -2630,7 +2759,7 @@ watch([days, repoFilter], load)
   background: #252525 !important;
 }
 .hotspot-td {
-  padding: 8px 10px !important;
+  padding: 11px 10px !important;
   vertical-align: middle !important;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.86);
@@ -2646,7 +2775,7 @@ watch([days, repoFilter], load)
   vertical-align: middle !important;
 }
 .hotspot-td--num {
-  text-align: right;
+  text-align: center;
   padding-inline: 10px !important;
   vertical-align: middle !important;
 }
@@ -2673,7 +2802,7 @@ watch([days, repoFilter], load)
 .hotspot-num {
   display: inline-block;
   width: 100%;
-  text-align: right;
+  text-align: center;
   font-size: 13px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
@@ -2774,8 +2903,9 @@ watch([days, repoFilter], load)
 }
 .hotspot-risk-badge--high {
   color: #fecaca;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2), 0 0 12px rgba(239, 68, 68, 0.28);
 }
 .hotspot-risk-badge--mid {
   color: #fed7aa;
@@ -2793,23 +2923,18 @@ watch([days, repoFilter], load)
 }
 @media (max-width: 959px) {
   .flow-row-card {
-    grid-template-columns: 40px minmax(0, 1fr) auto;
-    grid-template-areas:
-      'status source actions'
-      'status gate gate';
+    padding: 14px 16px;
+    row-gap: 10px;
   }
   .flow-status-avatar {
-    grid-area: status;
+    grid-row: 1 / span 3;
   }
-  .flow-row-source {
-    grid-area: source;
+  .flow-row-progress {
+    max-width: 100%;
   }
-  .flow-row-gate {
-    grid-area: gate;
-    grid-column: 2 / -1;
-  }
-  .flow-row-actions {
-    grid-area: actions;
+  .gate-progress-wrap {
+    flex: 1 1 120px;
+    max-width: 100%;
   }
 }
 </style>

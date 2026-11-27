@@ -6,6 +6,7 @@ import {
   fetchRegressionBatchDetail,
   fetchRegressionBatches,
   fetchRegressionOverview,
+  runRegressionCoverageProbe,
   fetchWhoami,
   loadStoredActor,
   readApiError,
@@ -22,6 +23,15 @@ import GateTriggerDetailDrawer from '@/components/GateTriggerDetailDrawer.vue'
 import Md3LoadState from '@/components/Md3LoadState.vue'
 import { formatLocalDateTime } from '@/utils/datetime'
 import { dismissRegressionFilterMenus } from '@/utils/dismissOverlays'
+import {
+  coverageProbeDotClass,
+  coverageProbeDotTitle,
+  coverageProbeStateLabel,
+  gateVerdictBadgeClass,
+  gateVerdictDetailLabel,
+  gateVerdictListLabel,
+  gateVerdictToken,
+} from '@/utils/statusTokens'
 
 const router = useRouter()
 const route = useRoute()
@@ -170,18 +180,25 @@ function resolveCoverageTriple(
 
 const coverageKpi = computed(() => {
   if (detail.value?.job_id === selectedId.value) {
-    const changed = detail.value.changed_lines ?? 0
+    const d = detail.value
+    const changed = d.executable_changed_lines ?? d.changed_lines ?? 0
     const covered =
-      detail.value.covered_lines ??
-      (detail.value.coverage_lines ?? []).filter((l) => l.covered === true).length
-    return resolveCoverageTriple(changed, covered, detail.value.incremental_coverage_pct)
+      d.covered_lines ?? (d.coverage_lines ?? []).filter((l) => l.covered === true && !l.ignored).length
+    const base = resolveCoverageTriple(changed, covered, d.incremental_coverage_pct)
+    return {
+      ...base,
+      diffTotal: d.diff_lines_total ?? d.changed_lines ?? changed,
+      linesFiltered: d.lines_filtered ?? 0,
+      notRequired: Boolean(d.coverage_not_required),
+    }
   }
   const k = overview.value?.kpi
-  return resolveCoverageTriple(
+  const base = resolveCoverageTriple(
     k?.changed_lines ?? 0,
     k?.covered_lines ?? 0,
     k?.incremental_coverage_pct ?? null,
   )
+  return { ...base, diffTotal: k?.changed_lines ?? 0, linesFiltered: 0, notRequired: false }
 })
 
 const coveragePctToneClass = computed(() => {
@@ -193,30 +210,70 @@ const coveragePctToneClass = computed(() => {
 })
 
 type CoverageLineRow = RegressionBatchDetail['coverage_lines'][number]
-type CoverageFilter = 'all' | 'hit' | 'miss'
+type CoverageFilter = 'all' | 'hit' | 'miss' | 'unknown'
+
+type CoverageSegment = {
+  start: number
+  end: number
+  covered: boolean | null
+  lines: CoverageLineRow[]
+}
+
+type CoverageDisplayBlock =
+  | { type: 'range'; key: string; segment: CoverageSegment }
+  | { type: 'tags'; key: string; segments: CoverageSegment[] }
 
 const coverageFilter = ref<CoverageFilter>('all')
 const expandedCoverageFiles = ref<string[]>([])
-const coveragePanelsExpandAll = ref(false)
+const showIgnoredCoverageLines = ref(false)
 
 const detailProbeLines = computed(() => {
   if (detail.value?.job_id !== selectedId.value) return [] as CoverageLineRow[]
-  return detail.value.coverage_lines ?? []
+  const rows = detail.value.coverage_lines ?? []
+  if (showIgnoredCoverageLines.value) return rows
+  return rows.filter((l) => !l.ignored)
 })
 
-function buildCoverageLineRanges(lines: CoverageLineRow[]) {
-  const ranges: { start: number; end: number; lines: CoverageLineRow[] }[] = []
-  for (const ln of lines) {
+/** 连续行号且探针状态相同 → 合并为一段 */
+function buildCoverageSegments(lines: CoverageLineRow[]): CoverageSegment[] {
+  const sorted = [...lines].sort((a, b) => (a.line ?? 0) - (b.line ?? 0))
+  const segments: CoverageSegment[] = []
+  for (const ln of sorted) {
     const n = ln.line ?? 0
-    const last = ranges[ranges.length - 1]
-    if (last && n === last.end + 1) {
+    const covered = ln.covered ?? null
+    const last = segments[segments.length - 1]
+    if (last && n === last.end + 1 && last.covered === covered) {
       last.end = n
       last.lines.push(ln)
     } else {
-      ranges.push({ start: n, end: n, lines: [ln] })
+      segments.push({ start: n, end: n, covered, lines: [ln] })
     }
   }
-  return ranges
+  return segments
+}
+
+function coverageDisplayBlocks(segments: CoverageSegment[]): CoverageDisplayBlock[] {
+  const blocks: CoverageDisplayBlock[] = []
+  let tagBatch: CoverageSegment[] = []
+  const flushTags = () => {
+    if (!tagBatch.length) return
+    blocks.push({
+      type: 'tags',
+      key: `tags-${tagBatch.map((s) => s.start).join('_')}`,
+      segments: [...tagBatch],
+    })
+    tagBatch = []
+  }
+  for (const seg of segments) {
+    if (seg.lines.length > 1) {
+      flushTags()
+      blocks.push({ type: 'range', key: `range-${seg.start}-${seg.end}`, segment: seg })
+    } else {
+      tagBatch.push(seg)
+    }
+  }
+  flushTags()
+  return blocks
 }
 
 const coverageFileGroups = computed(() => {
@@ -242,7 +299,7 @@ const coverageFileGroups = computed(() => {
       miss,
       unknown,
       pct,
-      ranges: buildCoverageLineRanges(sorted),
+      segments: buildCoverageSegments(sorted),
     }
   })
   groups.sort((a, b) => {
@@ -256,17 +313,50 @@ const coverageFileGroups = computed(() => {
 function lineMatchesCoverageFilter(
   covered: boolean | null | undefined,
   mode: CoverageFilter,
+  ignored?: boolean,
 ): boolean {
+  if (ignored) return mode === 'all'
   if (mode === 'hit') return covered === true
-  if (mode === 'miss') return covered !== true
+  if (mode === 'miss') return covered === false
+  if (mode === 'unknown') return covered == null
   return true
 }
+
+const coverageFilterCounts = computed(() => {
+  const lines = detailProbeLines.value
+  let hit = 0
+  let miss = 0
+  let unknown = 0
+  for (const ln of lines) {
+    if (ln.covered === true) hit++
+    else if (ln.covered === false) miss++
+    else unknown++
+  }
+  const d = detail.value
+  const execTotal =
+    d?.job_id === selectedId.value
+      ? (d.executable_changed_lines ?? d.changed_lines ?? 0)
+      : 0
+  const diffTotal = d?.job_id === selectedId.value ? (d.diff_lines_total ?? execTotal) : 0
+  return {
+    all: lines.length,
+    changedTotal: execTotal,
+    diffTotal,
+    /** 展示行数少于有效分母，或 Diff 总行数大于有效行 */
+    isSample: execTotal > lines.length || diffTotal > execTotal,
+    hit,
+    miss,
+    unknown,
+  }
+})
 
 const filteredCoverageGroups = computed(() => {
   const mode = coverageFilter.value
   return coverageFileGroups.value
     .map((g) => {
-      const lines = g.lines.filter((l) => lineMatchesCoverageFilter(l.covered, mode))
+      const lines = g.lines.filter((l) =>
+        lineMatchesCoverageFilter(l.covered, mode, Boolean(l.ignored)),
+      )
       if (!lines.length && mode !== 'all') return null
       const hit = lines.filter((l) => l.covered === true).length
       const miss = lines.filter((l) => l.covered === false).length
@@ -281,43 +371,29 @@ const filteredCoverageGroups = computed(() => {
         unknown,
         total,
         pct,
-        ranges: buildCoverageLineRanges(lines),
+        segments: buildCoverageSegments(lines),
       }
     })
     .filter((row): row is NonNullable<typeof row> => row != null)
 })
 
-const coverageFilterEmptyText = computed(() => {
-  if (coverageFilter.value === 'hit') {
-    return '暂无已覆盖行。探针命中为 0 时，请优先查看「未覆盖」或「全部」。'
-  }
-  if (coverageFilter.value === 'miss') {
-    return '暂无未覆盖行。若变更行均为灰点「未探针」，请在「全部」中查看并等待 CI 回传探针结果。'
-  }
-  return '暂无覆盖率数据。'
+const coveragePanelsAllExpanded = computed(() => {
+  const groups = filteredCoverageGroups.value
+  if (!groups.length) return false
+  const open = new Set(expandedCoverageFiles.value)
+  return groups.every((g) => open.has(g.file))
 })
 
 function resetCoveragePanelExpansion() {
-  coveragePanelsExpandAll.value = false
-  const groups = coverageFileGroups.value
-  const substandard = groups.filter((g) => g.miss > 0 || g.pct < 100)
-  expandedCoverageFiles.value = substandard.slice(0, 3).map((g) => g.file)
+  expandedCoverageFiles.value = coverageFileGroups.value.map((g) => g.file)
 }
 
 function toggleCoveragePanelsExpandAll() {
-  if (coveragePanelsExpandAll.value) {
+  if (coveragePanelsAllExpanded.value) {
     expandedCoverageFiles.value = []
-    coveragePanelsExpandAll.value = false
     return
   }
   expandedCoverageFiles.value = filteredCoverageGroups.value.map((g) => g.file)
-  coveragePanelsExpandAll.value = true
-}
-
-function coverageSegTooltip(seg: CoverageLineRow) {
-  const state =
-    seg.covered === true ? '已覆盖' : seg.covered === false ? '未覆盖' : '未探针'
-  return `L${seg.line ?? '—'} · ${state}`
 }
 
 const coverageDiffOpen = ref(false)
@@ -337,11 +413,7 @@ function openCoverageCodeDiff(file: string, startLine: number, endLine?: number)
   coverageDiffOpen.value = true
 }
 
-function coverageLineDotClass(covered: boolean | null | undefined) {
-  if (covered === true) return 'coverage-probe-chip--hit'
-  if (covered === false) return 'coverage-probe-chip--miss'
-  return 'coverage-probe-chip--unknown'
-}
+const coverageLineDotClass = coverageProbeDotClass
 
 function splitCoverageFilePath(file: string) {
   const norm = file.replace(/\\/g, '/')
@@ -350,10 +422,40 @@ function splitCoverageFilePath(file: string) {
   return { dir: `${norm.slice(0, idx + 1)}`, name: norm.slice(idx + 1) }
 }
 
-function coverageLineStateLabel(covered: boolean | null | undefined) {
-  if (covered === true) return '已覆盖'
-  if (covered === false) return '未覆盖'
-  return '未探针'
+const coverageLineStateLabel = coverageProbeStateLabel
+const coverageLineDotTitle = coverageProbeDotTitle
+
+function coverageLinePreview(ln: CoverageLineRow) {
+  const raw = (ln.prefix ?? '').trim()
+  if (!raw || raw === '+' || raw === '-') return ''
+  return raw.length > 100 ? `${raw.slice(0, 97)}…` : raw
+}
+
+function coverageLineNoLabel(seg: CoverageSegment) {
+  if (seg.start === seg.end) return `:${seg.start}`
+  return `:${seg.start} - :${seg.end}`
+}
+
+function coverageRangeSummary(seg: CoverageSegment) {
+  const ign = Boolean(seg.lines[0]?.ignored)
+  const branchPartial = Boolean(seg.lines[0]?.branch_partial)
+  const label = coverageLineStateLabel(seg.covered, ign, branchPartial)
+  if (seg.lines.length <= 1) return label
+  return `连续 ${seg.lines.length} 行${label}`
+}
+
+const precisionRecall = computed(() => detail.value?.precision_recall ?? null)
+
+const precisionExecLine = computed(() => precisionRecall.value?.execution?.shell_one_liner || '')
+
+async function copyPrecisionExec() {
+  const text = precisionExecLine.value
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    /* ignore */
+  }
 }
 
 const passKpi = computed(() => {
@@ -465,19 +567,11 @@ const kpiCards = computed(() => {
             ? 'rgba(253, 214, 99, 0.18)'
             : 'rgba(52, 168, 83, 0.15)',
       iconColor: gateColor,
-      valueColor: gateColor,
       isGate: true,
       gateStatus: gate ?? 'PENDING',
     },
   ]
 })
-
-function kpiGateChipClass(gate: string) {
-  if (gate === 'OVERRIDDEN') return 'kpi-gate-status-chip--override'
-  if (gate === 'PASS') return 'kpi-gate-status-chip--pass'
-  if (gate === 'BLOCK') return 'kpi-gate-status-chip--block'
-  return 'kpi-gate-status-chip--pending'
-}
 
 function resolveBlockReasonLabel(): string {
   const d = detail.value
@@ -543,26 +637,23 @@ function gateKpiSubText(gate: string | null | undefined) {
 
 
 function gateChipClass(gate: string) {
-  if (gate === 'OVERRIDDEN') return 'batch-chip--override'
-  if (gate === 'PASS') return 'batch-chip--pass'
-  if (gate === 'BLOCK') return 'batch-chip--block'
-  return 'batch-chip--pending'
+  return `batch-chip ${gateVerdictBadgeClass(gate)}`
 }
 
 function batchGateChipText(gate: string) {
-  if (gate === 'OVERRIDDEN') return '豁免'
-  return gate
+  return gateVerdictListLabel(gate)
 }
 
 function detailGateDisplayText(d: RegressionBatchDetail) {
-  return d.gate_label || d.gate
+  return gateVerdictDetailLabel(d.gate, d.gate_label)
 }
 
 function detailMetaGateClass(gate: string) {
-  if (gate === 'OVERRIDDEN') return 'detail-gate-chip--override'
-  if (gate === 'PASS') return 'detail-gate-chip--pass'
-  if (gate === 'BLOCK') return 'detail-gate-chip--block'
-  return 'detail-gate-chip--pending'
+  return `detail-gate-chip ${gateVerdictBadgeClass(gate)}`
+}
+
+function gateChipTitle(gate: string) {
+  return gateVerdictToken(gate).hint
 }
 
 function formatOverrideAudit(mo: NonNullable<RegressionBatchDetail['manual_override']>) {
@@ -647,7 +738,24 @@ const gateBannerFallbackText = computed(() => {
   return label ? `拦截原因：${label}` : ''
 })
 
-const showDetailAlertStack = computed(() => showOverrideLock.value || showGateBlockBanner.value)
+const probeRerunBusy = ref(false)
+
+const showProbeExecutionBanner = computed(() => {
+  const s = detail.value?.execution_status
+  return s === 'awaiting_probe' || s === 'timeout' || s === 'env_mismatch'
+})
+
+const showZeroEffectivePassInfo = computed(
+  () => Boolean(detail.value?.coverage_not_required && detail.value?.gate === 'PASS'),
+)
+
+const showDetailAlertStack = computed(
+  () =>
+    showOverrideLock.value ||
+    showGateBlockBanner.value ||
+    showProbeExecutionBanner.value ||
+    showZeroEffectivePassInfo.value,
+)
 
 const showOverrideButton = computed(
   () =>
@@ -743,6 +851,20 @@ async function loadList() {
   }
 }
 
+async function rerunCoverageProbe() {
+  const id = selectedId.value
+  if (!id || probeRerunBusy.value) return
+  probeRerunBusy.value = true
+  try {
+    await runRegressionCoverageProbe(id)
+    await loadDetail(id)
+  } catch (e) {
+    detailError.value = readApiError(e)
+  } finally {
+    probeRerunBusy.value = false
+  }
+}
+
 async function loadDetail(jobId: string) {
   detailLoading.value = true
   detailLoadError.value = null
@@ -768,10 +890,6 @@ watch(selectedId, (id) => {
   coverageFilter.value = 'all'
   gateDetailDrawerOpen.value = false
   if (id) loadDetail(id)
-})
-
-watch(coverageFilter, () => {
-  coveragePanelsExpandAll.value = false
 })
 
 watch([repoFilter, gateFilter], loadList)
@@ -901,12 +1019,7 @@ watch(
     <v-row v-else-if="kpiCards.length" class="dashboard-grid dashboard-stack-gap kpi-row">
       <v-col v-for="card in kpiCards" :key="card.title" cols="12" sm="6" lg="3">
         <v-card class="h-100 kpi-card m3-surface-card m3-elevated" rounded="xl" :border="false">
-          <span
-            v-if="!card.isGate"
-            class="kpi-accent"
-            :style="{ backgroundColor: card.accent }"
-            aria-hidden="true"
-          />
+          <span class="kpi-accent" :style="{ backgroundColor: card.accent }" aria-hidden="true" />
           <v-card-text class="kpi-card-inner">
             <div class="d-flex align-start justify-space-between gap-2 mb-3">
               <div class="text-body-2 text-medium-emphasis kpi-title">{{ card.title }}</div>
@@ -914,19 +1027,9 @@ watch(
                 <v-icon :icon="card.icon" :color="card.iconColor" size="22" />
               </v-avatar>
             </div>
-            <v-chip
-              v-if="card.isGate"
-              size="small"
-              variant="flat"
-              rounded="lg"
-              class="kpi-gate-status-chip"
-              :class="kpiGateChipClass(card.gateStatus)"
-            >
-              {{ card.value }}
-            </v-chip>
             <div
-              v-else
               class="kpi-metric"
+              :class="{ 'kpi-metric--gate': card.isGate && card.value !== '—' }"
               :style="card.valueColor ? { color: card.valueColor } : undefined"
             >
               {{ card.value }}
@@ -983,6 +1086,7 @@ watch(
                   rounded="pill"
                   class="batch-chip"
                   :class="gateChipClass(item.gate)"
+                  :title="gateChipTitle(item.gate)"
                 >
                   {{ batchGateChipText(item.gate) }}
                 </v-chip>
@@ -1108,6 +1212,61 @@ watch(
               </div>
               <div v-if="showDetailAlertStack" class="detail-alert-stack">
                 <div
+                  v-if="showZeroEffectivePassInfo"
+                  class="detail-probe-banner detail-probe-banner--info"
+                  role="status"
+                >
+                  <v-icon icon="mdi-information-outline" size="20" class="detail-probe-banner__icon" />
+                  <p class="mb-0">
+                    有效可执行变更行数为 0（如 README、注释、用例目录），已跳过探针等待并自动放行。
+                  </p>
+                </div>
+                <div
+                  v-if="showProbeExecutionBanner"
+                  class="detail-probe-banner"
+                  :class="{
+                    'detail-probe-banner--warn': detail.execution_status === 'awaiting_probe',
+                    'detail-probe-banner--error':
+                      detail.execution_status === 'timeout' || detail.execution_status === 'env_mismatch',
+                  }"
+                  role="alert"
+                >
+                  <v-icon
+                    :icon="
+                      detail.execution_status === 'env_mismatch'
+                        ? 'mdi-source-branch-remove'
+                        : detail.execution_status === 'timeout'
+                          ? 'mdi-timer-sand-empty'
+                          : 'mdi-radar'
+                    "
+                    size="20"
+                    class="detail-probe-banner__icon"
+                  />
+                  <div class="detail-probe-banner__body">
+                    <p v-if="detail.execution_phase_label" class="detail-probe-banner__phase mb-1">
+                      {{ detail.execution_phase_label }}
+                    </p>
+                    <p class="mb-0">
+                      {{ detail.probe_ui_hint || '等待探针回传 gate-report。' }}
+                    </p>
+                    <v-btn
+                      v-if="
+                        detail.execution_status === 'timeout' ||
+                        detail.execution_status === 'env_mismatch' ||
+                        detail.execution_status === 'awaiting_probe'
+                      "
+                      size="small"
+                      variant="outlined"
+                      rounded="pill"
+                      class="text-none mt-2"
+                      :loading="probeRerunBusy"
+                      @click="rerunCoverageProbe"
+                    >
+                      手动重跑回归采集
+                    </v-btn>
+                  </div>
+                </div>
+                <div
                   v-if="showOverrideLock"
                   class="detail-rbac-banner"
                   role="status"
@@ -1226,6 +1385,56 @@ watch(
               <div class="detail-tab-content" :class="{ 'detail-tab-content--after-alerts': showDetailAlertStack }">
                 <v-window v-model="detailTab">
                   <v-window-item value="cases">
+                    <div v-if="precisionRecall" class="precision-recall mb-4">
+                      <div class="precision-recall__head">
+                        <div>
+                          <div class="text-subtitle-2 font-weight-medium">精准回归召回</div>
+                          <div class="text-caption text-medium-emphasis mt-1">
+                            <template v-if="precisionRecall.bound && precisionRecall.test_suite_name">
+                              用例集「{{ precisionRecall.test_suite_name }}」· 全量索引
+                              {{ precisionRecall.total_indexed_cases }} 条 → 命中
+                              <strong>{{ precisionRecall.hit_case_count }}</strong> 条
+                              <span v-if="precisionRecall.case_reduction_pct != null">
+                                （约省 {{ precisionRecall.case_reduction_pct }}%）
+                              </span>
+                            </template>
+                            <template v-else>仓库未绑定用例集，或索引为空；请先在「用例集管理」关联并同步。</template>
+                          </div>
+                        </div>
+                        <v-btn
+                          v-if="precisionExecLine"
+                          size="small"
+                          variant="tonal"
+                          class="text-none"
+                          @click="copyPrecisionExec"
+                        >
+                          复制执行指令
+                        </v-btn>
+                      </div>
+                      <div v-if="precisionRecall.gaps.length" class="precision-recall__gaps mt-2">
+                        <v-alert
+                          v-for="g in precisionRecall.gaps"
+                          :key="g.fingerprint"
+                          type="warning"
+                          variant="tonal"
+                          density="compact"
+                          class="mb-1 text-caption"
+                        >
+                          ⚠️ {{ g.label }}：{{ g.fingerprint }}
+                        </v-alert>
+                      </div>
+                      <ul v-if="precisionRecall.hit_cases.length" class="precision-recall__hits mt-2 mb-0 pl-4">
+                        <li
+                          v-for="hc in precisionRecall.hit_cases"
+                          :key="hc.case_uid"
+                          class="text-caption mono mb-1"
+                        >
+                          {{ hc.title }} · {{ hc.run_selector }}
+                          <span class="text-medium-emphasis">← {{ hc.matched_fingerprints.join(', ') }}</span>
+                        </li>
+                      </ul>
+                      <pre v-if="precisionExecLine" class="precision-recall__cmd mono text-caption mt-2 mb-0">{{ precisionExecLine }}</pre>
+                    </div>
                     <div
                       v-if="!detail.cases.length"
                       class="detail-hint-box"
@@ -1307,14 +1516,28 @@ watch(
                           <div class="coverage-hero__pct-block">
                             <span class="coverage-summary-label">增量覆盖率</span>
                             <span class="coverage-summary-value mono" :class="coveragePctToneClass">
-                              {{ coverageKpi.pct != null ? `${coverageKpi.pct}%` : '—' }}
+                              <template v-if="coverageKpi.notRequired">—</template>
+                              <template v-else>{{
+                                coverageKpi.pct != null ? `${coverageKpi.pct}%` : '—'
+                              }}</template>
                             </span>
                           </div>
                           <p class="coverage-hit-line mb-0">
-                            命中
-                            <span class="mono">{{ coverageKpi.covered }}</span>
-                            <span class="coverage-hit-line__sep">/</span>
-                            <span class="mono">{{ coverageKpi.changed }}</span> 行
+                            <template v-if="coverageKpi.notRequired">无需统计（零有效代码影响）</template>
+                            <template v-else>
+                              命中
+                              <span class="mono">{{ coverageKpi.covered }}</span>
+                              <span class="coverage-hit-line__sep">/</span>
+                              <span class="mono">{{ coverageKpi.changed }}</span> 有效行
+                            </template>
+                            <span
+                              v-if="coverageKpi.linesFiltered > 0"
+                              class="coverage-filtered-hint"
+                            >
+                              已自动过滤
+                              <span class="mono">{{ coverageKpi.linesFiltered }}</span>
+                              行注释/空行/配置
+                            </span>
                           </p>
                         </div>
                         <div class="coverage-legend coverage-legend--inline" aria-label="探针图例">
@@ -1341,20 +1564,76 @@ watch(
                           rounded="pill"
                           class="coverage-filter-toggle"
                         >
-                          <v-btn value="all" size="small" class="text-none">全部</v-btn>
-                          <v-btn value="miss" size="small" class="text-none">未覆盖</v-btn>
-                          <v-btn value="hit" size="small" class="text-none">已覆盖</v-btn>
+                          <v-btn
+                            value="all"
+                            size="small"
+                            class="text-none"
+                            :class="{ 'coverage-filter-btn--zero': coverageFilterCounts.all === 0 }"
+                          >
+                            全部
+                            <span class="coverage-filter-count mono">
+                              {{ coverageFilterCounts.all
+                              }}<template v-if="coverageFilterCounts.isSample"
+                                >/{{ coverageFilterCounts.changedTotal }}</template
+                              >
+                            </span>
+                          </v-btn>
+                          <v-btn
+                            value="miss"
+                            size="small"
+                            class="text-none"
+                            :class="{ 'coverage-filter-btn--zero': coverageFilterCounts.miss === 0 }"
+                          >
+                            未覆盖
+                            <span class="coverage-filter-count mono">{{ coverageFilterCounts.miss }}</span>
+                          </v-btn>
+                          <v-btn
+                            value="unknown"
+                            size="small"
+                            class="text-none"
+                            :class="{ 'coverage-filter-btn--zero': coverageFilterCounts.unknown === 0 }"
+                          >
+                            未探针
+                            <span class="coverage-filter-count mono">{{ coverageFilterCounts.unknown }}</span>
+                          </v-btn>
+                          <v-btn
+                            value="hit"
+                            size="small"
+                            class="text-none"
+                            :class="{ 'coverage-filter-btn--zero': coverageFilterCounts.hit === 0 }"
+                          >
+                            已覆盖
+                            <span class="coverage-filter-count mono">{{ coverageFilterCounts.hit }}</span>
+                          </v-btn>
                         </v-btn-toggle>
                         <v-btn
-                          v-if="detail.coverage_lines.length"
+                          v-if="detail.coverage_lines.length && filteredCoverageGroups.length"
                           size="small"
                           variant="text"
                           class="text-none coverage-expand-all-btn"
-                          :prepend-icon="coveragePanelsExpandAll ? 'mdi-unfold-less-horizontal' : 'mdi-unfold-more-horizontal'"
+                          :prepend-icon="coveragePanelsAllExpanded ? 'mdi-unfold-less-horizontal' : 'mdi-unfold-more-horizontal'"
                           @click="toggleCoveragePanelsExpandAll"
                         >
-                          {{ coveragePanelsExpandAll ? '全部收起' : '全部展开' }}
+                          {{ coveragePanelsAllExpanded ? '全部收起' : '全部展开' }}
                         </v-btn>
+                        <v-checkbox
+                          v-if="(detail.coverage_lines ?? []).some((l) => l.ignored)"
+                          v-model="showIgnoredCoverageLines"
+                          class="coverage-show-ignored"
+                          density="compact"
+                          hide-details
+                          label="显示已过滤的非可执行行"
+                        />
+                        <p
+                          v-if="coverageFilterCounts.isSample"
+                          class="coverage-filter-scope-hint mb-0"
+                        >
+                          角标为本页探针行；Diff 共
+                          <span class="mono">{{ coverageFilterCounts.diffTotal }}</span>
+                          行，有效可执行
+                          <span class="mono">{{ coverageFilterCounts.changedTotal }}</span>
+                          行（列表最多 400 条）。
+                        </p>
                       </div>
                     </div>
                     <p
@@ -1376,11 +1655,63 @@ watch(
                     <div v-else class="coverage-accordion-shell">
                       <div
                         v-if="!filteredCoverageGroups.length"
-                        class="detail-hint-box detail-hint-box--compact coverage-filter-empty"
+                        class="coverage-filter-empty"
                         role="status"
                       >
-                        <v-icon icon="mdi-filter-off-outline" size="22" color="#8e9299" class="detail-hint-box__icon" />
-                        <p class="detail-hint-box__text mb-0">{{ coverageFilterEmptyText }}</p>
+                        <v-icon
+                          icon="mdi-information-outline"
+                          size="22"
+                          class="coverage-filter-empty__icon"
+                          aria-hidden="true"
+                        />
+                        <div class="coverage-filter-empty__body">
+                          <template v-if="coverageFilter === 'miss'">
+                            <p class="coverage-filter-empty__title">当前无未覆盖行</p>
+                            <p class="coverage-filter-empty__sub mb-0">
+                              变更代码可能均为「未探针」状态。请
+                              <button
+                                type="button"
+                                class="coverage-filter-empty__link"
+                                @click="coverageFilter = 'unknown'"
+                              >
+                                切换至「未探针」
+                              </button>
+                              查看，或等待 CI 回传结果。
+                            </p>
+                          </template>
+                          <template v-else-if="coverageFilter === 'hit'">
+                            <p class="coverage-filter-empty__title">当前无已覆盖行</p>
+                            <p class="coverage-filter-empty__sub mb-0">
+                              探针尚未命中变更行。可查看
+                              <button
+                                type="button"
+                                class="coverage-filter-empty__link"
+                                @click="coverageFilter = 'unknown'"
+                              >
+                                「未探针」
+                              </button>
+                              或
+                              <button
+                                type="button"
+                                class="coverage-filter-empty__link"
+                                @click="coverageFilter = 'all'"
+                              >
+                                「全部」
+                              </button>
+                              列表。
+                            </p>
+                          </template>
+                          <template v-else-if="coverageFilter === 'unknown'">
+                            <p class="coverage-filter-empty__title">当前无未探针行</p>
+                            <p class="coverage-filter-empty__sub mb-0">
+                              本页探针列表中未找到灰点行；可切换其他筛选项查看。
+                            </p>
+                          </template>
+                          <template v-else>
+                            <p class="coverage-filter-empty__title">暂无覆盖率数据</p>
+                            <p class="coverage-filter-empty__sub mb-0">请等待 CI 回传 coverage 报告后刷新。</p>
+                          </template>
+                        </div>
                       </div>
                       <v-expansion-panels
                         v-else
@@ -1428,37 +1759,105 @@ watch(
                           </v-expansion-panel-title>
                           <v-expansion-panel-text class="coverage-file-body">
                             <div
-                              v-for="(range, ri) in group.ranges"
-                              :key="`${group.file}-${range.start}-${ri}`"
-                              class="coverage-range-block"
+                              v-for="block in coverageDisplayBlocks(group.segments)"
+                              :key="`${group.file}-${block.key}`"
+                              class="coverage-display-block"
                             >
                               <div
-                                v-for="seg in range.lines"
-                                :key="`${group.file}-L${seg.line}`"
-                                class="coverage-probe-row"
+                                v-if="block.type === 'range'"
+                                class="coverage-probe-row coverage-probe-row--range"
                               >
-                                <v-tooltip location="left" :text="coverageSegTooltip(seg)">
-                                  <template #activator="{ props: tipProps }">
-                                    <button
-                                      v-bind="tipProps"
-                                      type="button"
-                                      class="coverage-line-no mono"
-                                      @click="openCoverageCodeDiff(group.file, seg.line ?? range.start)"
-                                    >
-                                      :{{ seg.line }}
-                                    </button>
-                                  </template>
-                                </v-tooltip>
+                                <button
+                                  type="button"
+                                  class="coverage-line-no mono coverage-line-no--range"
+                                  :title="`查看 ${coverageLineNoLabel(block.segment)}`"
+                                  @click="
+                                    openCoverageCodeDiff(
+                                      group.file,
+                                      block.segment.start,
+                                      block.segment.end,
+                                    )
+                                  "
+                                >
+                                  {{ coverageLineNoLabel(block.segment) }}
+                                </button>
                                 <button
                                   type="button"
                                   class="coverage-probe-chip"
-                                  :class="coverageLineDotClass(seg.covered)"
-                                  :aria-label="`${seg.line} ${coverageLineStateLabel(seg.covered)}`"
-                                  @click="openCoverageCodeDiff(group.file, seg.line ?? range.start)"
+                                  :class="
+                                    coverageLineDotClass(
+                                      block.segment.covered,
+                                      block.segment.lines[0]?.ignored,
+                                      block.segment.lines[0]?.branch_partial,
+                                    )
+                                  "
+                                  :title="
+                                    coverageLineDotTitle(
+                                      block.segment.covered,
+                                      block.segment.lines[0]?.ignored,
+                                      block.segment.lines[0]?.branch_partial,
+                                    )
+                                  "
+                                  :aria-label="coverageRangeSummary(block.segment)"
+                                  @click="
+                                    openCoverageCodeDiff(
+                                      group.file,
+                                      block.segment.start,
+                                      block.segment.end,
+                                    )
+                                  "
                                 />
-                                <span class="coverage-probe-state text-caption">
-                                  {{ coverageLineStateLabel(seg.covered) }}
+                                <span class="coverage-probe-state text-caption coverage-probe-state--range">
+                                  {{ coverageRangeSummary(block.segment) }}
                                 </span>
+                                <span
+                                  v-if="coverageLinePreview(block.segment.lines[0])"
+                                  class="coverage-probe-preview mono text-truncate"
+                                  :title="coverageLinePreview(block.segment.lines[0])"
+                                >
+                                  {{ coverageLinePreview(block.segment.lines[0]) }}
+                                </span>
+                              </div>
+                              <div v-else class="coverage-tag-wrap" role="list">
+                                <button
+                                  v-for="seg in block.segments"
+                                  :key="`${group.file}-tag-${seg.start}`"
+                                  type="button"
+                                  class="coverage-probe-tag"
+                                  role="listitem"
+                                  :title="
+                                    coverageLinePreview(seg.lines[0]) ||
+                                    `查看 :${seg.start}`
+                                  "
+                                  @click="openCoverageCodeDiff(group.file, seg.start)"
+                                >
+                                  <span class="coverage-probe-tag__line mono">:{{ seg.start }}</span>
+                                  <span
+                                    class="coverage-probe-chip coverage-probe-chip--tag"
+                                    :class="
+                                      coverageLineDotClass(
+                                        seg.covered,
+                                        seg.lines[0]?.ignored,
+                                        seg.lines[0]?.branch_partial,
+                                      )
+                                    "
+                                    :title="coverageLineDotTitle(seg.covered, seg.lines[0]?.ignored, seg.lines[0]?.branch_partial)"
+                                    aria-hidden="true"
+                                  />
+                                  <span class="coverage-probe-tag__state">{{
+                                    coverageLineStateLabel(
+                                      seg.covered,
+                                      seg.lines[0]?.ignored,
+                                      seg.lines[0]?.branch_partial,
+                                    )
+                                  }}</span>
+                                  <span
+                                    v-if="coverageLinePreview(seg.lines[0])"
+                                    class="coverage-probe-tag__preview mono text-truncate"
+                                  >
+                                    {{ coverageLinePreview(seg.lines[0]) }}
+                                  </span>
+                                </button>
                               </div>
                             </div>
                           </v-expansion-panel-text>
@@ -2218,6 +2617,26 @@ watch(
   line-height: 1.5;
   margin-top: 2px;
 }
+.precision-recall {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+.precision-recall__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.precision-recall__cmd {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 .detail-hint-box {
   display: flex;
   align-items: flex-start;
@@ -2375,6 +2794,17 @@ watch(
   margin-inline: 4px;
   opacity: 0.4;
 }
+.coverage-filtered-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.42);
+}
+.coverage-show-ignored :deep(.v-label) {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.58);
+}
 .coverage-hero__right {
   display: flex;
   flex-direction: column;
@@ -2416,6 +2846,23 @@ watch(
   background: rgba(255, 255, 255, 0.14) !important;
   color: #f1f3f5 !important;
 }
+.coverage-filter-toggle :deep(.v-btn.coverage-filter-btn--zero:not(.v-btn--active)) {
+  opacity: 0.48;
+}
+.coverage-filter-count {
+  margin-inline-start: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.88;
+  font-variant-numeric: tabular-nums;
+}
+.coverage-filter-scope-hint {
+  max-width: 280px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.42);
+  text-align: right;
+}
 .coverage-legend {
   display: flex;
   flex-wrap: wrap;
@@ -2456,7 +2903,54 @@ watch(
   padding-right: 4px;
 }
 .coverage-filter-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   margin-top: 4px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  box-sizing: border-box;
+}
+.coverage-filter-empty__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #8ab4f8;
+}
+.coverage-filter-empty__body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.coverage-filter-empty__title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
+}
+.coverage-filter-empty__sub {
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.52);
+}
+.coverage-filter-empty__link {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: #8ab4f8;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(138, 180, 248, 0.55);
+}
+.coverage-filter-empty__link:hover {
+  color: #c5d9fc;
+  text-decoration-color: rgba(197, 217, 252, 0.8);
 }
 .coverage-file-panels {
   background: transparent;
@@ -2531,20 +3025,23 @@ watch(
 .coverage-file-body :deep(.v-expansion-panel-text__wrapper) {
   padding: 8px 24px 16px !important;
 }
-.coverage-range-block + .coverage-range-block {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+.coverage-display-block + .coverage-display-block {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.07);
 }
 .coverage-probe-row {
   display: flex;
   align-items: center;
   gap: 12px;
   min-height: 32px;
-  margin-bottom: 8px;
 }
-.coverage-probe-row:last-child {
-  margin-bottom: 0;
+.coverage-probe-row--range {
+  display: grid;
+  grid-template-columns: auto 18px minmax(5.5em, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  width: 100%;
 }
 .coverage-line-no {
   flex: 0 0 56px;
@@ -2564,6 +3061,77 @@ watch(
 .coverage-line-no:hover {
   background: rgba(138, 180, 248, 0.12);
 }
+.coverage-line-no--range {
+  width: auto;
+  min-width: 5.5em;
+  max-width: 9.5em;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  text-align: left;
+}
+.coverage-probe-state--range {
+  white-space: nowrap;
+}
+.coverage-probe-preview {
+  justify-self: stretch;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 12px;
+  line-height: 1.35;
+  min-width: 0;
+}
+.coverage-tag-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+.coverage-probe-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+  line-height: 1.35;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+  text-align: left;
+}
+.coverage-probe-tag:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(138, 180, 248, 0.35);
+}
+.coverage-probe-tag__line {
+  color: #8ab4f8;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.coverage-probe-chip--tag {
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+.coverage-probe-tag__state {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.45);
+}
+.coverage-probe-tag__preview {
+  flex: 1 1 120px;
+  min-width: 0;
+  max-width: 360px;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 11px;
+  margin-inline-start: 4px;
+}
 .coverage-probe-chip {
   flex: 0 0 18px;
   width: 18px;
@@ -2581,10 +3149,67 @@ watch(
 .coverage-probe-chip--hit {
   background: rgba(129, 201, 149, 0.95);
 }
+.coverage-probe-chip--partial {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 193, 7, 0.96) 0%,
+    rgba(255, 193, 7, 0.96) 50%,
+    rgba(129, 201, 149, 0.95) 50%,
+    rgba(129, 201, 149, 0.95) 100%
+  );
+  border-radius: 50%;
+}
+.coverage-probe-chip:hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+.coverage-probe-chip--hit {
+  background: rgba(129, 201, 149, 0.95);
+}
+.coverage-probe-chip--ignored {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+}
 .coverage-probe-chip--miss {
   background: rgba(242, 139, 130, 0.95);
 }
 .coverage-probe-chip--unknown {
+.detail-probe-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(138, 180, 248, 0.08);
+}
+.detail-probe-banner--info {
+  background: rgba(129, 201, 149, 0.1);
+  border-color: rgba(129, 201, 149, 0.22);
+}
+.detail-probe-banner--warn {
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.25);
+}
+.detail-probe-banner--error {
+  background: rgba(242, 139, 130, 0.1);
+  border-color: rgba(242, 139, 130, 0.28);
+}
+.detail-probe-banner__phase {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.detail-probe-banner__icon {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
   background: rgba(95, 100, 110, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
 from fastapi import BackgroundTasks
 from git import Repo
 from sqlalchemy import select
+
+logger = logging.getLogger(__name__)
 
 from app.config import get_settings
 from app.db.models import AnalysisJob, Repository
@@ -51,9 +54,12 @@ def run_analyze_merge(
     try:
         job = db.get(AnalysisJob, job_id)
         if job:
-            if job.status in ("superseded", "debouncing"):
+            if job.status in ("superseded", "cancelled", "debouncing"):
                 return {"job_id": job_id, "skipped": job.status}
             job.status = "running"
+            from app.services.job_execution_state import touch_execution_phase
+
+            touch_execution_phase(job)
             db.commit()
 
         safe_name = repo_full_name.replace("/", "_")
@@ -232,6 +238,12 @@ def run_analyze_merge(
                 pass
 
         if job:
+            db.refresh(job)
+            if job.status in ("superseded", "cancelled"):
+                logger.info("skip finalize cancelled job %s", job_id)
+                return {"job_id": job_id, "skipped": "cancelled"}
+            from app.services.global_infra_change import apply_global_infrastructure_annotation
+
             job.status = "completed"
             job.affected_apis = {
                 "apis": report.affected_apis,
@@ -248,7 +260,11 @@ def run_analyze_merge(
                 "head_commit_message": head_commit_message,
                 "fullstack_impact": fullstack,
             }
+            apply_global_infrastructure_annotation(job, repo_rec)
             apply_gate_result(job, repo_rec)
+            from app.services.job_execution_state import finalize_after_analysis
+
+            finalize_after_analysis(job)
             if repo_rec and (repo_rec.repo_type or "backend") == "frontend":
                 from app.services.contract_gate_refresh import refresh_linked_backend_contract_gates
 
@@ -261,7 +277,9 @@ def run_analyze_merge(
     except Exception as exc:
         if job:
             job.status = "failed"
-            msg = str(exc).strip()
+            from app.services.job_execution_state import touch_execution_phase
+
+            touch_execution_phase(job)
             if is_worktree_path_only_error(msg) or (
                 msg.startswith("D:") and "worktrees" in msg and len(msg) < 160
             ):

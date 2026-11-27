@@ -21,6 +21,27 @@ def _repo_dir(full_name: str) -> Path:
     return Path(settings.repo_clone_root) / safe
 
 
+def _resolve_go_scan_root(repo_dir: Path, scan_root: str) -> tuple[str, bool]:
+    root = (scan_root or ".").strip() or "."
+    if (repo_dir / "go.mod").is_file():
+        return root if root else ".", root in ("", ".")
+    for candidate in (".", "cmd", "internal"):
+        if (repo_dir / candidate).is_dir():
+            return candidate, root in ("", ".") and candidate == "."
+    return root, False
+
+
+def _resolve_java_scan_root(repo_dir: Path, scan_root: str) -> tuple[str, bool]:
+    root = (scan_root or ".").strip() or "."
+    if root not in (".", ""):
+        if (repo_dir / root).is_dir():
+            return root, False
+    for candidate in ("src/main/java", "src/java", "java"):
+        if (repo_dir / candidate).is_dir():
+            return candidate, root in (".", "")
+    return root, False
+
+
 def _resolve_scan_root(repo_dir: Path, scan_root: str) -> tuple[str, bool]:
     """
     若配置 scan_root 扫不到 Python，且仍为默认值 '.'，尝试常见后端目录（如 QuantLens/backend）。
@@ -58,8 +79,13 @@ def reindex_repository(db: Session, repo: Repository) -> dict:
     scan_root, auto_fixed = _resolve_scan_root(repo_dir, repo.scan_root or ".")
     if auto_fixed and (repo.scan_root or ".") in (".", ""):
         repo.scan_root = scan_root
+    elif rtype == "backend_go":
+        scan_root, auto_fixed = _resolve_go_scan_root(repo_dir, repo.scan_root or ".")
+    else:
+        scan_root, auto_fixed = _resolve_scan_root(repo_dir, repo.scan_root or ".")
+    if auto_fixed and (repo.scan_root or ".") in (".", ""):
+        repo.scan_root = scan_root
 
-    rtype = normalize_repo_type(repo.repo_type)
     is_frontend = rtype == "frontend"
     method_count = 0
     api_count = 0
@@ -88,11 +114,7 @@ def reindex_repository(db: Session, repo: Repository) -> dict:
                 )
             finally:
                 store.close()
-    elif rtype == "backend_node":
-        ir = index_repository_graph(
-            repo_type=rtype,
-            repo_id=repo.id,
-            repo_full_name=repo.full_name,
+    elif rtype in ("backend_node", "backend_java", "backend_go"):
             repo_dir=repo_dir,
             scan_root=scan_root,
         )

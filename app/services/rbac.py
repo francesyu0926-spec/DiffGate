@@ -22,6 +22,7 @@ ROLE_LABELS: dict[str, str] = {
 }
 
 OVERRIDE_HINTS: dict[str, str] = {
+    "breaking_contract": "破坏性契约变更不可豁免，请修复 API 契约后重新分析。",
     "insufficient_role": (
         "当前角色为「研发」，仅 QA 或项目负责人可执行豁免。"
         "可复制链接发给 QA 审批。"

@@ -6,9 +6,25 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.schemas import RepositoryAnalyzeIn, RepositoryCreate, RepositoryOut, RepositoryUpdate
+from app.api.repo_branches import router as repo_branches_router
+from app.api.schemas import (
+    CloneUrlParseIn,
+    DetectRepositoryIn,
+    RepositoryAnalyzeIn,
+    RepositoryCreate,
+    RepositoryMonorepoBundleIn,
+    RepositoryOut,
+    RepositoryUpdate,
+    TestNotifyIn,
+)
+from app.services.repository_uniqueness import (
+    build_suggested_full_name,
+    find_repo_slot,
+    normalize_scan_root,
+    suggested_full_name_suffix,
+)
 from app.services.git_branches import list_repository_branches, resolve_analysis_shas
-from app.db.models import AnalysisJob, Repository
+from app.db.models import AnalysisJob, Repository, TestSuite
 from app.db.session import get_db
 from app.adapters.registry import list_repo_type_options
 from app.services.repo_index import reindex_repository
@@ -16,6 +32,7 @@ from app.services.analysis_runner import schedule_analyze_merge
 from app.utils.time_format import as_utc_iso
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
+router.include_router(repo_branches_router)
 
 
 @router.get("/stats/overview")
@@ -81,14 +98,68 @@ def list_repo_type_meta() -> dict:
     return {"items": list_repo_type_options()}
 
 
+@router.post("/parse-clone-url")
+def parse_clone_url_endpoint(body: CloneUrlParseIn) -> dict:
+    from app.services.repo_detect_parse import classify_clone_url
+
+    return classify_clone_url(body.clone_url.strip(), body.provider)
+
+
+@router.post("/detect")
+def detect_repository(body: DetectRepositoryIn, db: Session = Depends(get_db)) -> dict:
+    from app.services.repo_detect import detect_repository_profile
+
+    token = body.custom_token
+    if body.auth_mode == "token" and not token:
+        pass
+    try:
+        result = detect_repository_profile(
+            source_type=body.source_type,
+            clone_url=body.clone_url.strip(),
+            branch=body.branch,
+            auth_mode=body.auth_mode,
+            custom_token=token,
+            provider=body.provider,
+            default_branch=body.default_branch,
+        )
+        data = result.to_dict()
+        base = data.get("suggested_name") or "project"
+        root = data.get("suggested_scan_root") or data.get("scan_root") or "."
+        data["suggested_full_name"] = build_suggested_full_name(base, root, body.clone_url.strip(), db)
+        if result.is_monorepo and result.candidates:
+            for c in data.get("candidates") or []:
+                if isinstance(c, dict):
+                    c["suggested_full_name"] = build_suggested_full_name(
+                        base,
+                        c.get("scan_root") or ".",
+                        body.clone_url.strip(),
+                        db,
+                    )
+        return data
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except TimeoutError as exc:
+        raise HTTPException(status_code=408, detail=str(exc)) from None
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无法自动识别仓库类型：{exc}",
+        ) from None
+
+
 @router.get("/meta/test-suites")
-def list_test_suite_presets() -> dict:
+def list_test_suite_presets(db: Session = Depends(get_db)) -> dict:
+    rows = db.scalars(
+        select(TestSuite).where(TestSuite.enabled.is_(True)).order_by(TestSuite.name.asc())
+    ).all()
     return {
         "items": [
-            "order-service-cases",
-            "cart-service-cases",
-            "user-api-cases",
-            "payment-gateway-cases",
+            {
+                "slug": r.slug,
+                "name": r.name,
+                "description": r.description,
+            }
+            for r in rows
         ]
     }
 
@@ -120,10 +191,43 @@ def list_repositories(
 
 @router.post("", response_model=dict)
 def create_repository(body: RepositoryCreate, db: Session = Depends(get_db)) -> dict:
+    from app.services.repo_detect import detect_repository_profile
+
     notify_url = body.notify_webhook_url or body.webhook_notify_url
+    repo_type = body.repo_type
+    scan_root = (body.scan_root or "").strip() or "."
+    if repo_type == "auto":
+        try:
+            detected = detect_repository_profile(
+                source_type=body.provider,
+                clone_url=body.clone_url.strip(),
+                branch=body.default_branch.strip() or "main",
+                auth_mode=body.auth_method,
+                custom_token=body.access_token,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"自动识别失败：{exc}") from None
+        repo_type = detected.repo_type
+        if scan_root == ".":
+            scan_root = detected.scan_root
+    scan_root = normalize_scan_root(scan_root)
+    dup = find_repo_slot(
+        db, clone_url=body.clone_url.strip(), scan_root=scan_root, repo_type=repo_type
+    )
+    if dup:
+        raise HTTPException(
+            status_code=409,
+            detail=f"该仓库的 [{scan_root}] 目录（{repo_type}）已接入，请勿重复添加。",
+        )
+    full_name = body.full_name.strip()
+    clone_exists = db.scalar(
+        select(func.count()).select_from(Repository).where(Repository.clone_url == body.clone_url.strip())
+    )
+    if clone_exists:
+        full_name = build_suggested_full_name(full_name, scan_root, body.clone_url.strip(), db)
     repo = Repository(
         id=str(uuid.uuid4()),
-        full_name=body.full_name.strip(),
+        full_name=full_name,
         provider=body.provider,
         clone_url=body.clone_url.strip(),
         default_branch=body.default_branch.strip() or "main",
@@ -134,14 +238,14 @@ def create_repository(body: RepositoryCreate, db: Session = Depends(get_db)) -> 
         auth_method=body.auth_method,
         access_token=body.access_token,
         ssh_private_key=body.ssh_private_key,
-        scan_root=body.scan_root.strip() or ".",
+        scan_root=scan_root,
         test_suite_id=body.test_suite_id,
         gate_path_rules=body.gate_path_rules,
         high_risk_paths=body.high_risk_paths,
         notify_policy=body.notify_policy,
         notify_webhook_url=notify_url,
         webhook_notify_url=notify_url,
-        repo_type=body.repo_type,
+        repo_type=repo_type,
         api_base_prefix=(body.api_base_prefix or "").strip(),
         linked_repo_ids=list(body.linked_repo_ids or []),
     )
@@ -150,9 +254,62 @@ def create_repository(body: RepositoryCreate, db: Session = Depends(get_db)) -> 
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="仓库 full_name 已存在") from None
+        raise HTTPException(
+            status_code=409,
+            detail=f"仓库记录冲突：请检查 full_name 或同一地址下 [{scan_root}] 是否已存在。",
+        ) from None
     db.refresh(repo)
     return _to_out(repo)
+
+
+@router.post("/monorepo-bundle")
+def create_monorepo_bundle(body: RepositoryMonorepoBundleIn, db: Session = Depends(get_db)) -> dict:
+    clone_url = body.clone_url.strip()
+    created: list[Repository] = []
+    try:
+        for cand in body.candidates:
+            repo_type = cand.repo_type_id.strip()
+            scan_root = normalize_scan_root(cand.scan_root)
+            if find_repo_slot(db, clone_url=clone_url, scan_root=scan_root, repo_type=repo_type):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"该仓库的 [{scan_root}] 目录已接入，请勿重复添加。",
+                )
+            suffix = suggested_full_name_suffix(scan_root)
+            full_name = body.base_full_name.strip()
+            if suffix and not full_name.endswith(suffix):
+                full_name = f"{body.base_full_name.strip()}{suffix}"
+            repo = Repository(
+                id=str(uuid.uuid4()),
+                full_name=full_name,
+                provider=body.provider,
+                clone_url=clone_url,
+                default_branch=body.default_branch.strip() or "main",
+                description=body.description,
+                enabled=body.enabled,
+                webhook_enabled=body.webhook_enabled,
+                coverage_threshold=body.coverage_threshold,
+                auth_method="none",
+                scan_root=scan_root,
+                repo_type=repo_type,
+                linked_repo_ids=[],
+            )
+            db.add(repo)
+            created.append(repo)
+        db.flush()
+        ids = [r.id for r in created]
+        for repo in created:
+            repo.linked_repo_ids = [i for i in ids if i != repo.id]
+        db.commit()
+        for repo in created:
+            db.refresh(repo)
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Monorepo 双建失败：记录唯一性冲突。") from None
+    return {"items": [_to_out(r) for r in created]}
 
 
 @router.get("/{repo_id}")
@@ -212,6 +369,19 @@ def delete_repository(repo_id: str, db: Session = Depends(get_db)) -> dict:
     db.delete(repo)
     db.commit()
     return {"ok": True, "id": repo_id}
+
+
+@router.post("/test-notify")
+def test_notify_webhook(body: TestNotifyIn) -> dict:
+    from app.services.im_notify import send_test_notify
+
+    url = body.webhook_url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="请先填写 Webhook 地址")
+    result = send_test_notify(url)
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=result.get("message") or "发送失败")
+    return result
 
 
 @router.post("/{repo_id}/test-notify")
@@ -282,6 +452,8 @@ def trigger_diff_analysis(
             branch=branch,
             base_branch=base_branch,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"无法解析 Git: {exc}") from exc
 

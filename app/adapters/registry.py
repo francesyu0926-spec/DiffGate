@@ -34,17 +34,15 @@ _REPO_TYPES: list[dict[str, Any]] = [
         "id": "backend_go",
         "label": "后端 (Go)",
         "language": "go",
-        "index_supported": False,
-        "coming_soon": True,
-        "coverage_hint": "go test -coverprofile (规划)",
+        "index_supported": True,
+        "coverage_hint": "go build -cover / coverage.out → gate-report",
     },
     {
         "id": "backend_java",
         "label": "后端 (Java)",
         "language": "java",
-        "index_supported": False,
-        "coming_soon": True,
-        "coverage_hint": "JaCoCo Agent (规划)",
+        "index_supported": True,
+        "coverage_hint": "JaCoCo Agent → gate-report",
     },
 ]
 

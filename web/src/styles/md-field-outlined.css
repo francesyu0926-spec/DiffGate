@@ -1,0 +1,520 @@
+/* =========================================================
+   纯净版 Material Design Outlined（原生 input，零 Vuetify 凹槽冲突）
+   用法：OutlinedInput 或 .md-field + .md-field-control + .md-field-label
+   卡片内使用 --dg-form-card-bg / --card-bg 作标签遮罩色
+   ========================================================= */
+
+.md-field-root {
+  width: 100%;
+}
+
+/* 标签在控件上方：不与上一行 helper / 凹槽标签重叠 */
+.md-field-label-above {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #ffffff;
+}
+
+.md-field-label-sub,
+.md-field-label-above .md-field-label-sub {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.md-field-label-above .dg-form-required,
+.md-field-label-above .required-star {
+  color: #f87171;
+}
+
+.md-field--label-above input.md-field-control {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.md-field--label-above textarea.md-field-control.md-field-control--textarea {
+  padding: 12px;
+  min-height: 80px;
+}
+
+.md-field-select.md-field--label-above .md-field-select-trigger {
+  padding-top: 0;
+}
+
+.md-field {
+  position: relative;
+  width: 100%;
+  margin-bottom: 0;
+  isolation: isolate;
+}
+
+.md-field-root > .md-field-helper {
+  margin-top: 6px;
+}
+
+.md-field-control {
+  width: 100%;
+  background-color: #161e2e;
+  border: 1.5px solid #475569;
+  border-radius: 6px;
+  padding: 0 12px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.45;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease;
+  box-sizing: border-box;
+}
+
+input.md-field-control,
+select.md-field-control,
+.md-field-select-trigger {
+  min-height: 44px;
+  height: 44px;
+}
+
+input.md-field-control {
+  padding-top: 12px;
+  padding-bottom: 8px;
+}
+
+.md-field-control--mono {
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 14px;
+}
+
+.md-field-control:hover {
+  border-color: #64748b;
+}
+
+.md-field-control:focus {
+  outline: none;
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
+}
+
+/* 标签始终坐在顶边切口：卡片底色 + 左右 6px 遮罩，切断边框穿模 */
+.md-field-label {
+  position: absolute;
+  left: 12px;
+  top: 0;
+  transform: translateY(-50%) scale(0.92);
+  transform-origin: left center;
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+  transition: color 0.16s ease;
+  background-color: var(--card-bg, var(--dg-form-card-bg, #111827));
+  line-height: 1.1;
+  z-index: 2;
+  max-width: calc(100% - 28px);
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: ellipsis;
+}
+
+.md-field-select .md-field-label {
+  z-index: 5;
+  background-color: var(--card-bg, var(--dg-form-card-bg, #18181b));
+  padding: 0 4px;
+}
+
+.md-field-control:focus + .md-field-label,
+.md-field--textarea:focus-within .md-field-label,
+.md-field-select.md-field--open .md-field-label {
+  color: #93c5fd;
+}
+
+.md-field-select.md-field--open .md-field-select-trigger {
+  z-index: 1;
+}
+
+.md-field-label .dg-form-required,
+.md-field-label .required-star {
+  color: inherit;
+}
+
+.md-field-helper {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.45;
+}
+
+.md-field-helper .ts-link-repos-mono {
+  font-family: ui-monospace, Consolas, 'Courier New', monospace;
+}
+
+/* —— Textarea —— */
+textarea.md-field-control.md-field-control--textarea {
+  min-height: 88px;
+  height: auto;
+  padding: 14px 12px 12px;
+  resize: vertical;
+}
+
+.md-field-control--with-import {
+  padding-right: 96px;
+}
+
+.md-field-file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.md-field-import-btn {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #60a5fa;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid #334155;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.md-field-import-btn:hover {
+  color: #93c5fd;
+  background: #1e293b;
+}
+
+/* —— Password affix —— */
+.md-field-control--password {
+  padding-right: 40px;
+}
+
+.md-field-control--password-paste {
+  padding-right: 68px;
+}
+
+.md-field-affix {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+.md-field-affix-btn {
+  display: flex;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.md-field-affix-btn:hover {
+  color: #60a5fa;
+}
+
+.md-field-affix-icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* —— Select —— */
+.md-field-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  height: 44px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.md-field-select.md-field--open .md-field-select-trigger {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
+}
+
+.md-field-select--disabled .md-field-select-trigger {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.md-field-select-values {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.md-field-select-single-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+}
+
+.md-field-select-free-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #f1f5f9;
+  font-size: 13px;
+  outline: none;
+}
+
+.md-field-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #e2e8f0;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+}
+
+.md-field-tag__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-field-tag__remove {
+  border: none;
+  padding: 0;
+  line-height: 1;
+  font-size: 14px;
+  color: #94a3b8;
+  background: transparent;
+  cursor: pointer;
+}
+
+.md-field-tag__remove:hover {
+  color: #f87171;
+}
+
+.md-field-select-trigger-end {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.md-field-select-clear {
+  border: none;
+  padding: 0 4px;
+  font-size: 16px;
+  line-height: 1;
+  color: #94a3b8;
+  background: transparent;
+  cursor: pointer;
+}
+
+.md-field-select-clear:hover {
+  color: #f87171;
+}
+
+.md-field-select-chevron {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #94a3b8;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+
+.md-field-select-chevron--open {
+  transform: rotate(180deg);
+  color: #60a5fa;
+}
+
+
+.md-field-select-menu {
+  background: #242424;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.58),
+    0 0 0 1px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.md-field-select-menu--floating {
+  position: fixed;
+  z-index: 4000;
+  margin: 0;
+}
+
+.md-field-select-search {
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.md-field-select-search input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  outline: none;
+  box-shadow: none;
+}
+
+.md-field-select-search input:focus {
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: none;
+}
+
+.md-field-select-options {
+  max-height: 224px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.md-field-select-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.md-field-select-menu .md-field-select-empty {
+  padding: 0;
+}
+
+.md-field-select-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  text-align: left;
+  font-size: 12px;
+  color: #e2e8f0;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.md-field-select-option:hover {
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.md-field-select-option--selected {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+}
+
+.md-field-select-option__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.md-field-select-option__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.md-field-select-option__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.md-field-select-option__badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 4px;
+}
+
+.md-field-select-option__desc {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-field-select-check {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #60a5fa;
+}
+
+/* --card-bg 在 .dg-form-card 上声明（见 repo-form-page.css） */
+
+.md-field-select-placeholder {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-field-select-loading {
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: md-field-select-spin 0.7s linear infinite;
+}
+
+@keyframes md-field-select-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.md-field-select-option--disabled,
+.md-field-select-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.md-field-select-option--disabled:hover,
+.md-field-select-option:disabled:hover {
+  background: transparent;
+}
+
+.md-field-select-menu-footer {
+  padding: 8px 10px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}

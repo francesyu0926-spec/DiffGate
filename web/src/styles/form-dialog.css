@@ -1,0 +1,386 @@
+/* 暗色弹窗表单色彩与控件规范 */
+:root {
+  /* 背景与文本 */
+  --form-bg: rgba(255, 255, 255, 0.03);
+  --form-bg-hover: rgba(255, 255, 255, 0.05);
+  --form-text: rgba(255, 255, 255, 0.9);
+  --form-placeholder: rgba(255, 255, 255, 0.3);
+  --form-label: rgba(255, 255, 255, 0.6);
+
+  /* 边框状态 */
+  --form-border-default: #8b7fd4;
+  --form-border-hover: #a699e8;
+  --form-border-focus: #b6a5ff;
+  --dg-outlined-border-width: 3px;
+  --form-border-error: #ef4444;
+
+  /* 主题发光 */
+  --form-shadow-focus: 0 0 0 3px rgba(139, 123, 232, 0.32);
+  --form-shadow-error: 0 0 0 3px rgba(239, 68, 68, 0.15);
+
+  /* 弹窗 / 开关等扩展 */
+  --dg-surface-modal: #1e1e1e;
+  --form-error-text: #f87171;
+  --form-switch-off: rgba(255, 255, 255, 0.2);
+  --form-switch-thumb-off: #888888;
+}
+
+/* 原生 input 可直接复用 */
+.input-field {
+  background: var(--form-bg);
+  border: 1px solid var(--form-border-default);
+  color: var(--form-text);
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.input-field::placeholder {
+  color: var(--form-placeholder);
+  opacity: 1;
+}
+
+.input-field:hover {
+  border-color: var(--form-border-hover);
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--form-border-focus);
+  box-shadow: var(--form-shadow-focus);
+}
+
+.input-field:disabled {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.25);
+  cursor: not-allowed;
+}
+
+/* 弹窗表单通用规范：高度、间距、错误提示 */
+.dg-form-dialog .dg-form-field {
+  margin-bottom: 24px;
+}
+
+.dg-form-dialog :deep(.v-field) {
+  min-height: 44px;
+  border-radius: 6px;
+}
+
+.dg-form-dialog :deep(.v-label) {
+  margin-bottom: 8px;
+}
+
+.dg-form-dialog__actions {
+  padding-inline: 20px !important;
+}
+
+.dg-form-dialog__actions .v-btn--variant-text {
+  color: rgba(255, 255, 255, 0.58) !important;
+}
+
+.dg-form-dialog__actions .v-btn--variant-flat.v-btn--density-default {
+  min-height: 44px;
+  font-weight: 600;
+}
+
+.dg-form-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--form-error-text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.dg-form-error__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--form-error-text);
+}
+
+.dg-form-error__body {
+  min-width: 0;
+}
+
+.dg-form-error__title {
+  font-weight: 500;
+}
+
+.dg-form-error__code {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 400;
+}
+
+.dg-switch--dim :deep(.v-switch__track) {
+  background-color: var(--form-switch-off) !important;
+  opacity: 1 !important;
+}
+
+.dg-switch--dim :deep(.v-selection-control--dirty .v-switch__track) {
+  background-color: var(--form-border-focus) !important;
+  opacity: 1 !important;
+}
+
+/* Vuetify 控件映射为 .input-field 四态 */
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-input__control) {
+  position: relative;
+  overflow: visible;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field) {
+  margin-top: 26px;
+  min-height: 44px;
+  border-radius: 6px;
+  color: var(--form-text);
+  background: var(--form-bg) !important;
+  border: 1px solid var(--form-border-default) !important;
+  box-shadow: none !important;
+  overflow: visible;
+  transition: all 0.2s ease;
+}
+
+/* 仓库全页表单：外部 label，不走 26px 浮动间距 */
+.repo-form-page--v2 .repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field.dg-control :deep(.v-field) {
+  margin-top: 0 !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field:hover:not(.v-field--disabled):not(.v-field--focused)) {
+  background: var(--form-bg-hover) !important;
+  border-color: var(--form-border-hover) !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--focused) {
+  outline: none !important;
+  background: var(--form-bg-hover) !important;
+  border-color: var(--form-border-focus) !important;
+  box-shadow: var(--form-shadow-focus) !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--error) {
+  border-color: var(--form-border-error) !important;
+  box-shadow: var(--form-shadow-error) !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--error.v-field--focused) {
+  border-color: var(--form-border-error) !important;
+  box-shadow: var(--form-shadow-error) !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--disabled) {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-color: transparent !important;
+  cursor: not-allowed;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--disabled .v-field__input) {
+  color: rgba(255, 255, 255, 0.25) !important;
+}
+
+/* 去掉 Vuetify outlined 默认白框 */
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field__outline),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field__overlay),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field__underlay) {
+  display: none !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field *:focus),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field *:focus-visible) {
+  outline: none !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-label.v-field-label),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--active .v-label),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--dirty .v-label),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--focused .v-label) {
+  position: absolute;
+  top: -26px !important;
+  left: 0;
+  transform: none !important;
+  transform-origin: left top !important;
+  font-size: 13px !important;
+  font-weight: 400;
+  color: var(--form-label) !important;
+  opacity: 1 !important;
+  max-width: 100%;
+  letter-spacing: 0.01em;
+  margin-inline-start: 0 !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field__input),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(input),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(textarea) {
+  color: var(--form-text);
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field--focused .v-field__input) {
+  color: #ffffff;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(input::placeholder),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(textarea::placeholder) {
+  color: var(--form-placeholder) !important;
+  opacity: 1;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field__append-inner .v-icon),
+/* 仓库类型下拉（壳层见 .dg-md3-select-menu） */
+.dg-md3-select-menu.repo-type-select-menu.v-overlay__content {
+  max-height: min(320px, 70vh) !important;
+}
+
+.dg-md3-select-menu.repo-type-select-menu .v-list {
+  max-height: min(300px, 68vh) !important;
+  overflow-y: auto !important;
+}
+
+.repo-type-select-menu .repo-type-menu-item {
+  position: relative;
+  padding-inline-end: 36px !important;
+}
+
+.repo-type-select-menu .repo-type-menu-item__icon {
+  margin-inline-end: 4px;
+  opacity: 0.88;
+}
+
+.repo-type-select-menu .v-list-item--disabled {
+  opacity: 0.45;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(.v-field__append-inner .v-select__menu-icon) {
+  color: rgba(255, 255, 255, 0.5) !important;
+  opacity: 1;
+}
+
+.repo-dialog-form.dg-dark-form :deep(.v-messages__message) {
+  color: var(--form-error-text);
+  font-size: 12px;
+}
+
+.repo-dialog-form.dg-dark-form .repo-form-switch :deep(.v-switch__track) {
+  background-color: var(--form-switch-off) !important;
+  opacity: 1 !important;
+}
+
+.repo-dialog-form.dg-dark-form .repo-form-switch :deep(.v-selection-control--dirty .v-switch__track) {
+  background-color: var(--form-border-focus) !important;
+}
+
+.repo-dialog-form.dg-dark-form .repo-form-switch :deep(.v-switch__thumb) {
+  color: var(--form-switch-thumb-off) !important;
+}
+
+.repo-dialog-form.dg-dark-form .repo-form-switch :deep(.v-selection-control--dirty .v-switch__thumb) {
+  color: #ffffff !important;
+}
+
+.repo-dialog-form.dg-dark-form .repo-notify-url-field :deep(.v-field) {
+  margin-top: 0 !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(input:-webkit-autofill),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(input:-webkit-autofill:hover),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field :deep(input:-webkit-autofill:focus) {
+  -webkit-box-shadow: 0 0 0 1000px var(--dg-surface-modal) inset !important;
+  box-shadow: 0 0 0 1000px var(--dg-surface-modal) inset !important;
+  -webkit-text-fill-color: var(--form-text) !important;
+}
+
+/* 高危 / 低危路径规则文本框 */
+.rules-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rules-label .dot-red {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  box-shadow: 0 0 5px rgba(239, 68, 68, 0.55);
+}
+
+.rules-label .dot-green {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #22c55e;
+  flex-shrink: 0;
+  box-shadow: 0 0 5px rgba(34, 197, 94, 0.5);
+}
+
+.repo-dialog-form.dg-dark-form .rules-textarea :deep(.v-field) {
+  margin-top: 0 !important;
+  min-height: 108px;
+  background-color: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.repo-dialog-form.dg-dark-form .rules-textarea :deep(.v-field__outline) {
+  display: none !important;
+}
+
+.repo-dialog-form.dg-dark-form .rules-textarea :deep(.v-field:hover:not(.v-field--disabled):not(.v-field--focused)) {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.repo-dialog-form.dg-dark-form .rules-textarea :deep(.v-field--focused) {
+  border-color: var(--form-border-focus) !important;
+  box-shadow: var(--form-shadow-focus) !important;
+}
+
+.repo-dialog-form.dg-dark-form .rules-textarea :deep(textarea) {
+  padding: 12px !important;
+  min-height: 84px;
+  font-family: JetBrains Mono, Monaco, Consolas, var(--diffgate-mono), monospace !important;
+  color: #e5e5e5 !important;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.repo-dialog-form.dg-dark-form .rules-textarea :deep(textarea::placeholder) {
+  color: rgba(255, 255, 255, 0.28) !important;
+  opacity: 1;
+}
+
+/* 关联上下游：未聚焦时与其它输入框边框一致 */
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field--linked :deep(.v-field:not(.v-field--focused):not(.v-field--error)) {
+  border-color: var(--form-border-default) !important;
+  box-shadow: none !important;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field--linked :deep(.v-field--focused) {
+  border-color: var(--form-border-focus) !important;
+  box-shadow: var(--form-shadow-focus) !important;
+}
+
+/* 数字框：隐藏原生步进箭头 */
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field--number :deep(input[type='number']::-webkit-inner-spin-button),
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field--number :deep(input[type='number']::-webkit-outer-spin-button),
+.repo-dialog-form.dg-dark-form .repo-coverage-combo__tag :deep(input[type='number']::-webkit-inner-spin-button),
+.repo-dialog-form.dg-dark-form .repo-coverage-combo__tag :deep(input[type='number']::-webkit-outer-spin-button) {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.repo-dialog-form.dg-dark-form:not(.dg-md3-form) .repo-form-field--number :deep(input[type='number']),
+.repo-dialog-form.dg-dark-form .repo-coverage-combo__tag :deep(input[type='number']) {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

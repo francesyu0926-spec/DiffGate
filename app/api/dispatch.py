@@ -24,6 +24,20 @@ class DispatchRegressionIn(BaseModel):
 
 
 def _run_probe_task(job_id: str) -> None:
+    import os
+    from pathlib import Path
+
+    from app.services.coverage_lifecycle import coverage_combine, coverage_reset
+
+    cov_dir = os.environ.get("DIFFGATE_COVERAGE_DATA_DIR", "").strip()
+    if cov_dir:
+        data_dir = Path(cov_dir)
+        if os.environ.get("DIFFGATE_COVERAGE_RESET", "").lower() in ("1", "true", "yes"):
+            coverage_reset(data_dir)
+        try:
+            coverage_combine(data_dir)
+        except Exception:
+            logger.exception("coverage combine before probe failed")
     try:
         result = run_coverage_probe_for_job_id(job_id)
         if result:

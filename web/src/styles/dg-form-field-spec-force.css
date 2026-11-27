@@ -1,0 +1,204 @@
+/**
+ * 用例集 / 仓库全页：终极字号覆盖（压过 repo-form-page / test-suite-form-page / Vuetify scale）
+ * 必须在 main.ts 中最后 import
+ */
+.ts-suite-form-page.dg-outlined-form-page,
+.repo-form-page.dg-outlined-form-page {
+  --dg-form-label-size: 15px;
+  --dg-form-input-size: 15px;
+  --dg-field-height: 44px;
+}
+
+/* —— Outlined 顶置标签 —— */
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-root--label-above > label,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-label-above,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card label.outlined-label,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .ts-git-origin-field__label,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-root--label-above > label,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-label-above,
+.repo-form-page.dg-outlined-form-page .dg-form-card label.outlined-label,
+.repo-form-page.dg-outlined-form-page .dg-form-card .repo-coverage-field__label {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  opacity: 1 !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0 !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-label-sub,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-label-sub {
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  color: rgba(255, 255, 255, 0.52) !important;
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.52) !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .ts-enable-label__main,
+.repo-form-page.dg-outlined-form-page .ts-enable-label__main {
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .ts-source-segment,
+.repo-form-page.dg-outlined-form-page .ts-source-segment {
+  background: rgba(255, 255, 255, 0.03) !important;
+  padding: 4px !important;
+  height: 44px !important;
+}
+
+/* —— Outlined 控件正文 + 占位 —— */
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-control,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-select-trigger,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-select-single-value,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-select-free-input,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-select-placeholder,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-control,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-select-trigger,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-select-single-value,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-select-free-input,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-select-placeholder {
+  font-size: 15px !important;
+  min-height: 44px !important;
+  height: 44px !important;
+  line-height: 1.4 !important;
+  background-color: #1e1e24 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-control:focus,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-select.md-field--open .md-field-select-trigger,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-control:focus,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-select.md-field--open .md-field-select-trigger {
+  border-color: #3b82f6 !important;
+  border-width: 1px !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12) !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-control::placeholder,
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card textarea.md-field-control::placeholder,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-control::placeholder,
+.repo-form-page.dg-outlined-form-page .dg-form-card textarea.md-field-control::placeholder {
+  font-size: 15px !important;
+  color: rgba(255, 255, 255, 0.38) !important;
+  opacity: 1 !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card textarea.md-field-control.md-field-control--textarea,
+.repo-form-page.dg-outlined-form-page .dg-form-card textarea.md-field-control.md-field-control--textarea {
+  height: auto !important;
+  min-height: 80px !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .ts-native-radio__text,
+.repo-form-page.dg-outlined-form-page .dg-form-card .ts-native-radio__text {
+  font-size: 15px !important;
+  color: rgba(255, 255, 255, 0.88) !important;
+}
+
+/* —— Vuetify 剩余字段：取消 0.75 scale / 0.75em —— */
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field__input,
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field__input input,
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field__input textarea,
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-select__selection-text {
+  font-size: 15px !important;
+  line-height: 1.4 !important;
+}
+
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field__input input::placeholder,
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field__input textarea::placeholder {
+  font-size: 15px !important;
+  color: rgba(255, 255, 255, 0.38) !important;
+  opacity: 1 !important;
+}
+
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-label.v-field-label,
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field__outline__notch .v-label.v-field-label,
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field__field > .v-label.v-field-label {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  opacity: 1 !important;
+  transform: none !important;
+  scale: 1 !important;
+}
+
+.repo-form-page.repo-form-page--v2.dg-outlined-form-page
+  .dg-form-card
+  .dg-md-outlined-item.form-group
+  .repo-form-field
+  .v-field--active
+  .v-field__outline__notch
+  .v-label.v-field-label,
+.repo-form-page.repo-form-page--v2.dg-outlined-form-page
+  .dg-form-card
+  .dg-md-outlined-item.form-group
+  .repo-form-field
+  .v-field--active.v-field--focused
+  .v-field__outline__notch
+  .v-label.v-field-label,
+.repo-form-page.repo-form-page--v2.dg-outlined-form-page
+  .dg-form-card
+  .repo-risk-rules-block
+  .rules-textarea
+  .v-field--active
+  .v-field__outline__notch
+  .v-label.v-field-label,
+.repo-form-page.repo-form-page--v2.dg-outlined-form-page
+  .dg-form-card
+  .repo-threshold-block
+  .repo-threshold-number
+  .v-field--active
+  .v-field__outline__notch
+  .v-label.v-field-label {
+  transform: none !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-input--focused .v-label.v-field-label,
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field--focused .v-field__outline__notch .v-label.v-field-label {
+  color: #3b82f6 !important;
+  -webkit-text-fill-color: #3b82f6 !important;
+}
+
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field--variant-outlined:not(.v-field--active) .v-field__field > .v-label.v-field-label {
+  font-size: 15px !important;
+  color: rgba(255, 255, 255, 0.42) !important;
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.42) !important;
+  transform: translateY(-50%) !important;
+}
+
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field--variant-outlined .v-field__field,
+.repo-form-page.dg-outlined-form-page .dg-form-card .v-field--variant-outlined .v-field__input {
+  min-height: 44px !important;
+}
+
+.repo-form-page.repo-form-page--v2.dg-outlined-form-page
+  .dg-form-card
+  .dg-md-outlined-item.form-group
+  .repo-form-field.v-text-field
+  input,
+.repo-form-page.repo-form-page--v2.dg-outlined-form-page
+  .dg-form-card
+  .dg-md-outlined-item.form-group
+  .repo-form-field.v-text-field
+  .v-field__input {
+  font-size: 15px !important;
+  line-height: 1.4 !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-select-option,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-select-option {
+  font-size: 14px !important;
+}
+
+.ts-suite-form-page.dg-outlined-form-page .dg-form-card .md-field-select-option__label,
+.repo-form-page.dg-outlined-form-page .dg-form-card .md-field-select-option__label {
+  font-size: 14px !important;
+}

@@ -1,6 +1,11 @@
 from types import SimpleNamespace
 
-from app.services.im_notify import build_im_payload, regression_link
+from app.services.im_notify import (
+    build_im_payload,
+    build_test_notify_payload,
+    regression_link,
+    webhook_vendor_from_url,
+)
 
 
 def test_regression_link_contains_job_id():

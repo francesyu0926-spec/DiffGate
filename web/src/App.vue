@@ -124,6 +124,7 @@ const navItems = [
   { path: '/analysis', label: '变更影响', icon: 'mdi-transit-connection-variant' },
   { path: '/regression', label: '精准回归', icon: 'mdi-file-document-check-outline' },
   { path: '/repositories', label: '仓库管理', icon: 'mdi-source-repository' },
+  { path: '/test-suites', label: '用例集管理', icon: 'mdi-clipboard-list-outline' },
 ]
 
 function isActive(path: string) {
@@ -648,6 +649,9 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(242, 139, 130, 0.2);
   animation: status-breathe-warn 1.8s ease-in-out infinite;
 }
+.help-btn {
+  margin-inline-start: 4px;
+}
 .cta-new-analysis--ghost {
   font-weight: 600;
   border-color: rgba(138, 180, 248, 0.55) !important;
@@ -659,9 +663,6 @@ onUnmounted(() => {
   background: rgba(37, 99, 235, 0.22) !important;
   border-color: rgba(138, 180, 248, 0.85) !important;
   color: #d2e3fc !important;
-}
-.help-btn {
-  margin-inline-start: 4px;
 }
 .cta-new-analysis :deep(.v-btn__prepend .v-icon) {
   font-size: 18px;

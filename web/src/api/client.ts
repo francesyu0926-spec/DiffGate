@@ -347,15 +347,42 @@ function normalizeApiDetail(detail: string): string {
   return trimmed
 }
 
+const AXIOS_STATUS_RE = /^Request failed with status code (\d+)$/i
+
+function isAxiosGenericMessage(msg: string): boolean {
+  return AXIOS_STATUS_RE.test(msg.trim())
+}
+
 /** FastAPI `detail` string or validation error message for snackbars. */
 export function readApiError(err: unknown, fallback: string): string {
+  if (err instanceof Error && isAxiosGenericMessage(err.message)) return fallback
   if (!axios.isAxiosError(err)) return fallback
   const data = err.response?.data as { detail?: string | Array<{ msg?: string }> } | undefined
   const detail = data?.detail
-  if (typeof detail === 'string' && detail.trim()) return normalizeApiDetail(detail)
-  if (Array.isArray(detail) && detail[0]?.msg) return normalizeApiDetail(detail[0].msg!)
+  if (typeof detail === 'string' && detail.trim()) {
+    if (isAxiosGenericMessage(detail)) return fallback
+    return normalizeApiDetail(detail)
+  }
+  if (Array.isArray(detail) && detail[0]?.msg) {
+    const msg = detail[0].msg!
+    if (isAxiosGenericMessage(msg)) return fallback
+    return normalizeApiDetail(msg)
+  }
   if (err.code === 'ECONNABORTED') return '请求超时，索引可能仍在进行，请稍后刷新列表'
+  if (isAxiosGenericMessage(err.message)) return fallback
   return fallback
+}
+
+export type ApiErrorView = { message: string; code?: number }
+
+/** Human-facing error for modals: hides axios noise and surfaces HTTP status as secondary hint. */
+export function formatApiErrorView(err: unknown, fallback: string): ApiErrorView {
+  const code = axios.isAxiosError(err) ? err.response?.status : undefined
+  let message = readApiError(err, fallback)
+  if (code && code >= 500 && message === fallback) {
+    message = fallback.includes('分析') ? '分析请求失败，请稍后重试' : '服务异常，请稍后重试'
+  }
+  return { message, code }
 }
 
 export type JobListPage = {
@@ -427,9 +454,297 @@ export async function fetchJobCodeDiff(
   return data
 }
 
+export type TestSuitePreset = {
+  slug: string
+  name: string
+  description?: string | null
+}
+
+export type TestSuiteSourceType = 'git' | 'webhook' | 'manual'
+export type TestSuiteFramework = 'yaml' | 'pytest' | 'httprunner' | 'apifox' | 'junit' | 'gotest'
+export type TestSuiteGitAuthMethod = 'inherit' | 'token' | 'ssh'
+
+export type TestSuiteItem = {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  external_ref: string | null
+  enabled: boolean
+  source_type: TestSuiteSourceType
+  git_url: string | null
+  git_branch: string | null
+  case_path: string | null
+  framework: TestSuiteFramework | null
+  git_reuse_repository_id: string | null
+  git_auth_method?: TestSuiteGitAuthMethod
+  token_configured?: boolean
+  ssh_configured?: boolean
+  skip_ssl_verify?: boolean
+  trigger_webhook_url: string | null
+  indexed_api_count: number
+  case_count: number
+  last_synced_at: string | null
+  repo_count: number
+  linked_repository_ids: string[]
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type TestSuitePayload = {
+  slug: string
+  name: string
+  description?: string | null
+  external_ref?: string | null
+  enabled?: boolean
+  source_type?: TestSuiteSourceType
+  git_url?: string | null
+  git_branch?: string | null
+  case_path?: string | null
+  framework?: TestSuiteFramework | null
+  git_reuse_repository_id?: string | null
+  git_auth_method?: TestSuiteGitAuthMethod
+  access_token?: string | null
+  ssh_private_key?: string | null
+  skip_ssl_verify?: boolean
+  trigger_webhook_url?: string | null
+  repository_ids?: string[]
+}
+
+export type CloneUrlMeta = {
+  ok: boolean
+  provider?: string
+  transport?: string
+  full_name?: string
+  host?: string | null
+  base_url?: string | null
+  project_path?: string | null
+  suggested_auth?: string
+  local_valid?: boolean
+  message?: string
+}
+
+export type TestSuiteProbeResult = {
+  ok: boolean
+  message: string
+  case_count: number
+  api_count: number
+  url_meta?: CloneUrlMeta
+  credential_source?: string
+}
+
+export async function parseCloneUrl(cloneUrl: string, provider?: 'github' | 'gitlab' | 'local') {
+  const { data } = await http.post<CloneUrlMeta>('/repositories/parse-clone-url', {
+    clone_url: cloneUrl,
+    ...(provider ? { provider } : {}),
+  })
+  return data
+}
+
+export type TestSuiteProbePayload = {
+  git_url?: string | null
+  git_branch?: string | null
+  case_path?: string | null
+  framework?: TestSuiteFramework | null
+  git_reuse_repository_id?: string | null
+  git_auth_method?: TestSuiteGitAuthMethod
+  access_token?: string | null
+  ssh_private_key?: string | null
+  skip_ssl_verify?: boolean | null
+}
+
+export type TestSuitePreviewPayload = {
+  source_type?: TestSuiteSourceType
+  clone_url?: string | null
+  linked_repo_id?: string | null
+  credential_mode?: 'auto' | 'token' | 'ssh'
+  access_token?: string | null
+  ssh_private_key?: string | null
+  verify_ssl?: boolean
+  branch?: string | null
+  scan_path?: string | null
+  framework?: TestSuiteFramework | null
+  test_suite_id?: string | null
+}
+
+export type TestSuitePreviewCaseSample = {
+  title: string
+  method: string
+  normalized_route: string
+  file_path: string
+}
+
+export type TestSuitePreviewSummary = {
+  matched_files: number
+  total_cases: number
+  covered_api_count: number
+}
+
+export type TestSuitePreviewResult = {
+  success: boolean
+  latency_ms: number
+  repo_reachable: boolean
+  branch_exists: boolean
+  scan_path_exists: boolean
+  summary: TestSuitePreviewSummary
+  sample_cases: TestSuitePreviewCaseSample[]
+  warnings: string[]
+  error_detail?: string | null
+  message?: string | null
+  credential_source?: string | null
+  url_meta?: CloneUrlMeta
+}
+
+export async function previewTestSuiteSource(body: TestSuitePreviewPayload) {
+  const { data } = await http.post<TestSuitePreviewResult>('/test-suites/preview', body)
+  return data
+}
+
+export async function probeTestSuiteSource(body: TestSuiteProbePayload) {
+  const method = body.git_auth_method || 'inherit'
+  const credential_mode: 'auto' | 'token' | 'ssh' =
+    method === 'ssh' ? 'ssh' : method === 'token' ? 'token' : 'auto'
+  const preview = await previewTestSuiteSource({
+    source_type: 'git',
+    clone_url: body.git_reuse_repository_id ? null : body.git_url ?? null,
+    linked_repo_id: body.git_reuse_repository_id ?? null,
+    credential_mode,
+    access_token: body.access_token ?? null,
+    ssh_private_key: body.ssh_private_key ?? null,
+    verify_ssl: body.skip_ssl_verify === false ? false : true,
+    branch: body.git_branch ?? 'main',
+    scan_path: body.case_path ?? null,
+    framework: body.framework ?? 'yaml',
+  })
+  return {
+    ok: preview.success,
+    message: preview.message || '',
+    case_count: preview.summary?.total_cases ?? 0,
+    api_count: preview.summary?.covered_api_count ?? 0,
+    credential_source: preview.credential_source ?? undefined,
+    url_meta: preview.url_meta,
+  } satisfies TestSuiteProbeResult
+}
+
+export type TestSuiteBranchesPayload = {
+  git_url?: string | null
+  git_reuse_repository_id?: string | null
+  git_auth_method?: TestSuiteGitAuthMethod
+  access_token?: string | null
+  ssh_private_key?: string | null
+  skip_ssl_verify?: boolean | null
+  test_suite_id?: string | null
+}
+
+export type RepositoryBranchItem = {
+  name: string
+  is_default: boolean
+}
+
+export type RepositoryBranchesDetectPayload = {
+  clone_url?: string | null
+  credential_mode?: 'auto' | 'token' | 'ssh'
+  access_token?: string | null
+  ssh_private_key?: string | null
+  verify_ssl?: boolean
+  linked_repo_id?: string | null
+  test_suite_id?: string | null
+}
+
+export type RepositoryBranchesDetectResult = {
+  success: boolean
+  source: string
+  default_branch: string
+  branches: RepositoryBranchItem[]
+  error_message?: string | null
+}
+
+export async function fetchRepositoryBranches(body: RepositoryBranchesDetectPayload) {
+  const { data } = await http.post<RepositoryBranchesDetectResult>('/repositories/branches', {
+    clone_url: body.clone_url ?? null,
+    credential_mode: body.credential_mode ?? 'auto',
+    access_token: body.access_token ?? null,
+    ssh_private_key: body.ssh_private_key ?? null,
+    verify_ssl: body.verify_ssl ?? true,
+    linked_repo_id: body.linked_repo_id ?? null,
+    test_suite_id: body.test_suite_id ?? null,
+  })
+  return data
+}
+
+export type TestSuiteBranchesResult = {
+  ok: boolean
+  items: string[]
+  default_branch: string
+  message?: string
+  source?: string
+}
+
+export async function fetchTestSuiteBranches(body: TestSuiteBranchesPayload) {
+  const method = body.git_auth_method || 'inherit'
+  const credential_mode: 'auto' | 'token' | 'ssh' =
+    method === 'ssh' ? 'ssh' : method === 'token' ? 'token' : 'auto'
+  const linked = body.git_reuse_repository_id ?? null
+  const detect = await fetchRepositoryBranches({
+    clone_url: linked ? null : body.git_url ?? null,
+    credential_mode,
+    access_token: body.access_token ?? null,
+    ssh_private_key: body.ssh_private_key ?? null,
+    verify_ssl: body.skip_ssl_verify === false ? false : true,
+    linked_repo_id: linked,
+    test_suite_id: body.test_suite_id ?? null,
+  })
+  return {
+    ok: detect.success,
+    items: (detect.branches || []).map((b) => b.name),
+    default_branch: detect.default_branch || 'main',
+    message: detect.error_message || undefined,
+    source: detect.source,
+  } satisfies TestSuiteBranchesResult
+}
+
 export async function fetchTestSuitePresets() {
-  const { data } = await http.get<{ items: string[] }>('/repositories/meta/test-suites')
+  const { data } = await http.get<{ items: TestSuitePreset[] }>('/repositories/meta/test-suites')
   return data.items
+}
+
+export async function fetchTestSuites(q?: string, enabledOnly?: boolean) {
+  const { data } = await http.get<{ items: TestSuiteItem[] }>('/test-suites', {
+    params: {
+      ...(q ? { q } : {}),
+      ...(enabledOnly ? { enabled_only: true } : {}),
+    },
+  })
+  return data.items
+}
+
+export async function createTestSuite(body: TestSuitePayload) {
+  const { data } = await http.post<TestSuiteItem>('/test-suites', body)
+  return data
+}
+
+export async function updateTestSuite(id: string, body: Partial<TestSuitePayload>) {
+  const { data } = await http.patch<TestSuiteItem>(`/test-suites/${id}`, body)
+  return data
+}
+
+export async function deleteTestSuite(id: string) {
+  await http.delete(`/test-suites/${id}`)
+}
+
+export type TestSuiteSyncStats = {
+  added: number
+  updated: number
+  removed: number
+  api_count: number
+  case_count: number
+}
+
+export async function syncTestSuite(id: string) {
+  const { data } = await http.post<
+    TestSuiteItem & { message?: string; sync_stats?: TestSuiteSyncStats; skipped?: boolean }
+  >(`/test-suites/${id}/sync`)
+  return data
 }
 
 export type RepoTypeMeta = {
@@ -444,6 +759,75 @@ export type RepoTypeMeta = {
 
 export async function fetchRepoTypeOptions() {
   const { data } = await http.get<{ items: RepoTypeMeta[] }>('/repositories/meta/repo-types')
+  return data.items
+}
+
+export type DetectRepositoryCandidate = {
+  repo_type: string
+  repo_type_id?: string
+  scan_root: string
+  label: string
+  framework?: string | null
+  suggested_full_name?: string
+}
+
+export type DetectRepositoryDirectory = {
+  path: string
+  label: string
+  is_recommended?: boolean
+  matched_type?: string | null
+  file_summary?: string
+}
+
+/** @deprecated 使用 directories */
+export type DetectRepositoryScanDirectory = {
+  path: string
+  recommended?: boolean
+}
+
+export type DetectRepositoryProfile = {
+  success?: boolean
+  repo_type: string
+  scan_root: string
+  label: string
+  confidence?: string
+  monorepo_hint?: string | null
+  is_monorepo?: boolean
+  detected_type?: string
+  suggested_scan_root?: string
+  recommended_root?: string
+  suggested_name?: string
+  suggested_full_name?: string
+  default_branch?: string
+  framework?: string | null
+  candidates?: DetectRepositoryCandidate[]
+  directories?: DetectRepositoryDirectory[]
+  scan_directories?: DetectRepositoryScanDirectory[]
+  error_message?: string | null
+}
+
+export async function detectRepositoryProfile(payload: {
+  clone_url: string
+  source_type: string
+  branch?: string
+  auth_mode?: string
+  custom_token?: string | null
+  provider?: string
+  default_branch?: string
+}) {
+  const { data } = await http.post<DetectRepositoryProfile>('/repositories/detect', payload)
+  return data
+}
+
+export async function createMonorepoBundle(payload: {
+  clone_url: string
+  provider: string
+  default_branch?: string
+  base_full_name: string
+  candidates: Array<{ repo_type_id: string; scan_root: string }>
+  description?: string | null
+}) {
+  const { data } = await http.post<{ items: RepositoryItem[] }>('/repositories/monorepo-bundle', payload)
   return data.items
 }
 
@@ -464,9 +848,11 @@ export async function updateRepository(id: string, payload: Partial<RepositoryPa
   return data
 }
 
-export async function testRepositoryNotify(id: string) {
+export async function testRepositoryNotify(webhookUrl: string) {
+  const url = webhookUrl.trim()
   const { data } = await http.post<{ success: boolean; platform: string; message: string }>(
-    `/repositories/${id}/test-notify`,
+    '/repositories/test-notify',
+    { webhook_url: url },
   )
   return data
 }
@@ -646,6 +1032,43 @@ export interface RegressionBatchItem {
   covered_lines?: number
 }
 
+export interface PrecisionRecallResult {
+  bound: boolean
+  test_suite_slug: string | null
+  test_suite_name: string | null
+  repository?: string
+  total_indexed_cases: number
+  affected_fingerprints: string[]
+  affected_contract_keys?: string[]
+  hit_cases: Array<{
+    case_uid: string
+    title: string
+    run_selector: string
+    file_path?: string | null
+    source_framework: string
+    matched_fingerprints: string[]
+    matched_contract_keys?: string[]
+  }>
+  hit_case_count: number
+  case_reduction_pct: number | null
+  gaps: Array<{
+    fingerprint: string
+    contract_key?: string
+    missing: boolean
+    label: string
+  }>
+  execution: {
+    framework: string
+    case_uids: string[]
+    selectors: string[]
+    pytest_command: string | null
+    yaml_paths: string[] | null
+    shell_one_liner: string | null
+  }
+  webhook_payload?: Record<string, unknown>
+  webhook_dispatch_url?: string | null
+}
+
 export interface HighRiskDetails {
   triggered_by?: string[]
   api_count?: number
@@ -704,10 +1127,20 @@ export interface RegressionBatchDetail {
     line: number
     covered: boolean | null
     prefix: string
+    ignored?: boolean
+    filter_reason?: string | null
   }[]
   incremental_coverage_pct: number | null
   changed_lines: number
   covered_lines?: number
+  diff_lines_total?: number | null
+  executable_changed_lines?: number | null
+  lines_filtered?: number | null
+  coverage_not_required?: boolean
+  execution_status?: string
+  execution_phase_label?: string | null
+  probe_ui_hint?: string | null
+  precision_recall?: PrecisionRecallResult
 }
 
 export async function fetchRegressionOverview(repo?: string, gate?: string) {
@@ -726,6 +1159,13 @@ export async function fetchRegressionBatches(repo?: string, gate?: string, limit
 
 export async function fetchRegressionBatchDetail(jobId: string) {
   const { data } = await http.get<RegressionBatchDetail>(`/regression/batches/${jobId}`)
+  return data
+}
+
+export async function runRegressionCoverageProbe(jobId: string) {
+  const { data } = await http.post<{ ok: boolean; job_id: string; status: string }>(
+    `/regression/batches/${jobId}/run-coverage`,
+  )
   return data
 }
 

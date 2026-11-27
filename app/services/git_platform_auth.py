@@ -1,4 +1,4 @@
-"""GitHub / GitLab PAT 校验与仓库成员权限拉取（登录时一次性，不落库 PAT）。"""
+"""GitHub / GitLab PAT 校验与仓库成员权限拉取（登录 PAT 写入 auth_sessions 供凭据链继承）。"""
 
 from __future__ import annotations
 

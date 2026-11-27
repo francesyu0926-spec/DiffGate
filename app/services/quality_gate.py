@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from app.db.models import AnalysisJob, Repository
@@ -23,6 +24,9 @@ REASON_LABELS: dict[str, str] = {
     "high_risk_unreviewed": "高危模块未评审",
     "pending_coverage": "待覆盖率回传",
     "breaking_contract_change": "破坏性接口契约变更",
+    "runtime_commit_mismatch": "环境与版本不一致",
+    "ultra_large_commit": "超大变更需人工评审",
+    "probe_return_timeout": "探针回传超时",
 }
 
 OVERRIDE_REASON_LABELS: dict[str, str] = {
@@ -282,8 +286,31 @@ def build_gate_result(
     repo: Repository | None = None,
     path_gate_rule: str | None = None,
     allow_override: bool | None = None,
+    denom: Any | None = None,
 ) -> dict[str, Any]:
-    changed_files, changed_lines = _line_range_stats(job)
+    from app.services.coverage_denom_clean import DenomCleanResult, clean_changed_lines
+    from app.services.coverage_probe import repo_dir_for_job
+
+    changed_files, raw_changed_lines = _line_range_stats(job)
+    if denom is None:
+        line_ranges = (job.changed_symbols or {}).get("line_ranges") or []
+        scan_root = (getattr(repo, "scan_root", None) if repo else None) or "."
+        repo_dir: Path | None = None
+        try:
+            rd = repo_dir_for_job(job)
+            if rd.is_dir():
+                repo_dir = rd
+        except Exception:
+            repo_dir = None
+        denom = clean_changed_lines(
+            line_ranges,
+            repo_dir=repo_dir,
+            scan_root=scan_root,
+            repo=repo,
+        )
+    if not isinstance(denom, DenomCleanResult):
+        denom = DenomCleanResult(diff_lines_total=raw_changed_lines, executable_changed_lines=raw_changed_lines)
+    changed_lines = denom.executable_changed_lines
     api_count = _api_count(job)
     symbol_count = _symbol_count(job)
     now = datetime.utcnow().isoformat()
@@ -298,6 +325,9 @@ def build_gate_result(
     base: dict[str, Any] = {
         "changed_files": changed_files,
         "changed_lines": changed_lines,
+        "diff_lines_total": denom.diff_lines_total,
+        "executable_changed_lines": denom.executable_changed_lines,
+        "lines_filtered": denom.lines_filtered,
         "api_impact": api_count,
         "symbol_count": symbol_count,
         "coverage_threshold": eff_threshold,
@@ -306,6 +336,10 @@ def build_gate_result(
         "coverage_source": "ci" if incremental_coverage_pct is not None else "pending",
         "tests_passed": tests_passed,
     }
+    if denom.coverage_not_required:
+        base["coverage_not_required"] = True
+    if getattr(denom, "ultra_large_files", None):
+        base["ultra_large_files"] = list(denom.ultra_large_files)
     if path_rule:
         base["path_gate_rule"] = path_rule.path_prefix
         base["allow_override"] = path_rule.allow_override
@@ -328,12 +362,22 @@ def build_gate_result(
             "block_reason_label": REASON_LABELS["analysis_failed"],
         }
 
-    if job.status not in ("completed", "running"):
+    if job.status not in ("completed", "running", "awaiting_probe", "timeout", "env_mismatch"):
         return {
             **base,
             "gate": "PENDING",
             "block_reason": None,
             "block_reason_label": None,
+        }
+
+    if base.get("ultra_large_files"):
+        return {
+            **base,
+            "gate": "BLOCK",
+            "block_reason": "ultra_large_commit",
+            "block_reason_label": REASON_LABELS["ultra_large_commit"],
+            "coverage_source": "ultra_large_skipped",
+            "incremental_coverage_pct": incremental_coverage_pct,
         }
 
     breaking = _breaking_contract_hits(job)
@@ -351,6 +395,9 @@ def build_gate_result(
                 "perspective": ci.get("perspective"),
             },
             "high_risk_details": build_breaking_contract_details(job),
+            "gate_decision_engine": "priority_stack_v1",
+            "gate_rule_hits": ["breaking_contract_change"],
+            "release_status": "BLOCK",
         }
 
     if override_reason:
@@ -369,6 +416,49 @@ def build_gate_result(
             "block_reason_label": None,
             "coverage_source": "auto_zero_impact",
             "incremental_coverage_pct": incremental_coverage_pct,
+            "release_status": "PASS",
+        }
+
+    if base.get("coverage_not_required"):
+        w_api, w_sym, _, _ = risk_weighted_counts(job, repo)
+        high_risk, hr_meta = evaluate_high_risk(
+            job, repo, api_count=w_api, symbol_count=w_sym
+        )
+        base["risk_weighted_api_impact"] = w_api
+        base["risk_weighted_symbol_count"] = w_sym
+        if high_risk:
+            details = build_high_risk_details(job, repo, hr_meta)
+            return {
+                **base,
+                "gate": "BLOCK",
+                "block_reason": "high_risk_unreviewed",
+                "block_reason_label": REASON_LABELS["high_risk_unreviewed"],
+                "incremental_coverage_pct": None,
+                "coverage_source": "not_required",
+                "high_risk_meta": hr_meta,
+                "high_risk_details": details,
+            }
+        return {
+            **base,
+            "gate": "PASS",
+            "block_reason": None,
+            "block_reason_label": None,
+            "incremental_coverage_pct": None,
+            "coverage_source": "not_required",
+            "release_status": "PASS",
+        }
+
+    gr_raw = getattr(job, "gate_result", None)
+    prev_probe = gr_raw if isinstance(gr_raw, dict) else {}
+    if prev_probe.get("probe_status") == "TIMEOUT":
+        return {
+            **base,
+            "gate": "PENDING",
+            "block_reason": "probe_return_timeout",
+            "block_reason_label": REASON_LABELS["probe_return_timeout"],
+            "coverage_source": "probe_timeout",
+            "probe_status": "TIMEOUT",
+            "probe_timeout_hint": prev_probe.get("probe_timeout_hint"),
         }
 
     if incremental_coverage_pct is None:
@@ -380,63 +470,46 @@ def build_gate_result(
         }
 
     cov = float(incremental_coverage_pct)
-    if tests_passed is False and api_count > 0:
-        return {
-            **base,
-            "gate": "BLOCK",
-            "block_reason": "core_api_regression",
-            "block_reason_label": REASON_LABELS["core_api_regression"],
-            "incremental_coverage_pct": cov,
-            "coverage_source": "ci",
-        }
-
-    if cov < eff_threshold:
-        return {
-            **base,
-            "gate": "BLOCK",
-            "block_reason": "incremental_coverage_low",
-            "block_reason_label": REASON_LABELS["incremental_coverage_low"],
-            "incremental_coverage_pct": cov,
-            "coverage_source": "ci",
-        }
-
     w_api, w_sym, _, _ = risk_weighted_counts(job, repo)
     high_risk, hr_meta = evaluate_high_risk(
         job, repo, api_count=w_api, symbol_count=w_sym
     )
     base["risk_weighted_api_impact"] = w_api
     base["risk_weighted_symbol_count"] = w_sym
-    if high_risk:
-        details = build_high_risk_details(job, repo, hr_meta)
-        return {
-            **base,
-            "gate": "BLOCK",
-            "block_reason": "high_risk_unreviewed",
-            "block_reason_label": REASON_LABELS["high_risk_unreviewed"],
-            "incremental_coverage_pct": cov,
-            "coverage_source": "ci",
-            "high_risk_meta": hr_meta,
-            "high_risk_details": details,
-        }
+    hr_details = build_high_risk_details(job, repo, hr_meta) if high_risk else None
 
-    return {
-        **base,
-        "gate": "PASS",
-        "block_reason": None,
-        "block_reason_label": None,
-        "incremental_coverage_pct": cov,
-        "coverage_source": "ci",
-    }
+    from app.services.gate_decision import evaluate_coverage_phase_rules
+
+    return evaluate_coverage_phase_rules(
+        base,
+        job,
+        repo,
+        cov=cov,
+        eff_threshold=eff_threshold,
+        tests_passed=tests_passed,
+        api_count=api_count,
+        high_risk=high_risk,
+        hr_meta=hr_meta,
+        high_risk_details=hr_details,
+    )
 
 
 def reconciled_coverage_stats(gr: dict | None) -> tuple[float | None, int, int]:
-    """与前端 KPI/批次列表一致：优先 命中行 ÷ 变更行。"""
+    """与前端 KPI/批次列表一致：命中行 ÷ 有效可执行变更行。"""
     gr = gr or {}
-    changed = int(gr.get("changed_lines") or 0)
+    if gr.get("coverage_not_required"):
+        hit = int(gr.get("covered_changed_lines") or 0)
+        exe = int(gr.get("executable_changed_lines") or gr.get("changed_lines") or 0)
+        return None, exe, hit
+    changed = int(gr.get("executable_changed_lines") or gr.get("changed_lines") or 0)
     hit = int(gr.get("covered_changed_lines") or 0)
     probes = gr.get("coverage_probes")
     if probes and isinstance(probes, list):
-        probe_hit = sum(1 for p in probes if isinstance(p, dict) and p.get("covered") is True)
+        probe_hit = sum(
+            1
+            for p in probes
+            if isinstance(p, dict) and p.get("covered") is True and not p.get("ignored")
+        )
         if hit <= 0 < probe_hit:
             hit = probe_hit
     if changed > 0:
@@ -490,6 +563,9 @@ def apply_manual_override(
     if str(gr.get("gate") or "").upper() != "BLOCK":
         raise ValueError("仅 BLOCK 状态的批次可人工豁免")
 
+    if gr.get("block_reason") == "breaking_contract_change":
+        raise ValueError("破坏性契约变更不可人工豁免，请修复契约后重新提交")
+
     if gr.get("allow_override") is False:
         raise ValueError("当前批次命中不可豁免路径规则，请联系负责人处理")
 
@@ -524,10 +600,54 @@ def apply_manual_override(
                 "reason_detail": reason_detail.strip(),
                 "immutable": True,
             },
+            "release_status": "PASS",
+            "gate_release_equivalent": True,
         }
     )
     job.gate_result = gr
     return gr
+
+
+def _zero_effective_lines_coverage_pass(
+    result: dict[str, Any],
+    job: AnalysisJob,
+    repo: Repository | None,
+    threshold: int,
+) -> dict[str, Any]:
+    """
+    零有效行兜底：Diff 有行但清洗后无可执行行 → 不计算覆盖率、不因 0% 拦截。
+  仍保留高危等其它门禁结论。
+    """
+    diff_total = int(result.get("diff_lines_total") or 0)
+    exe = int(result.get("executable_changed_lines") or result.get("changed_lines") or 0)
+    if diff_total <= 0 or exe > 0:
+        return result
+    result["coverage_not_required"] = True
+    result["executable_changed_lines"] = 0
+    result["changed_lines"] = 0
+    result["incremental_coverage_pct"] = None
+    refreshed = build_gate_result(
+        job,
+        threshold=threshold,
+        incremental_coverage_pct=None,
+        tests_passed=result.get("tests_passed"),
+        repo=repo,
+    )
+    for key in (
+        "gate",
+        "block_reason",
+        "block_reason_label",
+        "coverage_source",
+        "high_risk_meta",
+        "high_risk_details",
+        "risk_weighted_api_impact",
+        "risk_weighted_symbol_count",
+    ):
+        if key in refreshed:
+            result[key] = refreshed[key]
+    result["incremental_coverage_pct"] = None
+    result["coverage_source"] = refreshed.get("coverage_source", "not_required")
+    return result
 
 
 def apply_gate_result(
@@ -539,6 +659,13 @@ def apply_gate_result(
     coverage_probes: list[dict[str, Any]] | None = None,
     covered_changed_lines: int | None = None,
     api_smoke_results: list[dict[str, Any]] | None = None,
+    diff_lines_total: int | None = None,
+    executable_changed_lines: int | None = None,
+    lines_filtered: int | None = None,
+    coverage_not_required: bool | None = None,
+    branch_coverage_pct: float | None = None,
+    running_commit_sha: str | None = None,
+    coverage_probe_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     threshold = threshold_for_repo(job, repo)
     prev = job.gate_result or {}
@@ -573,6 +700,26 @@ def apply_gate_result(
     probes = coverage_probes
     if probes is None and prev.get("coverage_probes"):
         probes = prev.get("coverage_probes")
+    if coverage_probes is not None:
+        from app.services.coverage_probe_merge import (
+            append_probe_report_history,
+            merge_coverage_probes_union,
+            snapshot_from_gate_report,
+        )
+
+        prev_probes = prev.get("coverage_probes") if isinstance(prev.get("coverage_probes"), list) else None
+        probes = merge_coverage_probes_union(prev_probes, coverage_probes)
+        prev_hist = prev.get("coverage_probe_history") if isinstance(prev.get("coverage_probe_history"), list) else []
+        cov_hit = covered_changed_lines
+        if cov_hit is None:
+            cov_hit = sum(1 for p in probes if isinstance(p, dict) and p.get("covered") is True)
+        snap = snapshot_from_gate_report(
+            running_commit_sha=running_commit_sha,
+            covered_changed_lines=cov_hit,
+            probe_count=len(coverage_probes),
+            incremental_coverage_pct=incremental_coverage_pct,
+        )
+        result["coverage_probe_history"] = append_probe_report_history(prev_hist, snap)
     if probes is not None:
         result["coverage_probes"] = probes
         if covered_changed_lines is not None:
@@ -581,15 +728,37 @@ def apply_gate_result(
             result["covered_changed_lines"] = sum(
                 1 for p in probes if isinstance(p, dict) and p.get("covered") is True
             )
+    if branch_coverage_pct is not None:
+        result["branch_coverage_pct"] = float(branch_coverage_pct)
+    elif prev.get("branch_coverage_pct") is not None:
+        result["branch_coverage_pct"] = prev.get("branch_coverage_pct")
+    if running_commit_sha:
+        result["running_commit_sha"] = running_commit_sha.strip()
+    if coverage_probe_history is not None:
+        result["coverage_probe_history"] = coverage_probe_history
+    elif prev.get("coverage_probe_history") and "coverage_probe_history" not in result:
+        result["coverage_probe_history"] = prev.get("coverage_probe_history")
     smoke = api_smoke_results
     if smoke is None and prev.get("api_smoke_results"):
         smoke = prev.get("api_smoke_results")
     if smoke is not None:
         result["api_smoke_results"] = smoke
 
-    cl = int(result.get("changed_lines") or 0)
+    if diff_lines_total is not None:
+        result["diff_lines_total"] = int(diff_lines_total)
+    if executable_changed_lines is not None:
+        result["executable_changed_lines"] = int(executable_changed_lines)
+        result["changed_lines"] = int(executable_changed_lines)
+    if lines_filtered is not None:
+        result["lines_filtered"] = int(lines_filtered)
+    if coverage_not_required is not None:
+        result["coverage_not_required"] = bool(coverage_not_required)
+
+    result = _zero_effective_lines_coverage_pass(result, job, repo, threshold)
+
+    cl = int(result.get("executable_changed_lines") or result.get("changed_lines") or 0)
     hit = result.get("covered_changed_lines")
-    if hit is not None and cl > 0:
+    if hit is not None and cl > 0 and not result.get("coverage_not_required"):
         reconciled = round(float(hit) / cl * 100, 1)
         prev_cov = result.get("incremental_coverage_pct")
         result["incremental_coverage_pct"] = reconciled

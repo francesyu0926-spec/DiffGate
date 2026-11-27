@@ -5,6 +5,20 @@ export type JobStatus =
   | 'failed'
   | 'debouncing'
   | 'superseded'
+  | 'cancelled'
+  | 'awaiting_probe'
+  | 'timeout'
+  | 'env_mismatch'
+
+/** 分析产物已就绪（Diff / 拓扑 / 回归入口） */
+export function isJobAnalysisReady(status: JobStatus | string | undefined): boolean {
+  return (
+    status === 'completed' ||
+    status === 'awaiting_probe' ||
+    status === 'timeout' ||
+    status === 'env_mismatch'
+  )
+}
 
 export type RepoProvider = 'github' | 'gitlab' | 'local'
 export type AuthMethod = 'none' | 'token' | 'ssh'

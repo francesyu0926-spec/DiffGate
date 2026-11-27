@@ -1,4 +1,4 @@
-# 清理 Windows 上 uvicorn --reload 留下的孤儿 worker（仍占用 8000/8010）
+# Kill stale uvicorn workers still listening on API ports (Windows).
 param(
   [int[]]$Ports = @(8000, 8010),
   [switch]$Quiet
@@ -19,12 +19,12 @@ foreach ($port in $Ports) {
     foreach ($procId in $pids) {
       try {
         Stop-Process -Id $procId -Force -ErrorAction Stop
-        Log "已结束监听 ${port} 的进程 PID=$procId" "Yellow"
+        Log "Stopped PID=$procId listening on port $port" "Yellow"
         $killed++
       } catch {
         taskkill /PID $procId /F 2>$null | Out-Null
         if (-not $?) {
-          Log "端口 $port PID=$procId 已不存在（netstat 可能滞后）" "DarkGray"
+          Log "Port $port PID=$procId already gone (stale netstat)" "DarkGray"
         }
       }
     }
@@ -41,13 +41,13 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" | ForEach-Object {
   if ($diffGate -and ($uvicorn -or $reloadChild)) {
     Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
     if ($?) {
-      Log "已结束 DiffGate API 相关进程 PID=$($_.ProcessId)" "Yellow"
+      Log "Stopped DiffGate API process PID=$($_.ProcessId)" "Yellow"
       $killed++
     }
   }
 }
 
 if (-not $Quiet) {
-  if ($killed -gt 0) { Log "清理完成，共 $killed 项。" "Green" }
-  else { Log "未发现需清理的 DiffGate API 进程。" "Green" }
+  if ($killed -gt 0) { Log "Done. Stopped $killed process(es)." "Green" }
+  else { Log "No stale DiffGate API process found." "Green" }
 }

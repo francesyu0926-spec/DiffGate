@@ -1,0 +1,1560 @@
+/* 仓库添加/编辑页：标准卡片 + 栅格 + 填充式控件（对齐「抄作业」表单规范） */
+
+/* --- 1. 统一表单组（= .dg-form-item） --- */
+.form-group,
+.dg-form-item.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.form-label,
+.dg-form-label.form-label {
+  display: block;
+  margin-bottom: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.35;
+}
+
+.form-label .required-star,
+.dg-form-required.required-star {
+  color: #ef4444;
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+.dg-form-label-row {
+  display: flex;
+  align-items: center;
+  gap: 4px 8px;
+  flex-wrap: wrap;
+}
+
+.dg-form-label-row .dg-form-label {
+  margin-right: auto;
+}
+
+.dg-form-label-row--suite {
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 0;
+  gap: 12px;
+}
+
+.dg-form-label-row--suite .dg-form-label {
+  margin-right: 0;
+  flex-shrink: 0;
+}
+
+.dg-form-label-row__actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px 10px;
+  margin-left: auto;
+}
+
+.dg-form-label-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  text-decoration: none;
+  letter-spacing: 0;
+  min-width: 0;
+  height: 24px;
+}
+.dg-form-label-link:hover:not(:disabled) {
+  color: #8ab4f8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dg-form-label-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.dg-form-label-refresh {
+  margin-left: -4px;
+}
+
+.dg-inline-link {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.dg-inline-link:hover {
+  color: #8ab4f8;
+  text-decoration: underline;
+}
+
+.dg-form-grid-2--balance {
+  align-items: start;
+}
+
+.dg-form-grid-2--balance .dg-field-external-label {
+  gap: 8px;
+}
+
+.dg-form-label--emphasis {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+}
+
+.dg-form-suite-meta {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  min-height: 28px;
+}
+
+.dg-form-suite-meta--hint-only {
+  margin-top: 6px;
+  min-height: 0;
+}
+
+.repo-form-page--v2 .dg-form-suite-meta--hint-only .dg-form-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.36);
+}
+
+
+.dg-form-suite-meta__hint {
+  flex: 1;
+  min-width: 0;
+}
+
+.dg-form-suite-meta__hint .dg-form-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.dg-form-suite-meta__hint:empty {
+  min-height: 1.45em;
+}
+
+.dg-form-suite-meta__actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px 10px;
+}
+
+.repo-form-page--v2 .dg-md3-form .repo-form-test-suite-select :deep(.v-field__input input::placeholder),
+.repo-form-page--v2 .dg-md3-form .repo-form-test-suite-select :deep(.v-select__selection--placeholder) {
+  color: rgba(255, 255, 255, 0.45);
+  opacity: 1;
+}
+
+/* --- 2. 网格 --- */
+.grid-layout,
+.dg-form-grid-3.grid-layout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.dg-form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.dg-form-grid-3--local,
+.grid-layout--local {
+  grid-template-columns: 1fr 2fr;
+}
+
+.dg-form-grid-3--basic-head {
+  grid-template-columns: 1fr 1fr 2fr;
+  align-items: stretch;
+}
+
+.dg-form-grid-3--basic-head.dg-form-grid-3--local {
+  grid-template-columns: 1fr 2fr;
+}
+
+/* 来源 / 认证 / 默认分支：v-select 与 v-text-field 统一 48px 盒高 */
+.repo-form-page--v2 .dg-form-grid-3--basic-head > .dg-form-item.form-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.repo-form-page--v2 .dg-form-grid-3--basic-head .repo-form-field.v-text-field,
+.repo-form-page--v2 .dg-form-grid-3--basic-head .repo-form-field.v-select {
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+/* Outlined 单行：v-text-field / v-select 统一 48px（仓库页 + 用例集页） */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-text-field .v-field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-select .v-field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-combobox .v-field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-autocomplete .v-field {
+  min-height: 48px !important;
+  max-height: 48px !important;
+  height: 48px !important;
+  margin-top: 0 !important;
+  border-radius: 6px !important;
+  box-sizing: border-box;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field {
+  overflow: visible !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-text-field .v-field__field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-select .v-field__field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-combobox .v-field__field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-autocomplete .v-field__field {
+  align-items: center !important;
+  min-height: 48px !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-text-field .v-field__input,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-select .v-field__input,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-combobox .v-field__input,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-autocomplete .v-field__input {
+  min-height: 48px !important;
+  padding-block: 0 !important;
+  padding-inline: 16px !important;
+  align-items: center !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field {
+  position: relative;
+  isolation: isolate;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined .v-field__outline {
+  z-index: 0 !important;
+  pointer-events: none;
+  color: var(--form-border-default, rgba(255, 255, 255, 0.2)) !important;
+  --v-field-border-width: var(--dg-outlined-border-width, 1px) !important;
+  --v-field-border-opacity: 1 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined .v-field__outline__start,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined .v-field__outline__end {
+  z-index: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-input--focused .v-field--variant-outlined .v-field__outline,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined.v-field--focused .v-field__outline {
+  color: var(--form-border-focus, #3b82f6) !important;
+  --v-field-border-width: var(--dg-outlined-border-width-focus, 2px) !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined .v-field__outline__start,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined .v-field__outline__end {
+  border-color: currentColor !important;
+  opacity: 1 !important;
+  z-index: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined .v-field__outline__notch::before,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined .v-field__outline__notch::after {
+  border-color: currentColor !important;
+}
+
+/* 已上浮时 Vuetify 会隐藏 notch 顶边，勿强制 opacity:1 否则边框横穿标签 */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active.v-field--variant-outlined .v-field__outline__notch::before {
+  opacity: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active.v-field--focused.v-field--variant-outlined .v-field__outline__notch::before,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active.v-field--focused.v-field--variant-outlined .v-field__outline__notch::after {
+  opacity: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-input--focused .v-field--variant-outlined,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined.v-field--focused {
+  box-shadow: none !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-input--error .v-field--variant-outlined .v-field__outline,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined.v-field--error .v-field__outline {
+  color: #ef4444 !important;
+  --v-field-border-width: 2px !important;
+}
+
+.dg-md-outlined-item.form-group > .dg-form-error-text,
+.dg-md-outlined-item.form-group > .error-text {
+  margin: 4px 0 0;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-text-field input {
+  padding-block: 0 !important;
+  line-height: 1.35 !important;
+  min-height: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-select .v-select__selection-text {
+  line-height: 1.35 !important;
+}
+
+/*
+ * Outlined 上浮标签仅在 .v-field--active 时出现在 notch；position:static 撑开凹槽（等同 MUI legend）。
+ * 禁止 visibility:visible 常开，否则会与框内主标签叠字（全称 / Clone URL 双重影）。
+ */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field:not(.repo-form-field--linked) .v-field:not(.v-field--active) .v-field__outline__notch .v-label.v-field-label {
+  visibility: hidden !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field__outline__notch {
+  position: relative !important;
+  z-index: 3 !important;
+  overflow: visible !important;
+  isolation: isolate;
+}
+
+/* 勿覆盖 Vuetify 内联 width，否则凹槽坍缩、顶边蓝线横穿标签 */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active .v-field__outline__notch {
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active .v-field__outline__notch .v-label.v-field-label {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  transform: translate(14px, -7px) scale(0.75) !important;
+  transform-origin: left center !important;
+  display: inline-block !important;
+  contain: none !important;
+  margin: 0 !important;
+  /* 与卡片同色遮罩，盖住 2px 聚焦顶边残余线段 */
+  background-color: var(--dg-form-card-bg, #111827) !important;
+  padding: 0 5px !important;
+  overflow: visible !important;
+  max-width: calc(100% - 8px) !important;
+  box-decoration-break: clone;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  z-index: 5 !important;
+  color: #94a3b8 !important;
+  opacity: 1 !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+  pointer-events: none;
+  -webkit-text-fill-color: #94a3b8 !important;
+}
+
+/* 聚焦后仅保留凹槽标签，避免与 placeholder 叠字 */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-text-field.v-input--focused .v-field--active input::placeholder,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-combobox.v-input--focused .v-field--active input::placeholder {
+  opacity: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field :deep(input:focus),
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field :deep(textarea:focus) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* 聚焦时禁止 Vuetify 改写凹槽标签 transform（否则标签下坠盖住输入值） */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-input--focused .v-field--active .v-field__outline__notch .v-label.v-field-label,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active.v-field--focused .v-field__outline__notch .v-label.v-field-label,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active .v-field__outline__notch .v-label.v-field-label--floating,
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-input--focused .v-field--active .v-field__outline__notch .v-label.v-field-label),
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field--active.v-field--focused .v-field__outline__notch .v-label.v-field-label) {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  transform: translate(14px, -7px) scale(0.75) !important;
+  transform-origin: left center !important;
+  line-height: 1 !important;
+  padding: 0 5px !important;
+  z-index: 5 !important;
+  color: #60a5fa !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: #60a5fa !important;
+  background-color: var(--dg-form-card-bg, #111827) !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active:not(.v-field--focused) .v-field__outline__notch .v-label.v-field-label {
+  color: #94a3b8 !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: #94a3b8 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field__outline__notch .v-label .required-star,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field__outline__notch .v-label .dg-form-required {
+  color: inherit !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: inherit !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--active.v-field--error:not(.v-field--disabled) .v-field__outline__notch .v-label.v-field-label {
+  color: #ef4444 !important;
+}
+
+/*
+ * 未 active（空且未聚焦）：仅框内主标签，垂直居中；凹槽无小字。
+ * active（聚焦或有内容）：仅凹槽上浮标签 + 卡片底色遮线。
+ */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field:not(.repo-form-field--linked) .v-field--variant-outlined:not(.v-field--active) .v-field__field > .v-label.v-field-label {
+  contain: none !important;
+  overflow: visible !important;
+  max-width: calc(100% - 32px) !important;
+  visibility: visible !important;
+  top: 50% !important;
+  left: 16px !important;
+  margin-inline-start: 0 !important;
+  transform: translateY(-50%) !important;
+  transform-origin: left center !important;
+  font-size: 14px !important;
+  color: rgba(255, 255, 255, 0.5) !important;
+  opacity: 1 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field:not(.repo-form-field--linked) .v-field--variant-outlined.v-textarea:not(.v-field--active) .v-field__field > .v-label.v-field-label {
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field:not(.repo-form-field--linked) .v-field--active .v-field__field > .v-label.v-field-label,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field:not(.repo-form-field--linked) .v-field--active.v-field--focused .v-field__field > .v-label.v-field-label {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+/* 多行 Outlined（说明 / SSH 私钥等）：与仓库页相同凹槽，不锁 48px（排除 rules-textarea 固定高） */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-textarea:not(.rules-textarea) .v-field {
+  min-height: unset !important;
+  max-height: none !important;
+  height: auto !important;
+  margin-top: 0 !important;
+  border-radius: 6px !important;
+  overflow: visible !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-textarea:not(.rules-textarea) .v-field__overlay {
+  display: none !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-textarea:not(.rules-textarea) .v-field__input {
+  align-items: flex-start !important;
+  min-height: unset !important;
+  padding-block: 12px !important;
+  padding-inline: 16px !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--desc textarea,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.v-textarea:not(.rules-textarea) textarea {
+  min-height: 80px;
+  font-size: 14px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+/* 覆盖弹窗 MD3 的 8px / 紫色粗描边，全页统一为仓库表单主题 */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field .v-field--variant-outlined {
+  border-radius: 6px !important;
+}
+
+/* Tooltip 激活层包一层，避免 v-bind 到 v-text-field 压扁标签 */
+.repo-form-page--v2 .repo-form-tooltip-activator {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+ * 多选关联仓库：等同 MUI InputLabel shrink — 空数组时标签固定在凹槽，框内仅 placeholder
+ */
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-select .v-field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-autocomplete .v-field {
+  min-height: 48px !important;
+  max-height: 48px !important;
+  height: 48px !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-select--selected .v-field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-select.v-input--dirty .v-field {
+  max-height: none !important;
+  height: auto !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-select .v-field__field,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-autocomplete .v-field__field {
+  align-items: center !important;
+  min-height: 48px !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-select .v-field__input,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-autocomplete .v-field__input {
+  min-height: 48px !important;
+  padding-block: 0 !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked .v-field--variant-outlined .v-field__field > .v-label.v-field-label {
+  visibility: hidden !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked .v-field--variant-outlined .v-field__outline__notch .v-label.v-field-label {
+  position: static !important;
+  transform: translateY(-50%) !important;
+  display: inline-block !important;
+  visibility: visible !important;
+  contain: none !important;
+  margin: 0 2px 0 -2px !important;
+  background: var(--dg-form-card-bg, #111827) !important;
+  padding: 0 6px !important;
+  font-size: 0.75em !important;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.6) !important;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked .v-field--variant-outlined .v-field__outline__notch::before {
+  opacity: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-select.v-input--focused .v-field__outline__notch .v-label.v-field-label,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked.v-autocomplete.v-input--focused .v-field__outline__notch .v-label.v-field-label,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked .v-field--focused .v-field__outline__notch .v-label.v-field-label {
+  color: var(--form-border-focus, #3b82f6) !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked input::placeholder,
+.repo-form-page--v2 .dg-md-outlined-item.form-group .repo-form-field.repo-form-field--linked .v-field__input input::placeholder {
+  color: rgba(255, 255, 255, 0.35) !important;
+  opacity: 1 !important;
+  font-size: 14px;
+}
+
+.dg-form-grid-2--pair {
+  margin-bottom: 24px;
+}
+
+.repo-form-page--v2 .dg-form-grid-2.dg-form-grid-2--pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.repo-form-page--v2 .dg-form-item.md-field-item {
+  margin-bottom: 24px;
+}
+
+.repo-form-page--v2 .dg-form-grid-2--pair > .md-field-item,
+.repo-form-page--v2 .dg-form-grid-3--basic-head > .md-field-item {
+  margin-bottom: 0;
+}
+
+.repo-form-page--v2 .dg-form-grid-3--basic-head {
+  margin-bottom: 24px;
+}
+
+.repo-form-page--v2 .md-field-item .md-field {
+  margin-bottom: 0;
+}
+
+.repo-form-page--v2 .dg-form-grid-2.dg-form-grid-2--pair > .dg-form-item {
+  min-width: 0;
+  overflow: visible;
+}
+
+.dg-form-grid-2--rules {
+  align-items: stretch;
+}
+
+/* 高危 / 低危路径：Outlined 凹槽标签 + 等高二列 textarea */
+.repo-form-page--v2 .repo-risk-rules-block {
+  --repo-risk-textarea-height: 112px;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-form-grid-2--rules {
+  gap: 24px;
+  margin-bottom: 0;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-form-grid-2--rules > .dg-form-item {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-form-grid-2--rules > .dg-form-item .rules-textarea.v-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: var(--repo-risk-textarea-height);
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-md-outlined-item .repo-form-field.rules-textarea.v-textarea .v-field {
+  position: relative;
+  box-sizing: border-box;
+  min-height: var(--repo-risk-textarea-height) !important;
+  max-height: var(--repo-risk-textarea-height) !important;
+  height: var(--repo-risk-textarea-height) !important;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-md-outlined-item .rules-textarea.v-textarea .v-field__overlay {
+  display: none !important;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-md-outlined-item .rules-textarea.v-textarea .v-field__field {
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch !important;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-md-outlined-item .rules-textarea.v-textarea .v-field__input {
+  flex: 1 1 auto;
+  min-height: calc(var(--repo-risk-textarea-height) - 2px) !important;
+  max-height: calc(var(--repo-risk-textarea-height) - 2px) !important;
+  height: calc(var(--repo-risk-textarea-height) - 2px) !important;
+  padding: 12px 16px !important;
+  align-items: flex-start !important;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-md-outlined-item .rules-textarea.v-textarea textarea {
+  display: block;
+  width: 100%;
+  min-height: calc(var(--repo-risk-textarea-height) - 26px) !important;
+  height: calc(var(--repo-risk-textarea-height) - 26px) !important;
+  max-height: calc(var(--repo-risk-textarea-height) - 26px) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  resize: none;
+  overflow: auto;
+  box-sizing: border-box;
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 覆盖全页 position:relative 标签，恢复 Outlined 顶栏切口 */
+.repo-form-page--v2 .repo-risk-rules-block .rules-textarea .v-field--active .v-field__outline__notch .v-label.v-field-label {
+  position: static !important;
+  transform: translateY(-50%) !important;
+  display: inline-block !important;
+  contain: none !important;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 8px);
+  background: var(--dg-form-card-bg, #111827) !important;
+  padding: 0 6px !important;
+  margin: 0 2px 0 -2px !important;
+  z-index: 2;
+  color: rgba(255, 255, 255, 0.6) !important;
+  opacity: 1 !important;
+  font-size: 0.75em !important;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .rules-textarea .v-field--focused.v-field--active .v-field__outline__notch .v-label.v-field-label {
+  color: var(--form-border-focus, #3b82f6) !important;
+}
+
+.dg-form-grid-3--strict > .dg-form-item {
+  min-width: 0;
+  width: 100%;
+}
+
+.dg-form-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.col-span-2 {
+  grid-column: span 2;
+}
+
+.error-text,
+.dg-form-error-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #f87171;
+}
+
+.repo-form-page--v2 {
+  background: #0f0f11;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.repo-form-page--v2 ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.repo-form-page--v2 ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+
+.repo-form-page--v2 ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.repo-form-page--v2 ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.repo-form-page--v2 .repo-dialog-submit.v-btn--variant-flat.bg-primary,
+.repo-form-page--v2 .repo-dialog-submit.v-btn--variant-flat.text-primary {
+  background: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+/* OutlinedInput / Vuetify 凹槽标签遮罩：在卡片上声明 --card-bg 一次即全卡同步 */
+.dg-form-card {
+  --dg-form-card-bg: #111827;
+  --card-bg: var(--dg-form-card-bg);
+  background: var(--dg-form-card-bg);
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid #334155;
+  margin-bottom: 0;
+  margin-inline: 0;
+  width: 100%;
+  box-sizing: border-box;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.22);
+}
+
+.dg-form-card--advanced {
+  padding: 24px;
+}
+
+.dg-form-card__title {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: 0.02em;
+}
+
+/* 仓库全页 Outlined：默认浅灰 1px，聚焦主题蓝 2px */
+.repo-form-page--v2 .dg-md3-form {
+  --form-border-default: rgba(255, 255, 255, 0.2);
+  --form-border-hover: rgba(255, 255, 255, 0.34);
+  --form-border-focus: #3b82f6;
+  --form-shadow-focus: none;
+  --dg-outlined-border-width: 1px;
+  --dg-outlined-border-width-focus: 2px;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field--variant-outlined .v-field__outline) {
+  color: var(--form-border-default) !important;
+  --v-field-border-width: var(--dg-outlined-border-width, 1px) !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field--variant-outlined.v-field--focused .v-field__outline),
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-input--focused .v-field--variant-outlined .v-field__outline) {
+  color: var(--form-border-focus, #3b82f6) !important;
+  --v-field-border-width: var(--dg-outlined-border-width-focus, 2px) !important;
+}
+
+/* 凹槽标签见上方 .v-field__outline__notch；框内主标签在 active 时已 display:none */
+
+/* 高级配置折叠：与卡片内边距左对齐 */
+.repo-form-page--v2 .dg-form-card--advanced .repo-advanced-panels {
+  margin-inline: 0;
+}
+
+.repo-form-page--v2 .dg-form-card--advanced .repo-advanced-panels :deep(.v-expansion-panel) {
+  background: transparent;
+  border: none;
+  border-radius: 0 !important;
+}
+
+.repo-form-page--v2 .dg-form-card--advanced .repo-advanced-panels :deep(.v-expansion-panel-title) {
+  padding-inline: 0 !important;
+  min-height: 40px !important;
+}
+
+.repo-form-page--v2 .dg-form-card--advanced .repo-advanced-panel-body :deep(.v-expansion-panel-text__wrapper) {
+  padding: 0 !important;
+}
+
+.dg-form-item--full,
+.repo-form-page--v2 .dg-field-external-label.form-group,
+.repo-form-page--v2 .dg-md-outlined-item.form-group {
+  margin-bottom: 24px;
+}
+
+.repo-form-page--v2 .dg-field-external-label.form-group:last-child,
+.repo-form-page--v2 .dg-md-outlined-item.form-group:last-child {
+  margin-bottom: 0;
+}
+
+/* Material Outlined：标签嵌在边框凹槽 */
+.repo-form-page--v2 .dg-md-outlined-item.form-group {
+  gap: 0;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field) {
+  margin-top: 0 !important;
+  min-height: 48px !important;
+  border-radius: 6px !important;
+  color: rgba(255, 255, 255, 0.92);
+  background: transparent !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field__input) {
+  padding-inline: 16px !important;
+  min-height: 48px;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field__overlay) {
+  display: none !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-label.v-field-label),
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-label.v-field-label--floating) {
+  display: block !important;
+}
+
+/* 覆盖 form-outlined-md3 对聚焦标签的统一着色，凹槽标签由 .v-field__outline__notch 规则接管 */
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field--variant-outlined.v-field--focused .v-label.v-field-label--floating),
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .repo-form-field :deep(.v-field--variant-outlined.v-field--focused .v-field__outline__notch .v-label) {
+  color: #60a5fa !important;
+  -webkit-text-fill-color: #60a5fa !important;
+}
+
+.repo-form-page--v2 .dg-form-suite-field {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* 方案三：仅保留管理 + 刷新图标，与 ▼ 间距 ≥8px（无 clear、无 Tooltip 幽灵层） */
+.repo-form-page--v2 .repo-form-test-suite-select :deep(.v-field__clearable) {
+  display: none !important;
+}
+
+.repo-form-page--v2 .repo-form-test-suite-select :deep(.v-field__append-inner) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  margin: 0 8px 0 0;
+}
+
+.repo-form-page--v2 .repo-form-test-suite-select :deep(.v-field__append) {
+  padding-inline-start: 0;
+}
+
+.repo-form-page--v2 .repo-form-test-suite-select :deep(.v-field__input) {
+  padding-inline-end: 8px !important;
+}
+
+.repo-form-page--v2 .dg-suite-field-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.repo-form-page--v2 .dg-suite-field-icon:hover:not(:disabled) {
+  color: #8ab4f8;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--v2 .dg-suite-field-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.repo-form-page--v2 .dg-form-suite-field .repo-form-test-suite-select {
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+.repo-form-page--v2 .dg-form-suite-field .repo-form-test-suite-select :deep(.v-field) {
+  min-height: 48px !important;
+}
+
+.repo-form-page--v2 .dg-form-suite-field .repo-form-test-suite-select :deep(.v-field__input) {
+  padding-block: 0 !important;
+  align-items: center !important;
+}
+
+.repo-form-page--v2 .dg-form-suite-field .repo-form-test-suite-select :deep(.v-field__field) {
+  align-items: center !important;
+}
+
+.repo-form-page--v2 .repo-scan-root-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #4ade80;
+  letter-spacing: 0.02em;
+}
+
+.repo-form-page--v2 .repo-scan-root-item :deep(.v-list-item-subtitle) {
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.45) !important;
+  opacity: 1 !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .v-select.repo-form-field :deep(.v-field) {
+  min-height: 48px !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .v-select.repo-form-field :deep(.v-field__input) {
+  min-height: 48px !important;
+  align-items: center !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-md-outlined-item .v-select.repo-form-field :deep(.v-field__field) {
+  align-items: center !important;
+}
+
+.dg-form-item--full:last-child {
+  margin-bottom: 0;
+}
+
+.dg-form-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.dg-form-hint--success {
+  color: #4caf50;
+}
+
+.dg-form-hint--spaced {
+  margin-bottom: 20px;
+}
+
+/* 外部 label 控件：高度/内边距；描边由 dg-md3-form + variant=outlined 负责 */
+.repo-form-page--v2 .dg-md3-form .repo-form-field.dg-control :deep(.v-field) {
+  margin-top: 0 !important;
+  min-height: 48px !important;
+  border-radius: 6px !important;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.repo-form-page--v2 .dg-md3-form .repo-form-field.dg-control :deep(.v-field__input) {
+  padding-inline: 16px !important;
+  min-height: 48px;
+}
+
+.repo-form-page--v2 .dg-md3-form .repo-form-field.dg-control :deep(.v-label.v-field-label) {
+  display: none !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .repo-form-field.dg-control :deep(.v-input__details) {
+  display: none !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .dg-field-external-label .repo-form-field.dg-control :deep(.v-label.v-field-label) {
+  display: none !important;
+}
+
+/* 用例集「关联业务仓库」：有 chips 时允许增高，空态锁 48px */
+.repo-form-page--v2 .dg-md-outlined-item.ts-suite-bind-repos-block .ts-bind-repos-select.v-select:not(.v-select--selected) .v-field {
+  min-height: 48px !important;
+  max-height: 48px !important;
+  height: 48px !important;
+}
+
+.repo-form-page--v2 .dg-md-outlined-item.ts-suite-bind-repos-block .ts-bind-repos-select.v-select--selected .v-field {
+  max-height: none !important;
+  height: auto !important;
+}
+
+.repo-form-page--v2 .dg-md3-form .ts-suite-bind-repos-block .ts-bind-repos-select .v-input__details {
+  display: flex !important;
+  min-height: 0 !important;
+  padding: 6px 0 0 !important;
+  margin: 0 !important;
+}
+
+/* 校验只保留红框，不显示 Vuetify「必填」副文案 */
+
+.repo-form-page--v2 .dg-control--mono :deep(input),
+.repo-form-page--v2 .dg-control--mono :deep(textarea) {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 13px;
+}
+
+.repo-form-page--v2 .dg-control--desc :deep(textarea) {
+  min-height: 80px !important;
+  resize: vertical;
+}
+
+.repo-form-page--v2 .repo-type-inline {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+}
+
+.repo-form-page--v2 .repo-type-inline .repo-type-select,
+.repo-form-page--v2 .repo-type-inline .repo-type-select-outlined {
+  flex: 1;
+  min-width: 0;
+}
+
+.repo-form-page--v2.dg-outlined-form-page .repo-type-selection {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.repo-form-page--v2.dg-outlined-form-page .repo-type-selection__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-form-page--v2.dg-outlined-form-page .repo-type-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.repo-form-page--v2.dg-outlined-form-page .md-field-select-trigger-end .dg-suite-field-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.repo-form-page--v2.dg-outlined-form-page .md-field-select-trigger-end .dg-suite-field-icon:hover:not(:disabled) {
+  color: #8ab4f8;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--v2.dg-outlined-form-page .md-field-select-trigger-end .dg-suite-field-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.repo-form-page--v2 .repo-test-suite-menu-empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: left;
+}
+
+.repo-form-page--v2 .repo-test-suite-menu-footer-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.repo-form-page--v2 .repo-test-suite-menu-footer-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--v2 .repo-test-suite-menu-footer-btn__sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.repo-form-page--v2 .repo-type-inline .repo-type-select :deep(.v-field) {
+  min-height: 48px !important;
+  height: 48px !important;
+}
+
+.repo-form-page--v2 .repo-redetect-btn {
+  margin: 0;
+  align-self: stretch;
+  height: auto !important;
+  min-height: 48px !important;
+  flex-shrink: 0;
+  padding-inline: 16px !important;
+}
+
+.repo-form-page--v2.dg-outlined-form-page .repo-type-inline .repo-redetect-btn {
+  min-height: 44px !important;
+}
+
+.repo-form-page--v2 .repo-type-inline .repo-redetect-btn {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* 全页 Switch：Material 36×20，主色 #3B82F6 */
+.repo-form-page--v2 .repo-form-switch .v-selection-control {
+  gap: 8px;
+  min-height: 28px;
+}
+
+.repo-form-page--v2 .repo-form-switch .v-switch__track {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  opacity: 1 !important;
+  height: 20px !important;
+  min-width: 36px !important;
+  max-width: 36px !important;
+}
+
+.repo-form-page--v2 .repo-form-switch .v-selection-control--dirty .v-switch__track {
+  background-color: rgba(59, 130, 246, 0.8) !important;
+  opacity: 1 !important;
+}
+
+.repo-form-page--v2 .repo-form-switch .v-label {
+  color: rgba(255, 255, 255, 0.7) !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+}
+
+.repo-form-page--v2 .repo-form-switch .v-selection-control:hover .v-label {
+  color: #ffffff !important;
+}
+
+.repo-form-page--v2 .repo-form-switch .v-switch__thumb {
+  width: 16px !important;
+  height: 16px !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+/* 吸底开关：标准 Toggle（禁 inset，避免「长条变异」） */
+.repo-form-page__dock .repo-form-switch--dock :deep(.v-selection-control) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  gap: 8px;
+}
+
+.repo-form-page__dock .repo-form-switch--dock :deep(.v-selection-control__wrapper) {
+  align-self: center;
+}
+
+.repo-form-page__dock .repo-form-switch--dock :deep(.v-label) {
+  color: rgba(255, 255, 255, 0.7) !important;
+  opacity: 1 !important;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  line-height: 1.35;
+  padding-inline-start: 0 !important;
+  transition: color 0.15s ease;
+}
+
+.repo-form-page__dock .repo-form-switch--dock :deep(.v-selection-control:hover .v-label) {
+  color: #ffffff !important;
+}
+
+.repo-form-page__dock .repo-form-switch--dock :deep(.v-switch__track) {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  opacity: 1 !important;
+  height: 20px !important;
+  min-width: 36px !important;
+  max-width: 36px !important;
+}
+
+.repo-form-page__dock .repo-form-switch--dock :deep(.v-selection-control--dirty .v-switch__track) {
+  background-color: rgba(59, 130, 246, 0.8) !important;
+  opacity: 1 !important;
+}
+
+.repo-form-page__dock .repo-form-switch--dock :deep(.v-switch__thumb) {
+  background: #ffffff !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.repo-form-page__dock .repo-form-switch--dock :deep(.v-switch--inset .v-switch__track) {
+  height: 20px !important;
+  min-width: 36px !important;
+}
+
+/* 顶部 Toast，不占吸底栏布局 */
+.feedback-snackbar--top {
+  bottom: auto !important;
+  top: 72px !important;
+}
+
+@media (max-width: 960px) {
+  .dg-form-grid-3,
+  .dg-form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 高级配置（折叠面板内） */
+.repo-form-page--v2 .dg-form-card--advanced .repo-advanced-panel-body {
+  padding-top: 4px;
+}
+
+.repo-form-page--v2 .dg-advanced-section-title {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 0.01em;
+}
+
+.repo-form-page--v2 .dg-advanced-block + .dg-advanced-block {
+  margin-top: 32px;
+  padding-top: 32px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--v2 .repo-threshold-block .dg-advanced-section-title {
+  margin-bottom: 24px;
+}
+
+.repo-form-page--v2 .dg-advanced-threshold-grid {
+  --repo-threshold-control-height: 48px;
+  margin-bottom: 24px;
+  align-items: stretch;
+}
+
+.repo-form-page--v2 .dg-advanced-threshold-grid > .dg-form-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  min-height: var(--repo-threshold-control-height);
+}
+
+.repo-form-page--v2 .repo-threshold-block .dg-md-outlined-item .repo-form-field.repo-threshold-number {
+  flex: 1 1 auto;
+  min-height: var(--repo-threshold-control-height);
+}
+
+.repo-form-page--v2 .repo-threshold-block .dg-md-outlined-item .repo-form-field.repo-threshold-number .v-field {
+  min-height: var(--repo-threshold-control-height) !important;
+  max-height: var(--repo-threshold-control-height) !important;
+  height: var(--repo-threshold-control-height) !important;
+}
+
+.repo-form-page--v2 .repo-threshold-block .dg-md-outlined-item .repo-form-field.repo-threshold-number .v-field__field {
+  align-items: center;
+}
+
+.repo-form-page--v2 .repo-threshold-block .dg-md-outlined-item .repo-form-field.repo-threshold-number .v-field__input {
+  min-height: var(--repo-threshold-control-height) !important;
+  max-height: var(--repo-threshold-control-height) !important;
+  padding-block: 0 !important;
+  padding-inline: 12px !important;
+}
+
+.repo-form-page--v2 .repo-threshold-block .repo-threshold-number .v-field__overlay {
+  display: none !important;
+}
+
+.repo-form-page--v2 .repo-threshold-block .repo-threshold-number .v-field--active .v-field__outline__notch .v-label.v-field-label {
+  position: static !important;
+  transform: translateY(-50%) !important;
+  contain: none !important;
+  z-index: 2;
+  background: var(--dg-form-card-bg, #111827) !important;
+  padding: 0 6px !important;
+  margin: 0 2px 0 -2px !important;
+  white-space: nowrap;
+  max-width: calc(100% - 8px);
+  overflow: visible;
+  text-overflow: ellipsis;
+  font-size: 0.75em !important;
+}
+
+/* 增量覆盖率：Outlined 描边容器 + 滑杆（与右侧数字框同高对齐） */
+.repo-form-page--v2 .repo-coverage-field {
+  margin-bottom: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.repo-form-page--v2 .repo-coverage-outlined {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: var(--repo-threshold-control-height, 48px);
+  max-height: var(--repo-threshold-control-height, 48px);
+  height: var(--repo-threshold-control-height, 48px);
+  margin: 0;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  border: var(--dg-outlined-border-width, 1px) solid var(--form-border-default, rgba(255, 255, 255, 0.2));
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.repo-form-page--v2 .repo-coverage-outlined:focus-within {
+  border-width: var(--dg-outlined-border-width-focus, 2px);
+  border-color: var(--form-border-focus, #3b82f6);
+}
+
+.repo-form-page--v2 .repo-coverage-outlined__legend {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  transform: translateY(-50%);
+  padding: 0 4px;
+  background: #1c1c1c;
+  font-size: 12px;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.repo-form-page--v2 .repo-coverage-outlined:focus-within .repo-coverage-outlined__legend {
+  color: var(--form-border-focus, #3b82f6);
+}
+
+.repo-form-page--v2 .repo-coverage-outlined__inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+.repo-form-page--v2 .repo-coverage-outlined__slider {
+  flex: 1 1 auto;
+  min-width: 72px;
+  margin: 0;
+  padding: 0 4px 0 0;
+}
+
+.repo-form-page--v2 .repo-coverage-outlined__slider :deep(.v-slider__container) {
+  min-height: 18px;
+}
+
+.repo-form-page--v2 .repo-coverage-outlined__slider :deep(.v-slider-track__background),
+.repo-form-page--v2 .repo-coverage-outlined__slider :deep(.v-slider-track__fill) {
+  height: 3px !important;
+  border-radius: 999px;
+}
+
+.repo-form-page--v2 .repo-coverage-outlined__slider :deep(.v-slider-thumb__surface) {
+  background-color: #3b82f6 !important;
+  border-color: #3b82f6 !important;
+}
+
+.repo-form-page--v2 .repo-coverage-outlined__slider :deep(.v-slider-thumb__label) {
+  display: none !important;
+}
+
+.repo-form-page--v2 .repo-coverage-outlined__value {
+  flex: 0 0 auto;
+  min-width: 2.5rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.88);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.repo-form-page--v2 .dg-advanced-grid-spacer {
+  min-height: 0;
+}
+
+.repo-form-page--v2 .repo-coverage-combo--v2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 4px 8px 4px 4px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  transition: border-color 0.2s ease;
+}
+
+.repo-form-page--v2 .repo-coverage-combo--v2:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.repo-form-page--v2 .repo-coverage-combo--v2 .repo-coverage-combo__slider {
+  flex: 1 1 70%;
+  min-width: 0;
+  padding-inline: 4px 0;
+}
+
+.repo-form-page--v2 .repo-coverage-combo--v2 .repo-coverage-combo__tag {
+  flex: 0 0 calc(30% - 8px);
+  max-width: calc(30% - 8px);
+  min-width: 72px;
+}
+
+.repo-form-page--v2 .repo-coverage-combo--v2 .repo-coverage-combo__tag :deep(.v-field) {
+  min-height: 32px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.repo-form-page--v2 .repo-coverage-combo--v2 .repo-coverage-combo__tag :deep(.v-field__input) {
+  min-height: 32px;
+  padding-inline: 6px !important;
+  text-align: center;
+  font-weight: 600;
+}
+
+.repo-form-page--v2 .rules-label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.repo-form-page--v2 .rules-label .dot-red,
+.repo-form-page--v2 .rules-label .dot-green {
+  width: 6px;
+  height: 6px;
+}
+
+.repo-form-page--v2 .dg-control--risk :deep(.v-field) {
+  min-height: 108px !important;
+  align-items: flex-start;
+}
+
+.repo-form-page--v2 .dg-control--risk :deep(textarea) {
+  min-height: 84px !important;
+  padding: 12px !important;
+  line-height: 1.5;
+}
+
+.repo-form-page--v2 .dg-glob-hint {
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: left;
+}
+
+.repo-form-page--v2 .repo-risk-rules-block .dg-glob-hint {
+  margin-top: 8px;
+  margin-bottom: 0;
+  max-width: 100%;
+}
+
+.repo-form-page--v2 .repo-notify-row--v2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.repo-form-page--v2 .repo-notify-row--v2 .repo-notify-url-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.repo-form-page--v2 .repo-test-notify-btn--v2 {
+  flex: 0 0 auto;
+  height: 40px !important;
+  min-height: 40px !important;
+  padding-inline: 14px !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  color: rgba(255, 255, 255, 0.82) !important;
+  background: transparent !important;
+  font-weight: 500;
+}
+
+.repo-form-page--v2 .repo-test-notify-btn--v2:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.32) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.repo-form-page--v2 .dg-notify-policy {
+  margin-top: 16px;
+  max-width: 50%;
+}
+
+@media (max-width: 720px) {
+  .repo-form-page--v2 .dg-notify-policy {
+    max-width: 100%;
+  }
+  .repo-form-page--v2 .dg-advanced-grid-spacer {
+    display: none;
+  }
+}
